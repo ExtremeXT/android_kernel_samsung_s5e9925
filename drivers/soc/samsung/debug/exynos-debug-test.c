@@ -502,7 +502,7 @@ static void simulate_WRITE_RO(char *arg)
 	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	ptr = (unsigned long *)simulate_WRITE_RO;
-	*ptr ^= 0x12345678;
+	*ptr ^= 0x0;
 }
 
 #define BUFFER_SIZE SZ_1K
