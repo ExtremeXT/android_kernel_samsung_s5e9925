@@ -26,6 +26,7 @@ ccflags-y               += -Werror
 ifdef TFA_STEREO_NODE
 ccflags-y               += -DTFA_STEREO_NODE
 endif
+ccflags-y		+= $(call cc-disable-warning, enum-conversion)
 
 # objs
 snd-soc-tfa98xx-objs    := tfa98xx.o
