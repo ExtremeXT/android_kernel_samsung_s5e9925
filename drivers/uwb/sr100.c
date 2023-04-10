@@ -382,15 +382,6 @@ static long sr100_dev_ioctl(struct file* filp, unsigned int cmd,
       break;
 #endif
 
-    case SR100_GET_ANT_CONNECTION_STATUS:
-      UWB_LOG_INFO("SR100_GET_ANT_CONNECTION_STATUS Enter\n");
-      if((int)sr100_dev->ant_connection_status_gpio > 0) {
-        ret = !gpio_get_value(sr100_dev->ant_connection_status_gpio);
-      } else {
-        ret = -1;
-      }
-      UWB_LOG_INFO("SR100_GET_ANT_CONNECTION_STATUS ret =%d \n", ret);
-      break;
     default:
       UWB_LOG_INFO(" Error case\n");
       ret = -EINVAL;  // ToDo: After adding proper switch cases we have to
