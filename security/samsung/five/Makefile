@@ -21,11 +21,7 @@ ifdef CONFIG_FIVE_GKI_20
 else
   five-y +=  five_crypto.o five_audit.o \
               five_hooks.o task_integrity.o five_state.o
-  ifdef CONFIG_PROCA_S_OS
-    five-y += s_os/five_main.o s_os/five_appraise.o
-  else
     five-y += five_main.o five_appraise.o five_tee_interface.o
-  endif
 endif
 
 # kunit tests options:

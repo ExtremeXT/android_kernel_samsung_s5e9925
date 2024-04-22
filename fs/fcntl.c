@@ -26,7 +26,6 @@
 #include <linux/memfd.h>
 #include <linux/compat.h>
 #include <linux/task_integrity.h>
-#include <linux/proca.h>
 
 #include <linux/poll.h>
 #include <asm/siginfo.h>
@@ -38,9 +37,6 @@
 #define F_FIVE_SIGN	(F_LINUX_SPECIFIC_BASE + 100)
 #define F_FIVE_VERIFY_ASYNC	(F_LINUX_SPECIFIC_BASE + 101)
 #define F_FIVE_VERIFY_SYNC	(F_LINUX_SPECIFIC_BASE + 102)
-#if defined(CONFIG_FIVE_PA_FEATURE) || defined(CONFIG_PROCA)
-#define F_FIVE_PA_SETXATTR	(F_LINUX_SPECIFIC_BASE + 103)
-#endif
 #define F_FIVE_EDIT		(F_LINUX_SPECIFIC_BASE + 104)
 #define F_FIVE_CLOSE		(F_LINUX_SPECIFIC_BASE + 105)
 #ifdef CONFIG_FIVE_DEBUG
@@ -451,11 +447,6 @@ static long do_fcntl(int fd, unsigned int cmd, unsigned long arg,
 	case F_FIVE_VERIFY_SYNC:
 		err = five_fcntl_verify_sync(filp);
 		break;
-#if defined(CONFIG_FIVE_PA_FEATURE) || defined(CONFIG_PROCA)
-	case F_FIVE_PA_SETXATTR:
-		err = proca_fcntl_setxattr(filp, (void __user *)arg);
-		break;
-#endif
 	case F_FIVE_EDIT:
 		err = five_fcntl_edit(filp);
 		break;
