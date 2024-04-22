@@ -158,19 +158,8 @@ ccflags-y += -DCONFIG_SCSC_WLAN_MAX_INTERFACES=$(CONFIG_SCSC_WLAN_MAX_INTERFACES
 ccflags-$(CONFIG_SCSC_WLAN_ANDROID) += -DCONFIG_SCSC_WLAN_ANDROID
 
 ccflags-y += -Idrivers/misc/samsung/scsc
-# Android Platform version
-ifneq ($(ANDROID_VERSION),)
-ANDROID_PLATFORM_VERSION=$(shell expr $(ANDROID_VERSION) / 10000)
-ccflags-y += -DSCSC_SEP_VERSION=$(ANDROID_PLATFORM_VERSION)
-$(info ANDROID_VERSION is $(ANDROID_VERSION))
-else
-ifneq ($(PLATFORM_VERSION),)
-ANDROID_PLATFORM_VERSION := $(basename $(PLATFORM_VERSION))
-ccflags-y += -DSCSC_SEP_VERSION=$(ANDROID_PLATFORM_VERSION)
-$(info PLATFORM_VERSION is $(PLATFORM_VERSION))
-endif
-endif
-$(info ANDROID_PLATFORM_VERSION is $(ANDROID_PLATFORM_VERSION))
+
+ccflags-y += -DSCSC_SEP_VERSION=12
 
 ## See drivers/misc/samsung/scsc/ Makefile for an explanation of the reasons
 ## of the following ifeq/else
