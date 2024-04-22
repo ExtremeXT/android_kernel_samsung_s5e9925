@@ -201,9 +201,6 @@ obj-${CONFIG_VISION_SUPPORT3}	+= vision3/
 # SPU signature verify
 obj-$(CONFIG_SPU_VERIFY)        += spu_verify/
 
-# uH
-obj-$(CONFIG_UH)		+= uh/
-
 include $(srctree)/drivers/Makefile.variant1
 obj-y += regulator/pmic_class/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += gpu/drm/samsung/panel/s6e3hae/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT

@@ -112,10 +112,6 @@
 #undef CREATE_TRACE_POINTS
 #include <trace/hooks/sched.h>
 
-#ifdef CONFIG_KDP_CRED
-#include <linux/kdp.h>
-#endif
-
 #ifdef CONFIG_PROC_FSLOG
 #include <linux/fslog.h>
 #endif
@@ -2416,10 +2412,6 @@ static __latent_entropy struct task_struct *copy_process(
 
 	copy_oom_score_adj(clone_flags, p);
 
-#ifdef CONFIG_KDP_CRED
-	if (kdp_enable)
-		kdp_assign_pgd(p);
-#endif
 	return p;
 
 bad_fork_cancel_cgroup:
