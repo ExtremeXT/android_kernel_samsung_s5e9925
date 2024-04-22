@@ -523,16 +523,6 @@ CONFIG_EFI=y
 CONFIG_ARCH_ENABLE_THP_MIGRATION=y
 
 #
-# Hypervisor
-#
-CONFIG_UH=y
-CONFIG_RKP=y
-CONFIG_KDP=y
-CONFIG_KDP_CRED=y
-CONFIG_KDP_NS=y
-# end of Hypervisor
-
-#
 # Power management options
 #
 CONFIG_SUSPEND=y
