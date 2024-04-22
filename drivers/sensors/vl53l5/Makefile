@@ -79,7 +79,7 @@ OFFSET_CAL_ENABLE = FALSE
 LEGACY_CODE = FALSE
 
 # Set to TRUE to enable logging functions.
-LOG_ENABLE = TRUE
+LOG_ENABLE = FALSE
 
 # Set to TRUE to enable force error.
 FORCE_ERROR = FALSE
@@ -122,7 +122,6 @@ ifeq "$(HAP_TEST)" "TRUE"
 endif
 
 ifeq "$(OFFSET_CAL_ENABLE)" "TRUE"
-  $(warning OFFSET_CAL_ENABLE=$(OFFSET_CAL_ENABLE))
   ccflags-y += -DVL53L5_OFFSET_CAL
 endif
 
@@ -130,11 +129,6 @@ ifeq "$(BUILD_TYPE)" "DEBUG"
   $(warning BUILD_TYPE=$(BUILD_TYPE))
   ccflags-y += -DDEBUG -DVL53L5_LOG_ENABLE
 endif
-
-ifeq "$(BUILD_TYPE)" "RELEASE"
-  $(warning BUILD_TYPE=$(BUILD_TYPE))
-endif
-
 
 ifeq "$(LOG_ENABLE)" "TRUE"
   $(warning LOG_ENABLE=$(LOG_ENABLE))
@@ -239,13 +233,11 @@ HAP_TEST_OBJS = \
 	hap/pipe/test/src/test_hap_update_aff_cfg.o
 
 ifeq "$(RANGE_SERVICING)" "INTERRUPT"
-  $(warning RANGE_SERVICING=$(RANGE_SERVICING))
   ccflags-y	+= -DVL53L5_INTERRUPT
   KERNEL_DRIVER_OBJS += src/vl53l5_k_interrupt.o
 endif
 
 ifeq "$(RANGE_SERVICING)" "WORKER"
-  $(warning RANGE_SERVICING=$(RANGE_SERVICING))
   ccflags-y	+= -DVL53L5_WORKER
   KERNEL_DRIVER_OBJS += src/vl53l5_k_work_handler.o
 endif
