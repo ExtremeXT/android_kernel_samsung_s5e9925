@@ -43,4 +43,3 @@ obj-$(CONFIG_KZT) += kzt/
 # KNOX DAR
 obj-$(CONFIG_SDP) += sdp/
 obj-$(CONFIG_SDP) += sdp/built-in.a
-obj-y += samsung/five/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT

@@ -309,6 +309,5 @@ config KZT
 
 source "security/Kconfig.hardening"
 
-source "security/samsung/five/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 endmenu
 
