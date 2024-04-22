@@ -117,10 +117,6 @@ static __init int kernel_exit_sysfs_init(void)
 late_initcall(kernel_exit_sysfs_init);
 #endif
 
-#if defined(CONFIG_MEMORY_ZEROISATION)
-#include <trace/hooks/mz.h>/* for Memory zeroisation */
-#endif
-
 static void __unhash_process(struct task_struct *p, bool group_dead)
 {
 	nr_threads--;
@@ -540,11 +536,6 @@ static void exit_mm(void)
 	mmput(mm);
 	if (test_thread_flag(TIF_MEMDIE))
 		exit_oom_victim();
-
-	/* Memory zeroisation */
-#if defined(CONFIG_MEMORY_ZEROISATION)
-	trace_android_vh_mz_exit(current);
-#endif
 }
 
 static struct task_struct *find_alive_thread(struct task_struct *p)
