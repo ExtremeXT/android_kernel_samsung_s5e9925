@@ -130,5 +130,4 @@ err:
 void dwc3_host_exit(struct dwc3 *dwc)
 {
 	platform_device_unregister(dwc->xhci);
-	dwc->xhci = NULL;
 }
