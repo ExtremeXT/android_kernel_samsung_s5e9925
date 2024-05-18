@@ -317,7 +317,6 @@ static void kunit_resource_test_static(struct kunit *test)
 
 	KUNIT_EXPECT_EQ(test, kunit_add_resource(test, NULL, NULL, &res, &ctx),
 			0);
-
 	KUNIT_EXPECT_PTR_EQ(test, res.data, (void *)&ctx);
 
 	kunit_cleanup(test);
