@@ -3712,7 +3712,6 @@ int __xfrm_policy_check(struct sock *sk, int dir, struct sk_buff *skb,
 
 		xfrm_pols_put(pols, npols);
 		sp->verified_cnt = k;
-
 		return 1;
 	}
 	XFRM_INC_STATS(net, LINUX_MIB_XFRMINPOLBLOCK);
