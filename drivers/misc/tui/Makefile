@@ -30,6 +30,7 @@ tuihw-objs += iwd_agent.o
 
 ccflags-y += -I$(srctree)/drivers/misc
 ccflags-y += -I$(srctree)/drivers/misc/tzdev/
+ccflags-y += -I$(srctree)/drivers/misc/tzdev/include/tzdev
 ccflags-y += -DCONFIG_SAMSUNG_TUI_LOWLEVEL
 endif
 
