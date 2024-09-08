@@ -108,6 +108,21 @@ config BOARD_UNIVERSAL2100
 	help
 	  Samsung EXYNOS2100 universal2100 board support config
 
+config MODEL_R0S
+	bool "Samsung Galaxy S22 5G"
+	default n
+	depends on ARCH_EXYNOS
+
+config MODEL_G0S
+	bool "Samsung Galaxy S22+ 5G"
+	default n
+	depends on ARCH_EXYNOS
+
+config MODEL_B0S
+	bool "Samsung Galaxy S22 Ultra 5G"
+	default n
+	depends on ARCH_EXYNOS
+
 config ARCH_SPARX5
 	bool "ARMv8 based Microchip Sparx5 SoC family"
 	select PINCTRL
