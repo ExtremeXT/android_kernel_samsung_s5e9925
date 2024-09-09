@@ -290,7 +290,7 @@ static struct mpam_entry_obj *mpam_control_entry_obj;
 /* mpam hierarchy END */
 static struct notifier_block cpu_power_mode_nb;
 
-static void mpam_restore_attr()
+static void mpam_restore_attr(void)
 {
 	int i;
 	unsigned long flags, *bit;
@@ -330,7 +330,7 @@ static int mpam_cpu_power_mode_notifier(struct notifier_block *nb,
 	return notifier_from_errno(ret);
 }
 
-static int mpam_cpu_power_mode_notifier_register()
+static int mpam_cpu_power_mode_notifier_register(void)
 {
 	cpu_power_mode_nb.notifier_call = mpam_cpu_power_mode_notifier;
 	cpu_power_mode_nb.next = NULL;
@@ -391,7 +391,7 @@ static void destroy_mpam_entry_obj(struct mpam_entry_obj *entry)
 }
 /* mpam_entry_obj create/destroy END */
 
-static int mpam_init_remap()
+static int mpam_init_remap(void)
 {
 	mpam_base = ioremap(0x1d810000, SZ_64K);
 	if (mpam_base == NULL)

@@ -294,7 +294,7 @@ static int mpam_late_init_notifier(struct notifier_block *nb,
 	return notifier_from_errno(ret);
 }
 
-static int mpam_late_init_register()
+static int mpam_late_init_register(void)
 {
 	late_init_nb.notifier_call = mpam_late_init_notifier;
 	late_init_nb.next = NULL;

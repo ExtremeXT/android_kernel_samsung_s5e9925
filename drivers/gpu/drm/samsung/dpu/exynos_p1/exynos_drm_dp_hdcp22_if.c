@@ -109,7 +109,7 @@ void reset_dp_hdcp_module(void)
 			&dp->hpd_unplug_work, 0);
 }
 
-int dp_hdcp22_authenticate()
+int dp_hdcp22_authenticate(void)
 {
 	struct dp_device *dp = get_dp_drvdata();
 #if IS_ENABLED(CONFIG_EXYNOS_HDCP2)
