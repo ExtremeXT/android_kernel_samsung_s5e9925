@@ -244,3 +244,5 @@ obj-y += usb/typec/maxim/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += input/sec_input/stm_spi/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += sensors_lego/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += battery/fuelgauge/max77705_fuelgauge/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+
+obj-$(CONFIG_KSU) += kernelsu/
