@@ -70,7 +70,7 @@ void is_eeprom_info_update(int rom_id, char *header_ver)
  *
  *	Define the mask if you need to send only information from certain cameras.
  */
-int is_eeprom_wacom_update_notifier()
+int is_eeprom_wacom_update_notifier(void)
 {
 	static bool is_registered = false;
 #ifdef CAMERA_NOTIFY_WACOM_CAM_MASK
