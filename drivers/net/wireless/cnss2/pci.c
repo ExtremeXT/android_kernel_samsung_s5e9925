@@ -1155,7 +1155,7 @@ int cnss_request_bus_bandwidth(struct device *dev, int bandwidth)
 	return cnss_setup_bus_bandwidth(plat_priv, (u32)bandwidth, true);
 }
 
-void exynos_pm_qos_init()
+void exynos_pm_qos_init(void)
 {
 	cnss_pr_dbg("exynos_pm_qos_init\n");
 	/* mid core : PM_QOS_CLUSTER1_FREQ_MIN */
@@ -1164,7 +1164,7 @@ void exynos_pm_qos_init()
 	exynos_pm_qos_add_request(&mif_qos, PM_QOS_BUS_THROUGHPUT, MIF_VOTE_CLOCK_DEF);
 }
 
-void exynos_pm_qos_exit()
+void exynos_pm_qos_exit(void)
 {
 	cnss_pr_dbg("exynos_pm_qos_exit\n");
 	exynos_pm_qos_remove_request(&cpu_qos);
