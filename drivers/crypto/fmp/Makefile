@@ -6,8 +6,8 @@ FIPS_PR = fipsed_
 endif
 
 obj-$(CONFIG_EXYNOS_FMP) += fmp-core.o
-fmp-core-$(CONFIG_EXYNOS_FMP_FIPS) += $(FIPS_PR)fmp.o \
-				$(FIPS_PR)fmp_test.o \
+fmp-core-y += $(FIPS_PR)fmp.o
+fmp-core-$(CONFIG_EXYNOS_FMP_FIPS) += $(FIPS_PR)fmp_test.o \
 				$(FIPS_PR)fmp_fips_main.o \
 				$(FIPS_PR)fmp_fips_selftest.o \
 				$(FIPS_PR)hmac-sha256.o \
