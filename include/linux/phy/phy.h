@@ -212,6 +212,12 @@ int phy_init(struct phy *phy);
 int phy_exit(struct phy *phy);
 int phy_power_on(struct phy *phy);
 int phy_power_off(struct phy *phy);
+/*
+ * usb uses phy_set_mode_ext for hw workaround.
+ * it's called in spinlock section so we skip mutex.
+ * USB_SET_MODE_MUTEX_SKIP is flag for submode.
+ */
+#define USB_SET_MODE_MUTEX_SKIP 20
 int phy_set_mode_ext(struct phy *phy, enum phy_mode mode, int submode);
 #define phy_set_mode(phy, mode) \
 	phy_set_mode_ext(phy, mode, 0)

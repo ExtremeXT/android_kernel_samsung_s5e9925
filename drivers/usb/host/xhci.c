@@ -112,16 +112,33 @@ void xhci_quiesce(struct xhci_hcd *xhci)
  */
 int xhci_halt(struct xhci_hcd *xhci)
 {
-	int ret;
+	int ret, i, retry = 5;
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init, "// Halt the HC");
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	xhci_info(xhci, "%s\n", __func__);
+#endif
 	xhci_quiesce(xhci);
 
 	ret = xhci_handshake(&xhci->op_regs->status,
 			STS_HALT, STS_HALT, XHCI_MAX_HALT_USEC);
 	if (ret) {
 		xhci_warn(xhci, "Host halt failed, %d\n", ret);
+		xhci_info(xhci, "Resetting HCD\n");
+		/* Reset the internal HC memory state and registers. */
+		for (i = 0; i < retry; i++) {
+			ret = xhci_reset(xhci, XHCI_RESET_SHORT_USEC);
+			if (!ret) {
+				xhci_info(xhci, "Reset complete\n");
+				ret = xhci_handshake(&xhci->op_regs->status,
+						STS_HALT, STS_HALT, XHCI_MAX_HALT_USEC);
+				if (!ret)
+					goto out;
+			}
+		}
+		xhci_warn(xhci, "Host halt retry failed, %d\n", ret);
 		return ret;
 	}
+out:
 	xhci->xhc_state |= XHCI_STATE_HALTED;
 	xhci->cmd_ring_state = CMD_RING_STATE_STOPPED;
 	return ret;
@@ -213,6 +230,8 @@ int xhci_reset(struct xhci_hcd *xhci, u64 timeout_us)
 	 */
 	ret = xhci_handshake(&xhci->op_regs->status, STS_CNR, 0, timeout_us);
 
+	if (ret)
+		xhci_warn(xhci, "%s STS_CNR is fail!!\n", __func__);
 	xhci->usb2_rhub.bus_state.port_c_suspend = 0;
 	xhci->usb2_rhub.bus_state.suspended_ports = 0;
 	xhci->usb2_rhub.bus_state.resuming_ports = 0;
@@ -1665,8 +1684,10 @@ static int xhci_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 
 	/* Make sure the URB hasn't completed or been unlinked already */
 	ret = usb_hcd_check_unlink_urb(hcd, urb, status);
-	if (ret)
+	if (ret) {
+		xhci_info(xhci, "%s check unlink ret=%d\n", __func__, ret);
 		goto done;
+	}
 
 	/* give back URB now if we can't queue it for cancel */
 	vdev = xhci->devs[urb->dev->slot_id];
@@ -1728,6 +1749,9 @@ static int xhci_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 					urb_priv->td[i].start_seg,
 					urb_priv->td[i].first_trb));
 
+	xhci_info(xhci, "%s num_tds %d : num_tds_done %d\n", __func__,
+		urb_priv->num_tds, urb_priv->num_tds_done);
+
 	for (; i < urb_priv->num_tds; i++) {
 		td = &urb_priv->td[i];
 		/* TD can already be on cancelled list if ep halted on it */
@@ -1741,6 +1765,8 @@ static int xhci_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 	/* Queue a stop endpoint command, but only if this is
 	 * the first cancellation to be handled.
 	 */
+
+	xhci_info(xhci, "%s ep_state=%d\n", __func__, ep->ep_state);
 	if (!(ep->ep_state & EP_STOP_CMD_PENDING)) {
 		command = xhci_alloc_command(xhci, false, GFP_ATOMIC);
 		if (!command) {
@@ -3024,8 +3050,10 @@ void xhci_reset_bandwidth(struct usb_hcd *hcd, struct usb_device *udev)
 	for (i = 0; i < 31; i++) {
 		if (virt_dev->eps[i].new_ring) {
 			xhci_debugfs_remove_endpoint(xhci, virt_dev, i);
-			if (xhci_vendor_is_usb_offload_enabled(xhci, virt_dev, i))
+			if (xhci_vendor_is_usb_offload_enabled(xhci, virt_dev, i)) {
+				xhci->quirks |= BIT_ULL(60);
 				xhci_vendor_free_transfer_ring(xhci, virt_dev, i);
+			}
 			else
 				xhci_ring_free(xhci, virt_dev->eps[i].new_ring);
 
@@ -4258,6 +4286,7 @@ static int xhci_setup_device(struct usb_hcd *hcd, struct usb_device *udev,
 	xhci_dbg_trace(xhci, trace_xhci_dbg_address,
 		       "Internal device address = %d",
 		       le32_to_cpu(slot_ctx->dev_state) & DEV_ADDR_MASK);
+
 out:
 	mutex_unlock(&xhci->mutex);
 	if (command) {
