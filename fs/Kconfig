@@ -145,6 +145,7 @@ menu "DOS/FAT/EXFAT/NT Filesystems"
 
 source "fs/fat/Kconfig"
 source "fs/exfat/Kconfig"
+source "fs/sdfat/Kconfig"
 source "fs/ntfs/Kconfig"
 
 endmenu
@@ -336,6 +337,7 @@ config NFS_COMMON
 
 source "net/sunrpc/Kconfig"
 source "fs/ceph/Kconfig"
+source "fs/ksmbd/Kconfig"
 source "fs/cifs/Kconfig"
 source "fs/coda/Kconfig"
 source "fs/afs/Kconfig"
@@ -346,6 +348,7 @@ endif # NETWORK_FILESYSTEMS
 source "fs/nls/Kconfig"
 source "fs/dlm/Kconfig"
 source "fs/unicode/Kconfig"
+
 
 config IO_WQ
 	bool
