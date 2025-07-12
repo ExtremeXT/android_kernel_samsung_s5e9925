@@ -58,15 +58,12 @@ O=out
 # Define specific variables
 case $MODEL in
 r0s)
-    KERNEL_DEFCONFIG=s5e9925-r0sxxx_defconfig
     BOARD=SRPUH13A011
 ;;
 g0s)
-    KERNEL_DEFCONFIG=s5e9925-g0sxxx_defconfig
     BOARD=SRPUG08A011
 ;;
 b0s)
-    KERNEL_DEFCONFIG=s5e9925-b0sxxx_defconfig
     BOARD=SRPUH13B009
 ;;
 *)
@@ -101,7 +98,7 @@ build_kernel() {
     echo "Building kernel using "$KERNEL_DEFCONFIG""
     echo "Generating configuration file..."
     echo "-----------------------------------------------"
-    make ${MAKE_ARGS} -j$CORES $KERNEL_DEFCONFIG $KSU || abort
+    make ${MAKE_ARGS} -j$CORES s5e9925_defconfig $MODEL.config $KSU || abort
 
     echo "Building kernel..."
     echo "-----------------------------------------------"
@@ -300,7 +297,7 @@ build_zip() {
     cp build/update-binary build/out/$MODEL/zip/META-INF/com/google/android/update-binary
     cp build/updater-script build/out/$MODEL/zip/META-INF/com/google/android/updater-script
 
-    version=$(grep -o 'CONFIG_LOCALVERSION="[^"]*"' arch/arm64/configs/$KERNEL_DEFCONFIG | cut -d '"' -f 2)
+    version=$(grep -o 'CONFIG_LOCALVERSION="[^"]*"' arch/arm64/configs/s5e9925_defconfig | cut -d '"' -f 2)
     version=${version:1}
     pushd build/out/$MODEL/zip > /dev/null
     DATE=`date +"%d-%m-%Y_%H-%M-%S"`
