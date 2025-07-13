@@ -2887,39 +2887,3 @@ void dhd_sysfs_exit(dhd_info_t *dhd)
 	/* Releae the kobject */
 	kobject_put(&dhd->dhd_kobj);
 }
-
-#ifdef DHD_SUPPORT_HDM
-static ssize_t
-hdm_load_module(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
-{
-	int val = bcm_atoi(buf);
-
-	if (val == 1) {
-		DHD_ERROR(("%s : Load module from the hdm %d\n", __FUNCTION__, val));
-		dhd_module_init_hdm();
-	} else {
-		DHD_ERROR(("Module load triggered with invalid value : %d\n", val));
-	}
-
-	return count;
-}
-
-static struct kobj_attribute hdm_wlan_attr =
-	__ATTR(hdm_wlan_loader, 0660, NULL, hdm_load_module);
-
-void
-dhd_hdm_wlan_sysfs_init()
-{
-	DHD_ERROR(("export hdm_wlan_loader\n"));
-	if (sysfs_create_file(kernel_kobj, &hdm_wlan_attr.attr)) {
-		DHD_ERROR(("export hdm_load failed\n"));
-	}
-}
-
-void
-dhd_hdm_wlan_sysfs_deinit(struct work_struct *work)
-{
-	sysfs_remove_file(kernel_kobj,  &hdm_wlan_attr.attr);
-
-}
-#endif /* DHD_SUPPORT_HDM */

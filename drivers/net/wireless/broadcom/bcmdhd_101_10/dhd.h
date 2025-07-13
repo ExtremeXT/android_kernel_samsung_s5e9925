@@ -3876,14 +3876,6 @@ uint32 dhd_lb_rxp_process_qlen(dhd_pub_t *dhdp);
 #endif /* LB_RXP_STRT_THR */
 
 #endif /* DHD_LB_RXP */
-#ifdef DHD_SUPPORT_HDM
-extern bool hdm_trigger_init;
-extern int dhd_module_init_hdm(void);
-extern void dhd_hdm_wlan_sysfs_init(void);
-extern void dhd_hdm_wlan_sysfs_deinit(struct work_struct *);
-extern int hdm_wifi_support;
-#define SYSFS_DEINIT_MS 10
-#endif /* DHD_SUPPORT_HDM */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) && defined(DHD_TCP_LIMIT_OUTPUT)
 void dhd_ctrl_tcp_limit_output_bytes(int level);

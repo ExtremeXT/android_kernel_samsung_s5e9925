@@ -13252,47 +13252,12 @@ dhd_module_init(void)
 	return 0;
 #endif /* ENABLE_NOT_LOAD_DHD_MODULE */
 	err = _dhd_module_init();
-#ifdef DHD_SUPPORT_HDM
-	if (hdm_wifi_support && err && !dhd_download_fw_on_driverload) {
-		dhd_hdm_wlan_sysfs_init();
-		err = 0;
-	}
-#endif /* DHD_SUPPORT_HDM */
 #if defined(BCMDHD_MODULAR) && defined(DHD_MODULE_INIT_FORCE_SUCCESS)
 	err = 0;
 #endif /* BCMDHD_MODULAR && DHD_MODULE_INIT_FORCE_SUCCESS */
 	return err;
 
 }
-
-#ifdef DHD_SUPPORT_HDM
-bool hdm_trigger_init = FALSE;
-struct delayed_work hdm_sysfs_wq;
-
-int
-dhd_module_init_hdm(void)
-{
-	int err = 0;
-
-	hdm_trigger_init = TRUE;
-
-	if (dhd_driver_init_done) {
-		DHD_INFO(("%s : Module is already inited\n", __FUNCTION__));
-		return err;
-	}
-
-	err = _dhd_module_init();
-
-	/* remove sysfs file after module load properly */
-	if (!err && !dhd_download_fw_on_driverload) {
-		INIT_DELAYED_WORK(&hdm_sysfs_wq, dhd_hdm_wlan_sysfs_deinit);
-		schedule_delayed_work(&hdm_sysfs_wq, msecs_to_jiffies(SYSFS_DEINIT_MS));
-	}
-
-	hdm_trigger_init = FALSE;
-	return err;
-}
-#endif /* DHD_SUPPORT_HDM */
 
 static int
 dhd_reboot_callback(struct notifier_block *this, unsigned long code, void *unused)

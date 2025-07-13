@@ -765,10 +765,6 @@ endif
   DHDCFLAGS += -DWL_DUAL_STA -DWL_DUAL_APSTA
 # Target Wake Time
   DHDCFLAGS += -DWL_TWT
-ifneq ($(filter y m,$(CONFIG_HDM)),)
-# Support Knox HDM feature
-  DHDCFLAGS += -DDHD_SUPPORT_HDM
-endif
 # For Samsung factory mode only
 ifeq ($(CONFIG_SEC_FACTORY),y)
 # Detect NON DMA M2M corruption
@@ -1083,10 +1079,6 @@ endif
   DHDCFLAGS += -DWL11AX
 # Advertise HE capabilities
   DHDCFLAGS += -DWL_CAP_HE
-ifeq ($(CONFIG_HDM),y)
-# Support Knox HDM feature
-  DHDCFLAGS += -DDHD_SUPPORT_HDM
-endif
 # For Samsung factory mode only
 ifeq ($(CONFIG_SEC_FACTORY),y)
 # Detect NON DMA M2M corruption

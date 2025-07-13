@@ -705,11 +705,7 @@ static int dhd_wifi_platform_load_pcie(void)
 				return err;
 			}
 		}
-#ifdef DHD_SUPPORT_HDM
-		if (dhd_download_fw_on_driverload || hdm_trigger_init) {
-#else
 		if (dhd_download_fw_on_driverload) {
-#endif /* DHD_SUPPORT_HDM */
 			/* power up all adapters */
 			for (i = 0; i < dhd_wifi_platdata->num_adapters; i++) {
 				retry = POWERUP_MAX_RETRY;
