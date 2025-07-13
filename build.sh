@@ -180,6 +180,7 @@ build_dtb() {
 build_modules() {
     MODULES_FOLDER=modules
     rm -rf out/$MODULES_FOLDER
+    mkdir build/out/$MODEL/modules_dlkm
 
     echo "-----------------------------------------------"
     echo "Building modules..."
@@ -201,7 +202,8 @@ build_modules() {
     "
     for FILENAME in $FILENAMES; do
         FILE=$(find out/$MODULES_FOLDER -type f -name "$FILENAME")
-        echo "$FILE" | xargs rm -f
+        cp "$FILE" "build/out/$MODEL/modules_dlkm"
+        rm -f "$FILE"
     done
 
     # Now we run depmod to update the dep/softdep files
