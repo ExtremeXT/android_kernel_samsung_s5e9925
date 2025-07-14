@@ -33,6 +33,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --debug|-d)
             DEBUG_OPTION="$2"
+            shift 2
             ;;
         --recovery|-r)
             RECOVERY_OPTION="$2"
