@@ -210,7 +210,7 @@ static int hdr_update_context(struct exynos_hdr *hdr,
 	unsigned char hw_type;
 
 	if (!exynos_plane_state->hdr_ctx) {
-		hdr_debug(hdr, "null hdr_ctx\n");
+		// hdr_debug(hdr, "null hdr_ctx\n");
 		return -1;
 	}
 
