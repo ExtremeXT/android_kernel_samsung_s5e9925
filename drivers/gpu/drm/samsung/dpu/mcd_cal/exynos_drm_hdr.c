@@ -376,7 +376,7 @@ static int hdr_update_context(struct exynos_hdr *hdr,
 	struct hdr_coef_header *header = NULL;
 
 	if (!exynos_plane_state->hdr_ctx) {
-		hdr_err(hdr, "null hdr_ctx\n");
+	//hdr_err(hdr, "null hdr_ctx\n");
 		return -1;
 	}
 
