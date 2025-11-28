@@ -1,0 +1,10 @@
+#
+# FMP controller drivers
+#
+config EXYNOS_FMP
+	tristate "Samsung EXYNOS FMP driver"
+	help
+	  Say yes here to build support for FMP (Flash Memory Protector)
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here
