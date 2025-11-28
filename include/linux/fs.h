@@ -1415,7 +1415,7 @@ extern int send_sigurg(struct fown_struct *fown);
 #define sb_has_strict_encoding(sb) \
 	(sb->s_encoding_flags & SB_ENC_STRICT_MODE_FL)
 
-#if IS_ENABLED(CONFIG_UNICODE)
+#if 0 /* Doc: 2347110865 */
 #define sb_no_casefold_compat_fallback(sb) \
        (sb->s_encoding_flags & SB_ENC_NO_COMPAT_FALLBACK_FL)
 #else
