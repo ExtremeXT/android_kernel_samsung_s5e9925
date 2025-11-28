@@ -96,6 +96,7 @@
 #include <linux/cache.h>
 #include <linux/rodata_test.h>
 #include <linux/jump_label.h>
+#include <linux/memblock.h>
 #include <linux/kcsan.h>
 #include <linux/init_syscalls.h>
 #include <linux/stackdepot.h>
@@ -108,7 +109,9 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/initcall.h>
 
+#if defined(CONFIG_KUNIT) && defined(CONFIG_UML)
 #include <kunit/test.h>
+#endif
 
 static int kernel_init(void *);
 
@@ -213,8 +216,15 @@ static bool __init obsolete_checksetup(char *line)
 				pr_warn("Parameter %s is obsolete, ignored\n",
 					p->str);
 				return true;
-			} else if (p->setup_func(line + n))
-				return true;
+			} else {
+				int ret;
+
+				memblock_memsize_set_name(p->str);
+				ret = p->setup_func(line + n);
+				memblock_memsize_unset_name();
+				if (ret)
+					return true;
+			}
 		}
 		p++;
 	} while (p < __setup_end);
@@ -592,6 +602,17 @@ static int __init rdinit_setup(char *str)
 }
 __setup("rdinit=", rdinit_setup);
 
+unsigned int lfdebug_level;
+EXPORT_SYMBOL(lfdebug_level);
+static int __init lfdlevel_setup(char *str)
+{
+	lfdebug_level = 2;
+	if (strcmp("0x494d",str) == 0)
+		lfdebug_level = 1;
+	return 1;
+}
+__setup("sec_audio_debug.debug_level=", lfdlevel_setup);
+
 #ifndef CONFIG_SMP
 static const unsigned int setup_max_cpus = NR_CPUS;
 static inline void setup_nr_cpu_ids(void) { }
@@ -725,11 +746,14 @@ static int __init do_early_param(char *param, char *val,
 		    (strcmp(param, "console") == 0 &&
 		     strcmp(p->str, "earlycon") == 0)
 		) {
+			memblock_memsize_set_name(p->str);
 			if (p->setup_func(val) != 0)
 				pr_warn("Malformed early option '%s'\n", param);
+			memblock_memsize_unset_name();
 		}
 	}
 	/* We accept everything at this stage. */
+
 	return 0;
 }
 
@@ -897,6 +921,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	trap_init();
 	mm_init();
 	poking_init();
+
 	ftrace_init();
 
 	/* trace_printk can be enabled here */
@@ -1509,7 +1534,9 @@ static noinline void __init kernel_init_freeable(void)
 
 	do_basic_setup();
 
+#if defined(CONFIG_KUNIT) && defined(CONFIG_UML)
 	kunit_run_all_tests();
+#endif
 
 	console_on_rootfs();
 
