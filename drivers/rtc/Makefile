@@ -184,3 +184,6 @@ obj-$(CONFIG_RTC_DRV_X1205)	+= rtc-x1205.o
 obj-$(CONFIG_RTC_DRV_XGENE)	+= rtc-xgene.o
 obj-$(CONFIG_RTC_DRV_ZYNQMP)	+= rtc-zynqmp.o
 obj-$(CONFIG_RTC_LIB_KUNIT_TEST)	+= lib_test.o
+obj-$(CONFIG_RTC_DRV_S2MPS23)   += rtc-s2mps23.o
+obj-$(CONFIG_RTC_DRV_S2MPS25)   += rtc-s2mps25.o
+obj-$(CONFIG_RTC_DRV_S2MPU13)   += rtc-s2mpu13.o

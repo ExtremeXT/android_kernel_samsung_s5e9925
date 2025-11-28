@@ -684,9 +684,10 @@ static int usb_gadget_connect_locked(struct usb_gadget *gadget)
 		goto out;
 	}
 
+	gadget->connected = 1;
 	ret = gadget->ops->pullup(gadget, 1);
-	if (!ret)
-		gadget->connected = 1;
+	if (ret)
+		gadget->connected = 0;
 
 out:
 	trace_usb_gadget_connect(gadget, ret);
