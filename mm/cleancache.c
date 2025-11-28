@@ -10,9 +10,11 @@
  * Author: Dan Magenheimer
  */
 
+#include <linux/bitops.h>
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/exportfs.h>
+#include <linux/gfp.h>
 #include <linux/mm.h>
 #include <linux/debugfs.h>
 #include <linux/cleancache.h>
@@ -299,6 +301,20 @@ void __cleancache_invalidate_fs(struct super_block *sb)
 		cleancache_ops->invalidate_fs(pool_id);
 }
 EXPORT_SYMBOL(__cleancache_invalidate_fs);
+
+int rbin_oem_func(int cmd, int *stats)
+{
+	rbin_module_oem_func module_fn;
+
+	if (!cleancache_ops)
+		return 0;
+
+	module_fn = (rbin_module_oem_func)cleancache_ops->android_oem_data1;
+	if (module_fn)
+		return module_fn(cmd, stats);
+
+	return 0;
+}
 
 static int __init init_cleancache(void)
 {
