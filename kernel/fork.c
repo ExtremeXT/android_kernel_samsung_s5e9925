@@ -112,6 +112,11 @@
 
 #undef CREATE_TRACE_POINTS
 #include <trace/hooks/sched.h>
+
+#ifdef CONFIG_PROC_FSLOG
+#include <linux/fslog.h>
+#endif
+
 /*
  * Minimum number of threads to boot the kernel
  */
@@ -996,6 +1001,10 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 #ifdef CONFIG_MEMCG
 	tsk->active_memcg = NULL;
 #endif
+#ifdef CONFIG_TASK_HAS_ALLOC_FREE_STAT
+	tsk->alloc_sum = 0;
+	tsk->free_sum = 0;
+#endif
 
 #ifdef CONFIG_ANDROID_VENDOR_OEM_DATA
 	memset(&tsk->android_vendor_data1, 0, sizeof(tsk->android_vendor_data1));
@@ -1172,8 +1181,10 @@ void mmput(struct mm_struct *mm)
 	might_sleep();
 
 	if (atomic_dec_and_test(&mm->mm_users)) {
+		RECLAIMER_LOG("UMR: B|last_exit");
 		trace_android_vh_mmput(NULL);
 		__mmput(mm);
+		RECLAIMER_LOG("UMR: E|last_exit");
 	}
 }
 EXPORT_SYMBOL_GPL(mmput);

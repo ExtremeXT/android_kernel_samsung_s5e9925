@@ -21,6 +21,7 @@
 #include <linux/sched/isolation.h>
 #include <uapi/linux/sched/types.h>
 #include <linux/task_work.h>
+#include <linux/sec_debug.h>
 
 #include "internals.h"
 
@@ -129,6 +130,7 @@ void synchronize_irq(unsigned int irq)
 	struct irq_desc *desc = irq_to_desc(irq);
 
 	if (desc) {
+		secdbg_base_built_set_task_in_sync_irq(current, irq, desc);
 		__synchronize_hardirq(desc, true);
 		/*
 		 * We made sure that no hardirq handler is
@@ -137,6 +139,7 @@ void synchronize_irq(unsigned int irq)
 		 */
 		wait_event(desc->wait_for_threads,
 			   !atomic_read(&desc->threads_active));
+		secdbg_base_built_set_task_in_sync_irq(NULL, 0, NULL);
 	}
 }
 EXPORT_SYMBOL(synchronize_irq);
@@ -1737,6 +1740,9 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 			irq_settings_set_no_balancing(desc);
 			irqd_set(&desc->irq_data, IRQD_NO_BALANCING);
 		}
+
+		if (new->flags & IRQF_GIC_MULTI_TARGET)
+			irqd_set(&desc->irq_data, IRQD_GIC_MULTI_TARGET);
 
 		if (!(new->flags & IRQF_NO_AUTOEN) &&
 		    irq_settings_can_autoenable(desc)) {
