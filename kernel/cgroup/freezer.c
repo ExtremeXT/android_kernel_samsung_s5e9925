@@ -148,6 +148,7 @@ void cgroup_leave_frozen(bool always_leave)
 	spin_unlock_irq(&css_set_lock);
 }
 
+extern unsigned int lfdebug_level;
 /*
  * Freeze or unfreeze the task by setting or clearing the JOBCTL_TRAP_FREEZE
  * jobctl bit.
@@ -161,6 +162,13 @@ static void cgroup_freeze_task(struct task_struct *task, bool freeze)
 		return;
 
 	if (freeze) {
+		//printk("LFS lfdebug_level %u", lfdebug_level);
+		if (lfdebug_level==1 && 0 == memcmp(task->comm, "system_server", 13)) {
+			printk(KERN_ERR "LFS %s[%d, %d] freeze %s[%d]", 
+			current->comm, current->group_leader->pid, current->pid, task->comm, task->pid);
+			//dump_stack();
+			BUG();
+		}
 		task->jobctl |= JOBCTL_TRAP_FREEZE;
 		signal_wake_up(task, false);
 	} else {
