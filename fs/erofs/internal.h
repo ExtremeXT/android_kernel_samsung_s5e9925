@@ -107,6 +107,9 @@ struct erofs_sb_info {
 	u32 feature_compat;
 	u32 feature_incompat;
 
+	/* sysfs support */
+	struct kobject s_kobj;		/* /sys/fs/erofs/<devname> */
+	struct completion s_kobj_unregister;
 	struct erofs_fs_context ctx;	/* options */
 };
 
@@ -372,6 +375,7 @@ static inline int z_erofs_map_blocks_iter(struct inode *inode,
 #endif	/* !CONFIG_EROFS_FS_ZIP */
 
 /* data.c */
+extern const struct file_operations erofs_file_fops;
 struct page *erofs_get_meta_page(struct super_block *sb, erofs_blk_t blkaddr);
 
 /* inode.c */
@@ -422,6 +426,12 @@ void erofs_put_pcpubuf(void *ptr);
 int erofs_pcpubuf_growsize(unsigned int nrpages);
 void erofs_pcpubuf_init(void);
 void erofs_pcpubuf_exit(void);
+
+/* sysfs.c */
+int erofs_register_sysfs(struct super_block *sb);
+void erofs_unregister_sysfs(struct super_block *sb);
+int __init erofs_init_sysfs(void);
+void erofs_exit_sysfs(void);
 
 /* utils.c / zdata.c */
 struct page *erofs_allocpage(struct list_head *pool, gfp_t gfp);
