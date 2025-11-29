@@ -179,4 +179,6 @@
 
 #define VTS_ITMON_NAME "CM4_VTS" /* refer to bootloader/platform/s5e8825/debug/itmon.c */
 
+#define VTS_SRAM_SZ 0x80000
+
 #endif /* __SND_SOC_VTS_DEP_SOC_V2_1_H */
