@@ -181,4 +181,6 @@
 
 #define VTS_ITMON_NAME "CHUBVTS(VTS:YAMIN)" /* refer to bootloader/platform/s5e9925/debug/itmon.c */
 
+#define VTS_SRAM_SZ 0x001F0000
+
 #endif /* __SND_SOC_VTS_DEP_SOC_V2_H */
