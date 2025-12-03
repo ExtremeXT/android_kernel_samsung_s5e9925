@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note
 /*
  * Copyright (c) 2021 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
@@ -12,7 +12,7 @@
 #ifndef EXYNOS_DRM_MODIFIER_H
 #define EXYNOS_DRM_MODIFIER_H
 
-#include <uapi/drm/drm_fourcc.h>
+#include <drm/drm_fourcc.h>
 
 /*
  * Set to access the secure buffer
