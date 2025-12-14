@@ -215,6 +215,7 @@ static bool move_normal_pmd(struct vm_area_struct *vma, unsigned long old_addr,
 		  unsigned long new_addr, pmd_t *old_pmd, pmd_t *new_pmd)
 {
 	spinlock_t *old_ptl, *new_ptl, *old_pte_ptl;
+
 	struct mm_struct *mm = vma->vm_mm;
 	pmd_t pmd;
 

@@ -681,8 +681,7 @@ static inline int __is_hw_get_address(struct platform_device *pdev,
 		is_debug_memlog_alloc_dump(mem_res->start,
 					resource_size(mem_res), hw_name);
 
-	info_itfc("[ID:%2d] %s VA(0x%lx)\n", hw_id, hw_name,
-		(ulong)itf_hwip->hw_ip->regs[reg_index]);
+	info_itfc("[ID:%2d] %s VA(0x%pK)\n", hw_id, hw_name, itf_hwip->hw_ip->regs[reg_index]);
 
 	return 0;
 }

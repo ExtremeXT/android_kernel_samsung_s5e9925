@@ -29,6 +29,10 @@
 #include <linux/fscrypto_sdp_cache.h>
 #endif
 
+#ifdef CONFIG_SECURITY_DEFEX
+#include <linux/defex.h>
+#endif
+
 const struct file_operations generic_ro_fops = {
 	.llseek		= generic_file_llseek,
 	.read_iter	= generic_file_read_iter,
@@ -600,6 +604,10 @@ ssize_t vfs_write(struct file *file, const char __user *buf, size_t count, loff_
 	ret = rw_verify_area(WRITE, file, pos, count);
 	if (ret)
 		return ret;
+#ifdef CONFIG_SECURITY_DEFEX
+	if (task_defex_enforce(current, file, -__NR_write))
+		return -EPERM;
+#endif
 	if (count > MAX_RW_COUNT)
 		count =  MAX_RW_COUNT;
 	file_start_write(file);
@@ -656,18 +664,8 @@ ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)
 	return ret;
 }
 
-#ifdef CONFIG_KSU
-extern bool ksu_vfs_read_hook __read_mostly;
-extern int ksu_handle_sys_read(unsigned int fd, char __user **buf_ptr,
-			size_t *count_ptr);
-#endif
-
 SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
 {
-#ifdef CONFIG_KSU
-	if (unlikely(ksu_vfs_read_hook)) 
-		ksu_handle_sys_read(fd, &buf, &count);
-#endif
 	return ksys_read(fd, buf, count);
 }
 

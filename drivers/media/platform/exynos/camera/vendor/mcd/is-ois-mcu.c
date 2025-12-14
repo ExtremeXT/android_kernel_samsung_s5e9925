@@ -308,7 +308,7 @@ int ois_mcu_power_ctrl(struct ois_mcu_dev *mcu, int on)
 		set_bit(OM_HW_SUSPENDED, &mcu->state);
 		clear_bit(OM_HW_FW_LOADED, &mcu->state);
 		clear_bit(OM_HW_RUN, &mcu->state);
-		
+
 		mcu->dev_ctrl_state = false;
 	}
 
@@ -618,7 +618,7 @@ int ois_mcu_init(struct v4l2_subdev *subdev)
 		ret = -EINVAL;
 		return ret;
 	}
-	
+
 	core = is_get_is_core();
 	if (!core) {
 		err_mcu("%s, core is null", __func__);
@@ -1067,6 +1067,66 @@ int ois_mcu_deinit(struct v4l2_subdev *subdev)
 
 	return ret;
 }
+#if defined(USE_OIS_AF_POSITION)
+int is_vendor_ois_get_af_position(int *af_position)
+{
+	int ret = 0;
+	int i = 0;
+	struct is_module_enum *module = NULL;
+	struct v4l2_subdev *subdev_module = NULL;
+	struct is_device_sensor *device = NULL;
+	struct is_actuator *actuator = NULL;
+	int sensor_list[3] = {SENSOR_POSITION_REAR, -1, -1};
+	int sensor_size = 1;
+	int sensor_id = 0;
+#if defined(CAMERA_2ND_OIS)
+	sensor_list[1] = SENSOR_POSITION_REAR2;
+	sensor_size = 2;
+#endif
+#if defined(CAMERA_3RD_OIS)
+	sensor_list[2] = SENSOR_POSITION_REAR4;
+	sensor_size = 3;
+#endif
+
+	dbg_ois("[%s] E\n", __func__);
+
+	for (i = 0; i < sensor_size; i++) {
+		if (sensor_list[i] == -1)
+			continue;
+
+		ret = is_vendor_get_module_from_position(sensor_list[i], &module);
+		if (!module || ret)
+			continue;
+
+		subdev_module = module->subdev;
+		if (!subdev_module) {
+			err_mcu("%s, subdev_module is NULL\n", __func__);
+			continue;
+		}
+
+		device = v4l2_get_subdev_hostdata(subdev_module);
+		if (!device) {
+			err_mcu("%s, device is NULL\n", __func__);
+			continue;
+		}
+
+		sensor_id = module->pdata->id;
+		actuator = device->actuator[sensor_id];
+		if (!actuator) {
+			err_mcu("%s, actuator is NULL\n", __func__);
+			continue;
+		}
+
+		if (actuator->position <= 0)
+			af_position[i] = (actuator->vendor_first_pos >> 4);
+		else
+			af_position[i] = (actuator->position >> 4);
+
+		info_mcu("[%s] sen: %d, af pos: 0x%X\n", __func__, sensor_list[i], af_position[i]);
+	}
+	return ret;
+}
+#endif
 
 int ois_mcu_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 {
@@ -1077,7 +1137,9 @@ int ois_mcu_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 	u8 status = 0;
 	int retries = 100;
 	u8 data[2];
-	//u8 write_data[4] = {0,};
+#if defined(USE_OIS_AF_POSITION)
+	int af_position[3] = {MCU_AF_INIT_POSITION, MCU_AF_INIT_POSITION, MCU_AF_INIT_POSITION};
+#endif
 #ifdef USE_OIS_SLEEP_MODE
 	u8 read_sensorStart = 0;
 #endif
@@ -1101,7 +1163,20 @@ int ois_mcu_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 	ois = is_mcu->ois;
 
 	dbg_ois("%s up:%d down:%d\n", __func__, up, down);
+#if defined(USE_OIS_AF_POSITION)
+	is_vendor_ois_get_af_position(af_position);
+	/* Wide af position value */
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR_AF, (u8)af_position[0]);
 
+#if defined(CAMERA_2ND_OIS)
+	/* Tele af position value */
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR2_AF, (u8)af_position[1]);
+#endif
+#if defined(CAMERA_3RD_OIS)
+	/* Tele2 af position value */
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR3_AF, (u8)af_position[2]);
+#endif
+#else
 	/* Wide af position value */
 	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR_AF, MCU_AF_INIT_POSITION);
 
@@ -1112,6 +1187,7 @@ int ois_mcu_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 #ifdef CAMERA_3RD_OIS
 	/* Tele2 af position value */
 	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR3_AF, MCU_AF_INIT_POSITION);
+#endif
 #endif
 
 	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], R_OIS_CMD_CACTRL_WRITE, 0x01);
@@ -1179,7 +1255,11 @@ int ois_mcu_set_mode(struct v4l2_subdev *subdev, int mode)
 	ois = is_mcu->ois;
 
 	if (ois->fadeupdown == false) {
+#if defined(USE_OIS_AF_POSITION)
+		if (ois_fadeupdown == false || mcu->is_mcu_active == false) {
+#else
 		if (ois_fadeupdown == false) {
+#endif
 			ois_fadeupdown = true;
 			ois_mcu_set_ggfadeupdown(subdev, 1000, 1000);
 		}
@@ -2762,13 +2842,13 @@ int ois_mcu_check_hall_cal(struct v4l2_subdev *subdev, u16 *hall_cal_data)
 		info_mcu("calibration data empty(0x%02x).", rxbuf[0]);
 		return ret;
 	}
-	
+
 	/* Read stored AF best position*/
 	ois_mcu_bypass_read_mode1(mcu, 0xE9, 0xE5, rxbuf, 0x01);
 	af_best_pos = (u16)rxbuf[0] << 4;
 	info_mcu("read reg(0xE5) = 0x%04x", af_best_pos);
 
-	
+
 	/* Read stored PCAL and NCAL of X axis */
 	ois_mcu_bypass_read_mode1(mcu, 0xE9, 0x04, rxbuf, 0x04);
 	temp = ((u16)rxbuf[0] << 8) & 0x8000;
@@ -2784,7 +2864,7 @@ int ois_mcu_check_hall_cal(struct v4l2_subdev *subdev, u16 *hall_cal_data)
 	pre_ncal[0] = (int)temp;
 	info_mcu("read reg(0x06) = 0x%04x", pre_ncal[0]);
 
-	
+
 	/* Read stored PCAL and NCAL for Y axis */
 	memset(rxbuf, 0x0, sizeof(rxbuf));
 	ois_mcu_bypass_read_mode1(mcu, 0x69, 0x04, rxbuf, 0x04);
@@ -2804,18 +2884,18 @@ int ois_mcu_check_hall_cal(struct v4l2_subdev *subdev, u16 *hall_cal_data)
 	/* Move AF to best position which read from EEPROM */
 	is_af_move_lens_pos(core, SENSOR_POSITION_REAR2, af_best_pos);
 	msleep(50);
-	
+
 	/* Change setting  Mode for Hall cal */
 	txbuf[0] = 0x3B;
 	ois_mcu_bypass_write_mode1(mcu, 0xE8, 0xAE, txbuf, 0x01);
 	ois_mcu_bypass_write_mode1(mcu, 0x68, 0xAE, txbuf, 0x01);
 	info_mcu("write reg(0xAE) = 0x%02x", txbuf[0]);
-	
+
 	/* Start hall calibration for X axis */
 	txbuf[0] = 0x01;
 	ois_mcu_bypass_write_mode1(mcu, 0xE8, 0x02, txbuf, 0x01);
 	msleep(150);
-	
+
 	/* Start hall calibration for Y axis */
 	ois_mcu_bypass_write_mode1(mcu, 0x68, 0x02, txbuf, 0x01);
 	msleep(150);
@@ -2825,7 +2905,7 @@ int ois_mcu_check_hall_cal(struct v4l2_subdev *subdev, u16 *hall_cal_data)
 	ois_mcu_bypass_write_mode1(mcu, 0xE8, 0xAE, txbuf, 0x01);
 	ois_mcu_bypass_write_mode1(mcu, 0x68, 0xAE, txbuf, 0x01);
 	info_mcu("write reg(0xAE) = 0x%02x", txbuf[0]);
-	
+
 	/*Read new PCAL and NCAL for X axis*/
 	memset(rxbuf, 0x0, sizeof(rxbuf));
 	ois_mcu_bypass_read_mode1(mcu, 0xE9, 0x04, rxbuf, 0x04);
@@ -2841,7 +2921,7 @@ int ois_mcu_check_hall_cal(struct v4l2_subdev *subdev, u16 *hall_cal_data)
 	temp |= ((u16)rxbuf[3] >> 7) & 0x0001;
 	cur_ncal[0] = (int)temp;
 	info_mcu("read reg(0x06) = 0x%04x", cur_ncal[0]);
-	
+
 	/*Read new PCAL and NCAL for Y axis*/
 	memset(rxbuf, 0x0, sizeof(rxbuf));
 	ois_mcu_bypass_read_mode1(mcu, 0x69, 0x04, rxbuf, 0x04);
@@ -3543,7 +3623,7 @@ int ois_mcu_get_hall_data(struct v4l2_subdev *subdev, struct is_ois_hall_data *h
 		}
 	}
 #if defined(CAMERA_2ND_OIS)
-	/* Tele data */	
+	/* Tele data */
 	index = 0;
 
 	for (i = 0; i < valid_cnt; i += 8) {
@@ -3573,7 +3653,7 @@ int ois_mcu_get_hall_data(struct v4l2_subdev *subdev, struct is_ois_hall_data *h
 	}
 #endif
 #if defined(CAMERA_3RD_OIS)
-	/* Tele2 data */	
+	/* Tele2 data */
 	index = 0;
 
 	for (i = 0; i < valid_cnt; i += 8) {
@@ -3625,7 +3705,7 @@ int ois_mcu_get_hall_data(struct v4l2_subdev *subdev, struct is_ois_hall_data *h
 	/* SVDIS CTRL WRITE TIMESTAMP */
 	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], R_OIS_CMD_SVDIS_CTRL, 0x01);
 	usleep_range(300, 310);
-	
+
 	/* S/W interrupt to MCU */
 	is_mcu_hw_set_field(mcu->regs[OM_REG_CORE], R_OIS_CM0P_IRQ, OIS_F_CM0P_IRQ_REQ, 0x01);
 

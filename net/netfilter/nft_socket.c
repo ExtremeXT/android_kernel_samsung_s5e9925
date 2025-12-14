@@ -88,13 +88,13 @@ static void nft_socket_eval(const struct nft_expr *expr,
 			*dest = sk->sk_mark;
 		} else {
 			regs->verdict.code = NFT_BREAK;
-			goto out_put_sk;
+			return;
 		}
 		break;
 	case NFT_SOCKET_WILDCARD:
 		if (!sk_fullsock(sk)) {
 			regs->verdict.code = NFT_BREAK;
-			goto out_put_sk;
+			return;
 		}
 		nft_socket_wildcard(pkt, regs, sk, dest);
 		break;
@@ -103,7 +103,6 @@ static void nft_socket_eval(const struct nft_expr *expr,
 		regs->verdict.code = NFT_BREAK;
 	}
 
-out_put_sk:
 	if (sk != skb->sk)
 		sock_gen_put(sk);
 }

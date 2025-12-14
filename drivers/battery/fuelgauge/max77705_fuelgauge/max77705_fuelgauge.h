@@ -120,6 +120,9 @@ enum {
 struct battery_data_t {
 	u8 battery_id;
 #if IS_ENABLED(CONFIG_DUAL_BATTERY)
+#if defined(CONFIG_ID_USING_BAT_SUBBAT)
+	u8 main_battery_id;
+#endif
 	u8 sub_battery_id;
 #endif
 	u32 V_empty;
@@ -135,6 +138,10 @@ struct battery_data_t {
 	u32 ichgterm_2nd;
 	u32 misccfg_2nd;
 	u32 fullsocthr_2nd;
+	u32 coff_origin;
+	u32 coff_charging;
+	u32 cgain_origin;
+	u32 cgain_charging;
 };
 
 /* FullCap learning setting */
@@ -165,7 +172,8 @@ typedef struct max77705_fuelgauge_platform_data {
 	int bat_id_gpio[BAT_GPIO_NO];
 	int bat_gpio_cnt;
 #if IS_ENABLED(CONFIG_DUAL_BATTERY)
-	int sub_bat_id_gpio;
+	int sub_bat_id_gpio[BAT_GPIO_NO];
+	int sub_bat_gpio_cnt;
 #endif
 	int thermal_source;
 
@@ -181,10 +189,7 @@ typedef struct max77705_fuelgauge_platform_data {
 	int capacity_max;
 	int capacity_max_margin;
 	int capacity_min;
-
-#if defined(CONFIG_BATTERY_AGE_FORECAST)
 	unsigned int full_condition_soc;
-#endif
 } max77705_fuelgauge_platform_data_t;
 
 #define FG_RESET_DATA_COUNT		5
@@ -250,6 +255,7 @@ struct max77705_fuelgauge_data {
 
 	bool capacity_max_conv;
 	bool initial_update_of_soc;
+	bool initial_update_of_alert;
 	bool sleep_initial_update_of_soc;
 	struct mutex fg_lock;
 
@@ -262,6 +268,11 @@ struct max77705_fuelgauge_data {
 	int raw_capacity;
 	int current_now;
 	int current_avg;
+
+	int repcap_1st;
+#if defined(CONFIG_UI_SOC_PROLONGING)
+	int prev_raw_soc;
+#endif
 
 	bool using_temp_compensation;
 	bool using_hw_vempty;
@@ -281,13 +292,14 @@ struct max77705_fuelgauge_data {
 	unsigned int verify_selected_reg_length;
 	u32 data_ver;
 	bool skip_fg_verify;
+	u32 err_cnt;
+	u32 q_res_table[4]; /* QResidual Table */
 
-
-#if defined(CONFIG_BATTERY_CISD)
 	bool valert_count_flag;
-#endif
 	struct lost_soc_data lost_soc;
-	char d_buf[FG_BATT_DUMP_SIZE];
+	char d_buf[128];
+	int bd_vfocv;
+	int bd_raw_soc;
 };
 
 #endif /* __MAX77705_FUELGAUGE_H */

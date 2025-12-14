@@ -1525,8 +1525,6 @@ int eeh_pe_configure(struct eeh_pe *pe)
 	/* Invalid PE ? */
 	if (!pe)
 		return -ENODEV;
-	else
-		ret = eeh_ops->configure_bridge(pe);
 
 	return ret;
 }

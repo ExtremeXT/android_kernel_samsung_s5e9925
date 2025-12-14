@@ -21,6 +21,7 @@
 
 #include <linux/slab.h>
 #include <linux/i2c.h>
+#include "../../../drivers/battery/common/sec_charging_common.h"
 
 #define MFC_MODULE_NAME	"sb-mfc"
 
@@ -40,6 +41,7 @@
 
 #define MFC_CHIP_ID_P9320		0x20
 #define MFC_CHIP_ID_S2MIW04		0x04
+#define MFC_CHIP_ID_CPS4038		0x38
 
 #define SB_MFC_DISABLE	(-3700)
 #if IS_ENABLED(CONFIG_SB_MFC)

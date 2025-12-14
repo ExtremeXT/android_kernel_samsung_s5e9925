@@ -1,12 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * sec_cmd.c - samsung input command driver
- *
- * Copyright (C) 2014 Samsung Electronics
+ * Copyright (C) 2014 Samsung Electronics Co., Ltd.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
- *
  */
 
 #include "sec_cmd.h"
@@ -22,13 +20,20 @@ EXPORT_SYMBOL(kunit_sec);
 #define __visible_for_testing static
 #endif
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
-static struct sec_cmd_data *main_sec;
-static struct sec_cmd_data *sub_sec;
-#endif
+const char *str_power_state[3] = { "OFF", "LP", "ON" };
+const char *str_use_case[CHECK_ALL + 1] = {
+	"NONE",		// 0
+	"OFF",		// 1	CHECK_POWEROFF
+	"LP",		// 2	CHECK_LPMODE
+	"LP/OFF",	// 3	CHECK_POWEROFF | CHECK_LPMODE
+	"ON",		// 4	CHECK_POWERON
+	"ON/OFF",	// 5	CHECK_POWEROFF | CHECK_POWERON
+	"ON/LP",	// 6	CHECK_ON_LP
+	"ON/LP/OFF",	// 7	CHECK_ALL
+};
 
 #ifdef USE_SEC_CMD_QUEUE
-static void sec_cmd_store_function(struct sec_cmd_data *data);
+static void cmd_store_function(struct sec_cmd_data *data);
 void sec_cmd_execution(struct sec_cmd_data *data, bool lock)
 {
 	if (lock)
@@ -36,11 +41,11 @@ void sec_cmd_execution(struct sec_cmd_data *data, bool lock)
 
 	/* check lock	*/
 	mutex_lock(&data->cmd_lock);
-	data->cmd_is_running = true;
+	atomic_set(&data->cmd_is_running, 1);
 	mutex_unlock(&data->cmd_lock);
 
 	data->cmd_state = SEC_CMD_STATUS_RUNNING;
-	sec_cmd_store_function(data);
+	cmd_store_function(data);
 
 	if (lock)
 		mutex_unlock(&data->fs_lock);
@@ -56,23 +61,19 @@ void sec_cmd_set_cmd_exit(struct sec_cmd_data *data)
 			(int)(kfifo_len(&data->cmd_queue) / sizeof(struct command)));
 		mutex_unlock(&data->fifo_lock);
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
 		sec_cmd_execution(data, false);
-#else
-		schedule_work(&data->cmd_work.work);
-#endif
 	} else {
 		mutex_unlock(&data->fifo_lock);
 
 		mutex_lock(&data->cmd_lock);
-		data->cmd_is_running = false;
+		atomic_set(&data->cmd_is_running, 0);
 		mutex_unlock(&data->cmd_lock);
 	}
 	if (data->wait_cmd_result_done)
 		complete_all(&data->cmd_result_done);
 #else
 	mutex_lock(&data->cmd_lock);
-	data->cmd_is_running = false;
+	atomic_set(&data->cmd_is_running, 0);
 	mutex_unlock(&data->cmd_lock);
 #endif
 }
@@ -90,6 +91,7 @@ static void cmd_exit_work(struct work_struct *work)
 void sec_cmd_set_default_result(struct sec_cmd_data *data)
 {
 	char *delim = ":";
+
 	memset(data->cmd_result, 0x00, SEC_CMD_RESULT_STR_LEN_EXPAND);
 	memcpy(data->cmd_result, data->cmd, SEC_CMD_STR_LEN);
 	strlcat(data->cmd_result, delim, SEC_CMD_RESULT_STR_LEN_EXPAND);
@@ -132,8 +134,54 @@ void sec_cmd_set_cmd_result(struct sec_cmd_data *data, char *buff, int len)
 }
 EXPORT_SYMBOL(sec_cmd_set_cmd_result);
 
+void sec_cmd_check_store_condition(struct sec_cmd_data *data, struct sec_cmd *sec_cmd_ptr)
+{
+	struct sec_ts_plat_data *plat_data = data->dev->platform_data;
+	int prev_result_len = 0;
+
+	pr_info("%s %s power_state:%s, check_power:%s%s, wait_result:%d\n",
+		dev_name(data->fac_dev), SECLOG, str_power_state[atomic_read(&plat_data->power_state)],
+		str_use_case[sec_cmd_ptr->cmd_use_cases],
+		sec_cmd_ptr->cmd_func_forced ? "(force func)" : "",
+		sec_cmd_ptr->wait_read_result);
+
+	sec_cmd_set_default_result(data);
+	prev_result_len = (int)strlen(data->cmd_result);
+
+	if (sec_input_cmp_ic_status(data->dev, sec_cmd_ptr->cmd_use_cases)) {
+		sec_cmd_ptr->cmd_func(data);
+	} else {
+		if (sec_cmd_ptr->cmd_func_forced)
+			sec_cmd_ptr->cmd_func_forced(data);
+		else
+			goto CMD_NG;
+	}
+
+	if (prev_result_len == (int)strlen(data->cmd_result)) {
+		if ((data->cmd_state == SEC_CMD_STATUS_WAITING) || (data->cmd_state == SEC_CMD_STATUS_OK))
+			strlcat(data->cmd_result, "OK", SEC_CMD_RESULT_STR_LEN_EXPAND);
+		else if (data->cmd_state == SEC_CMD_STATUS_NOT_APPLICABLE)
+			strlcat(data->cmd_result, "NA", SEC_CMD_RESULT_STR_LEN_EXPAND);
+		else
+			strlcat(data->cmd_result, "NG", SEC_CMD_RESULT_STR_LEN_EXPAND);
+	}
+
+	if (sec_cmd_ptr->wait_read_result == EXIT_RESULT) {
+		data->cmd_state = SEC_CMD_STATUS_WAITING;
+		sec_cmd_set_cmd_exit(data);
+	}
+
+	return;
+CMD_NG:
+	data->cmd_state = SEC_CMD_STATUS_FAIL;
+	strlcat(data->cmd_result, "NG", SEC_CMD_RESULT_STR_LEN_EXPAND);
+
+	if (sec_cmd_ptr->wait_read_result == EXIT_RESULT)
+		sec_cmd_set_cmd_exit(data);
+}
+
 #ifndef USE_SEC_CMD_QUEUE
-__visible_for_testing ssize_t sec_cmd_store(struct device *dev,
+__visible_for_testing ssize_t cmd_store(struct device *dev,
 		struct device_attribute *devattr, const char *buf, size_t count)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -162,14 +210,14 @@ __visible_for_testing ssize_t sec_cmd_store(struct device *dev,
 		return -EINVAL;
 	}
 
-	if (data->cmd_is_running == true) {
+	if (atomic_read(&data->cmd_is_running)) {
 		pr_err("%s: %s %s: other cmd is running.\n", dev_name(data->fac_dev), SECLOG, __func__);
 		return -EBUSY;
 	}
 
 	/* check lock   */
 	mutex_lock(&data->cmd_lock);
-	data->cmd_is_running = true;
+	atomic_set(&data->cmd_is_running, 1);
 	mutex_unlock(&data->cmd_lock);
 
 	data->cmd_state = SEC_CMD_STATUS_RUNNING;
@@ -194,8 +242,11 @@ __visible_for_testing ssize_t sec_cmd_store(struct device *dev,
 	/* find command */
 	list_for_each_entry(sec_cmd_ptr, &data->cmd_list_head, list) {
 		if (!strncmp(buff, sec_cmd_ptr->cmd_name, SEC_CMD_STR_LEN)) {
-			cmd_found = true;
-			break;
+			if (!sec_cmd_ptr->not_support_cmds) {
+				cmd_found = true;
+				break;
+			}
+			pr_err("%s: %s %s: [%s] is in not_support_cmds list\n", dev_name(data->fac_dev), SECLOG, __func__, buff);
 		}
 	}
 
@@ -235,27 +286,35 @@ check_not_support_cmd:
 	}
 
 	if (cmd_found) {
-		pr_info("%s: %s %s: cmd = %s", dev_name(data->fac_dev), SECLOG, __func__, sec_cmd_ptr->cmd_name);
+		char dbuff[13];
+		char tdbuff[13 * SEC_CMD_PARAM_NUM] = { 0 };
+
 		for (i = 0; i < param_cnt; i++) {
-			if (i == 0)
-				pr_cont(" param =");
-			pr_cont(" %d", data->cmd_param[i]);
+			snprintf(dbuff, sizeof(dbuff), "%d ", data->cmd_param[i]);
+			strlcat(tdbuff, dbuff, sizeof(tdbuff));
 		}
-		pr_cont("\n");
+
+		if (param_cnt == 0)
+			snprintf(tdbuff, sizeof(tdbuff), "none");
+
+		pr_info("%s: %s %s: cmd = %s param = %s\n", dev_name(data->fac_dev), SECLOG, __func__, sec_cmd_ptr->cmd_name, tdbuff);
 	} else {
 		pr_info("%s: %s %s: cmd = %s(%s)\n", dev_name(data->fac_dev), SECLOG, __func__, buff, sec_cmd_ptr->cmd_name);
 	}
 
-	sec_cmd_ptr->cmd_func(data);
+	if (sec_cmd_ptr->cmd_use_cases)
+		sec_cmd_check_store_condition(data, sec_cmd_ptr);
+	else
+		sec_cmd_ptr->cmd_func(data);
 
 	return count;
 }
 #if IS_ENABLED(CONFIG_SEC_KUNIT)
-EXPORT_SYMBOL_KUNIT(sec_cmd_store);
+EXPORT_SYMBOL_KUNIT(cmd_store);
 #endif
 
 #else	/* defined USE_SEC_CMD_QUEUE */
-static void sec_cmd_store_function(struct sec_cmd_data *data)
+static void cmd_store_function(struct sec_cmd_data *data)
 {
 	char *cur, *start, *end;
 	char buff[SEC_CMD_STR_LEN] = { 0 };
@@ -286,7 +345,7 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 		pr_err("%s: %s %s: left cmd is nothing\n", dev_name(data->fac_dev), SECLOG, __func__);
 		mutex_unlock(&data->fifo_lock);
 		mutex_lock(&data->cmd_lock);
-		data->cmd_is_running = false;
+		atomic_set(&data->cmd_is_running, 0);
 		mutex_unlock(&data->cmd_lock);
 		return;
 	}
@@ -316,8 +375,11 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 	/* find command */
 	list_for_each_entry(sec_cmd_ptr, &data->cmd_list_head, list) {
 		if (!strncmp(buff, sec_cmd_ptr->cmd_name, SEC_CMD_STR_LEN)) {
-			cmd_found = true;
-			break;
+			if (!sec_cmd_ptr->not_support_cmds) {
+				cmd_found = true;
+				break;
+			}
+			pr_err("%s: %s %s: [%s] is in not_support_cmds list\n", dev_name(data->fac_dev), SECLOG, __func__, buff);
 		}
 	}
 
@@ -357,18 +419,26 @@ check_not_support_cmd:
 	}
 
 	if (cmd_found) {
-		pr_info("%s: %s %s: cmd = %s", dev_name(data->fac_dev), SECLOG, __func__, sec_cmd_ptr->cmd_name);
+		char dbuff[13];
+		char tdbuff[13 * SEC_CMD_PARAM_NUM] = { 0 };
+
 		for (i = 0; i < param_cnt; i++) {
-			if (i == 0)
-				pr_cont(" param =");
-			pr_cont(" %d", data->cmd_param[i]);
+			snprintf(dbuff, sizeof(dbuff), "%d ", data->cmd_param[i]);
+			strlcat(tdbuff, dbuff, sizeof(tdbuff));
 		}
-		pr_cont("\n");
+
+		if (param_cnt == 0)
+			snprintf(tdbuff, sizeof(tdbuff), "none");
+
+		pr_info("%s: %s %s: cmd = %s param = %s\n", dev_name(data->fac_dev), SECLOG, __func__, sec_cmd_ptr->cmd_name, tdbuff);
 	} else {
 		pr_info("%s: %s %s: cmd = %s(%s)\n", dev_name(data->fac_dev), SECLOG, __func__, buff, sec_cmd_ptr->cmd_name);
 	}
 
-	sec_cmd_ptr->cmd_func(data);
+	if (sec_cmd_ptr->cmd_use_cases)
+		sec_cmd_check_store_condition(data, sec_cmd_ptr);
+	else
+		sec_cmd_ptr->cmd_func(data);
 
 	if (cmd_found && sec_cmd_ptr->cmd_log) {
 		char tbuf[32];
@@ -387,7 +457,7 @@ check_not_support_cmd:
 	}
 }
 
-__visible_for_testing ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devattr,
+__visible_for_testing ssize_t cmd_store(struct device *dev, struct device_attribute *devattr,
 			   const char *buf, size_t count)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -474,7 +544,7 @@ __visible_for_testing ssize_t sec_cmd_store(struct device *dev, struct device_at
 		mutex_unlock(&data->fifo_lock);
 
 		mutex_lock(&data->cmd_lock);
-		data->cmd_is_running = false;
+		atomic_set(&data->cmd_is_running, 0);
 		mutex_unlock(&data->cmd_lock);
 
 		if (data->wait_cmd_result_done)
@@ -483,7 +553,7 @@ __visible_for_testing ssize_t sec_cmd_store(struct device *dev, struct device_at
 		return -ENOSPC;
 	}
 
-	if (data->cmd_is_running == true) {
+	if (atomic_read(&data->cmd_is_running)) {
 		pr_err("%s: %s %s: other cmd is running. Wait until previous cmd is done[%d]\n",
 			dev_name(data->fac_dev), SECLOG, __func__, (int)(kfifo_len(&data->cmd_queue) / sizeof(struct command)));
 		mutex_unlock(&data->fifo_lock);
@@ -495,11 +565,11 @@ __visible_for_testing ssize_t sec_cmd_store(struct device *dev, struct device_at
 	return count;
 }
 #if IS_ENABLED(CONFIG_SEC_KUNIT)
-EXPORT_SYMBOL_KUNIT(sec_cmd_store);
+EXPORT_SYMBOL_KUNIT(cmd_store);
 #endif
 #endif
 
-__visible_for_testing ssize_t sec_cmd_show_status(struct device *dev,
+__visible_for_testing ssize_t cmd_status_show(struct device *dev,
 				 struct device_attribute *devattr, char *buf)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -533,10 +603,10 @@ __visible_for_testing ssize_t sec_cmd_show_status(struct device *dev,
 	return snprintf(buf, sizeof(buff), "%s\n", buff);
 }
 #if IS_ENABLED(CONFIG_SEC_KUNIT)
-EXPORT_SYMBOL_KUNIT(sec_cmd_show_status);
+EXPORT_SYMBOL_KUNIT(cmd_status_show);
 #endif
 
-static ssize_t sec_cmd_show_status_all(struct device *dev,
+__visible_for_testing ssize_t cmd_status_all_show(struct device *dev,
 				 struct device_attribute *devattr, char *buf)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -569,8 +639,11 @@ static ssize_t sec_cmd_show_status_all(struct device *dev,
 
 	return snprintf(buf, sizeof(buff), "%s\n", buff);
 }
+#if IS_ENABLED(CONFIG_SEC_KUNIT)
+EXPORT_SYMBOL_KUNIT(cmd_status_all_show);
+#endif
 
-__visible_for_testing ssize_t sec_cmd_show_result(struct device *dev,
+__visible_for_testing ssize_t cmd_result_show(struct device *dev,
 				 struct device_attribute *devattr, char *buf)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -598,10 +671,10 @@ __visible_for_testing ssize_t sec_cmd_show_result(struct device *dev,
 	return size;
 }
 #if IS_ENABLED(CONFIG_SEC_KUNIT)
-EXPORT_SYMBOL_KUNIT(sec_cmd_show_result);
+EXPORT_SYMBOL_KUNIT(cmd_result_show);
 #endif
 
-static ssize_t sec_cmd_show_result_all(struct device *dev,
+__visible_for_testing ssize_t cmd_result_all_show(struct device *dev,
 				 struct device_attribute *devattr, char *buf)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -623,8 +696,11 @@ static ssize_t sec_cmd_show_result_all(struct device *dev,
 
 	return size;
 }
+#if IS_ENABLED(CONFIG_SEC_KUNIT)
+EXPORT_SYMBOL_KUNIT(cmd_result_all_show);
+#endif
 
-static ssize_t sec_cmd_list_show(struct device *dev,
+__visible_for_testing ssize_t cmd_list_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -640,6 +716,8 @@ static ssize_t sec_cmd_list_show(struct device *dev,
 	snprintf(buffer, 30, "++factory command list++\n");
 
 	list_for_each_entry(sec_cmd_ptr, &data->cmd_list_head, list) {
+		if (sec_cmd_ptr->not_support_cmds)
+			continue;
 		if (strncmp(sec_cmd_ptr->cmd_name, "not_support_cmd", 15)) {
 			snprintf(buffer_name, SEC_CMD_STR_LEN, "%s\n", sec_cmd_ptr->cmd_name);
 			strlcat(buffer, buffer_name, data->cmd_buffer_size + 30);
@@ -651,13 +729,16 @@ static ssize_t sec_cmd_list_show(struct device *dev,
 
 	return ret;
 }
+#if IS_ENABLED(CONFIG_SEC_KUNIT)
+EXPORT_SYMBOL_KUNIT(cmd_list_show);
+#endif
 
-static DEVICE_ATTR(cmd, 0220, NULL, sec_cmd_store);
-static DEVICE_ATTR(cmd_status, 0444, sec_cmd_show_status, NULL);
-static DEVICE_ATTR(cmd_status_all, 0444, sec_cmd_show_status_all, NULL);
-static DEVICE_ATTR(cmd_result, 0444, sec_cmd_show_result, NULL);
-static DEVICE_ATTR(cmd_result_all, 0444, sec_cmd_show_result_all, NULL);
-static DEVICE_ATTR(cmd_list, 0444, sec_cmd_list_show, NULL);
+static DEVICE_ATTR(cmd, 0220, NULL, cmd_store);
+static DEVICE_ATTR_RO(cmd_status);
+static DEVICE_ATTR_RO(cmd_status_all);
+static DEVICE_ATTR_RO(cmd_result);
+static DEVICE_ATTR_RO(cmd_result_all);
+static DEVICE_ATTR_RO(cmd_list);
 
 static struct attribute *sec_fac_attrs[] = {
 	&dev_attr_cmd.attr,
@@ -673,9 +754,234 @@ static struct attribute_group sec_fac_attr_group = {
 	.attrs = sec_fac_attrs,
 };
 
+static ssize_t prox_power_off_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct sec_ts_plat_data *plat_data = sec->dev->platform_data;
 
-int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
-			int len, int devt)
+	input_info(true, sec->dev, "%s: %d\n", __func__, plat_data->prox_power_off);
+
+	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d", plat_data->prox_power_off);
+}
+
+static ssize_t prox_power_off_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct sec_ts_plat_data *plat_data = sec->dev->platform_data;
+	long data;
+	int ret;
+
+	ret = kstrtol(buf, 10, &data);
+	if (ret < 0)
+		return ret;
+
+	input_info(true, sec->dev, "%s: %ld\n", __func__, data);
+
+	plat_data->prox_power_off = data;
+
+	return count;
+}
+
+static ssize_t support_feature_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct sec_ts_plat_data *plat_data = sec->dev->platform_data;
+	u32 feature = 0;
+
+	if (plat_data->enable_settings_aot)
+		feature |= INPUT_FEATURE_ENABLE_SETTINGS_AOT;
+
+	if (plat_data->support_vrr)
+		feature |= INPUT_FEATURE_ENABLE_VRR;
+
+	if (plat_data->support_open_short_test)
+		feature |= INPUT_FEATURE_SUPPORT_OPEN_SHORT_TEST;
+
+	if (plat_data->support_mis_calibration_test)
+		feature |= INPUT_FEATURE_SUPPORT_MIS_CALIBRATION_TEST;
+
+	if (plat_data->support_wireless_tx)
+		feature |= INPUT_FEATURE_SUPPORT_WIRELESS_TX;
+
+	if (plat_data->enable_sysinput_enabled)
+		feature |= INPUT_FEATURE_ENABLE_SYSINPUT_ENABLED;
+
+	if (plat_data->prox_lp_scan_enabled)
+		feature |= INPUT_FEATURE_ENABLE_PROX_LP_SCAN_ENABLED;
+
+	if (plat_data->support_input_monitor)
+		feature |= INPUT_FEATURE_SUPPORT_INPUT_MONITOR;
+
+	if (plat_data->support_rawdata_motion_aivf)
+		feature |= INPUT_FEATURE_SUPPORT_MOTION_AIVF;
+
+	if (plat_data->support_rawdata_motion_palm)
+		feature |= INPUT_FEATURE_SUPPORT_MOTION_PALM;
+
+	input_info(true, sec->dev, "%s: %d%s%s%s%s%s%s%s%s%s%s%s\n",
+			__func__, feature,
+			feature & INPUT_FEATURE_ENABLE_SETTINGS_AOT ? " aot" : "",
+			feature & INPUT_FEATURE_ENABLE_PRESSURE ? " pressure" : "",
+			feature & INPUT_FEATURE_ENABLE_VRR ? " vrr" : "",
+			feature & INPUT_FEATURE_SUPPORT_OPEN_SHORT_TEST ? " openshort" : "",
+			feature & INPUT_FEATURE_SUPPORT_MIS_CALIBRATION_TEST ? " miscal" : "",
+			feature & INPUT_FEATURE_SUPPORT_WIRELESS_TX ? " wirelesstx" : "",
+			feature & INPUT_FEATURE_SUPPORT_INPUT_MONITOR ? " inputmonitor" : "",
+			feature & INPUT_FEATURE_ENABLE_SYSINPUT_ENABLED ? " SE" : "",
+			feature & INPUT_FEATURE_ENABLE_PROX_LP_SCAN_ENABLED ? " LPSCAN" : "",
+			feature & INPUT_FEATURE_SUPPORT_MOTION_AIVF ? " AIVF" : "",
+			feature & INPUT_FEATURE_SUPPORT_MOTION_PALM ? " PALM" : "");
+
+	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d", feature);
+}
+
+static ssize_t enabled_show(struct device *dev, struct device_attribute *attr,
+					char *buf)
+{
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct sec_ts_plat_data *plat_data = sec->dev->platform_data;
+
+	if (!plat_data->enable_sysinput_enabled)
+		return -EINVAL;
+
+	input_info(true, sec->dev, "%s: enabled %d\n", __func__, atomic_read(&plat_data->enabled));
+
+	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d", atomic_read(&plat_data->enabled));
+}
+
+ssize_t sec_cmd_enabled_show(struct device *dev, struct device_attribute *attr,
+					char *buf)
+{
+	return enabled_show(dev, attr, buf);
+}
+#if IS_ENABLED(CONFIG_SEC_KUNIT)
+EXPORT_SYMBOL_KUNIT(sec_cmd_enabled_show);
+#endif
+
+static ssize_t enabled_store(struct device *dev, struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct sec_ts_plat_data *plat_data = sec->dev->platform_data;
+	int buff[2];
+	int ret;
+
+	if (!plat_data->enable_sysinput_enabled)
+		return -EINVAL;
+
+	ret = sscanf(buf, "%d,%d", &buff[0], &buff[1]);
+	if (ret != 2) {
+		input_err(true, sec->dev,
+				"%s: failed read params [%d]\n", __func__, ret);
+		return -EINVAL;
+	}
+
+	if (buff[0] == DISPLAY_STATE_ON && buff[1] == DISPLAY_EVENT_LATE) {
+		input_info(true, sec->dev, "%s: DISPLAY_STATE_ON\n", __func__);
+		if (atomic_read(&plat_data->enabled)) {
+			input_err(true, sec->dev, "%s: device already enabled\n", __func__);
+			goto out;
+		}
+		ret = sec_input_enable_device(plat_data->dev);
+	} else if (buff[0] == DISPLAY_STATE_OFF && buff[1] == DISPLAY_EVENT_EARLY) {
+		input_info(true, sec->dev, "%s: DISPLAY_STATE_OFF\n", __func__);
+		if (!atomic_read(&plat_data->enabled)) {
+			input_err(true, sec->dev, "%s: device already disabled\n", __func__);
+			goto out;
+		}
+		ret = sec_input_disable_device(plat_data->dev);
+	} else if (buff[0] == DISPLAY_STATE_FORCE_ON) {
+		input_info(true, sec->dev, "%s: DISPLAY_STATE_FORCE_ON\n", __func__);
+		if (atomic_read(&plat_data->enabled)) {
+			input_err(true, sec->dev, "%s: device already enabled\n", __func__);
+			goto out;
+		}
+		ret = sec_input_enable_device(plat_data->dev);
+	} else if (buff[0] == DISPLAY_STATE_FORCE_OFF || buff[0] == DISPLAY_STATE_LPM_OFF) {
+		input_info(true, sec->dev, "%s: %s\n", __func__, buff[0] == DISPLAY_STATE_FORCE_OFF ?
+				"DISPLAY_STATE_FORCE_OFF" : "DISPLAY_STATE_LPM_OFF");
+		if (!atomic_read(&plat_data->enabled)) {
+			input_err(true, sec->dev, "%s: device already disabled\n", __func__);
+			goto out;
+		}
+		ret = sec_input_disable_device(plat_data->dev);
+	}
+
+	if (ret)
+		return ret;
+
+out:
+	return count;
+}
+
+ssize_t sec_cmd_enabled_store(struct device *dev, struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	return enabled_store(dev, attr, buf, count);
+}
+#if IS_ENABLED(CONFIG_SEC_KUNIT)
+EXPORT_SYMBOL_KUNIT(sec_cmd_enabled_store);
+#endif
+
+static DEVICE_ATTR_RW(prox_power_off);
+static DEVICE_ATTR_RO(support_feature);
+static DEVICE_ATTR_RW(enabled);
+
+static struct attribute *sec_fac_common_attrs[] = {
+	&dev_attr_prox_power_off.attr,
+	&dev_attr_support_feature.attr,
+	&dev_attr_enabled.attr,
+	NULL,
+};
+
+static struct attribute_group sec_fac_common_attr_group = {
+	.attrs = sec_fac_common_attrs,
+};
+
+static void sec_cmd_parse_dt_not_support_cmds(struct sec_cmd_data *data)
+{
+	struct device *dev;
+	struct device_node *np;
+	struct sec_cmd *sec_cmd_ptr = NULL;
+	int count = 0;
+	int ii = 0;
+	int ret = 0;
+
+	if (data->dev)
+		dev = data->dev;
+	else
+		return;
+
+	if (dev->of_node)
+		np = dev->of_node;
+	else
+		return;
+
+	count = of_property_count_strings(np, "sec_cmd,not_support_cmds");
+	for (ii = 0; ii < count; ii++) {
+		const char *buff;
+
+		ret = of_property_read_string_index(np, "sec_cmd,not_support_cmds", ii, &buff);
+		if (ret < 0 || strlen(buff) <= 0) {
+			input_err(true, dev, "%s: failed get sec_cmd,not_support_cmds: %d, %lu\n", __func__, ret, strlen(buff));
+			return;
+		}
+		list_for_each_entry(sec_cmd_ptr, &data->cmd_list_head, list) {
+			if (!strncmp(buff, sec_cmd_ptr->cmd_name, SEC_CMD_STR_LEN)) {
+				sec_cmd_ptr->not_support_cmds = true;
+			}
+		}
+
+		input_info(true, dev, "%s: sec_cmd,not_support_cmds(%d): %s\n", __func__, ii, buff);
+	}
+}
+
+int sec_cmd_init(struct sec_cmd_data *data, struct device *dev, struct sec_cmd *cmds,
+			int len, int devt, struct attribute_group *vendor_attr_group)
 {
 	const char *dev_name;
 	int ret, i;
@@ -693,12 +999,15 @@ int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
 	mutex_init(&data->fs_lock);
 
 	mutex_lock(&data->cmd_lock);
-	data->cmd_is_running = false;
+	atomic_set(&data->cmd_is_running, 0);
 	mutex_unlock(&data->cmd_lock);
 
 	data->cmd_result = kzalloc(SEC_CMD_RESULT_STR_LEN_EXPAND, GFP_KERNEL);
 	if (!data->cmd_result)
 		goto err_alloc_cmd_result;
+
+	if (!IS_ERR_OR_NULL(dev))
+		data->dev = dev;
 
 #ifdef USE_SEC_CMD_QUEUE
 	if (kfifo_alloc(&data->cmd_queue,
@@ -718,14 +1027,12 @@ int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
 	case SEC_CLASS_DEVT_TSP:
 		dev_name = SEC_CLASS_DEV_NAME_TSP;
 		break;
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
 	case SEC_CLASS_DEVT_TSP1:
 		dev_name = SEC_CLASS_DEV_NAME_TSP1;
 		break;
 	case SEC_CLASS_DEVT_TSP2:
 		dev_name = SEC_CLASS_DEV_NAME_TSP2;
 		break;
-#endif
 	case SEC_CLASS_DEVT_TKEY:
 		dev_name = SEC_CLASS_DEV_NAME_TKEY;
 		break;
@@ -743,8 +1050,8 @@ int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
 #if IS_ENABLED(CONFIG_DRV_SAMSUNG)
 	data->fac_dev = sec_device_create(data, dev_name);
 #else
-	tsp_sec_class = class_create(THIS_MODULE, "tsp_sec");
-	if (unlikely(IS_ERR(tsp_sec_class))) {
+	tsp_sec_class = class_create(THIS_MODULE, dev_name);
+	if (IS_ERR(tsp_sec_class)) {
 		pr_err("%s %s: Failed to create class(sec) %ld\n", SECLOG, __func__, PTR_ERR(tsp_sec_class));
 		return PTR_ERR(tsp_sec_class);
 	}
@@ -758,25 +1065,50 @@ int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
 
 	dev_set_drvdata(data->fac_dev, data);
 
+	sec_cmd_parse_dt_not_support_cmds(data);
+
 	ret = sysfs_create_group(&data->fac_dev->kobj, &sec_fac_attr_group);
 	if (ret < 0) {
 		pr_err("%s %s: failed to create sysfs group\n", SECLOG, __func__);
 		goto err_sysfs_group;
 	}
+	pr_info("%s: %s create sec_fac_attr_group: done\n", SECLOG, __func__);
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
-	switch (devt) {
-	case SEC_CLASS_DEVT_TSP1:
-	case SEC_CLASS_DEVT_TSP2:
-		sec_cmd_virtual_tsp_register(data);
-		break;
-	};
-#endif
+	if (!IS_ERR_OR_NULL(vendor_attr_group)) {
+		ret = sysfs_create_group(&data->fac_dev->kobj, vendor_attr_group);
+		if (ret < 0) {
+			pr_err("%s %s: failed to create sysfs group\n", SECLOG, __func__);
+			goto err_vendor_sysfs_group;
+		}
+		data->vendor_attr_group = vendor_attr_group;
+		pr_info("%s: %s create vendor_attr_group: done\n", SECLOG, __func__);
+	}
+
+	if (!IS_ERR_OR_NULL(dev)) {
+		/* if you do not use sec_ts_plat_data, should invoke sec_cmd_init_without_platdata */
+		struct sec_ts_plat_data *plat_data = dev->platform_data;
+
+		plat_data->sec = data;
+
+		ret = sysfs_create_group(&data->fac_dev->kobj, &sec_fac_common_attr_group);
+		if (ret < 0) {
+			pr_err("%s %s: failed to create sec_fac_common_attr_group\n", SECLOG, __func__);
+			goto err_common_sysfs_group;
+		}
+		pr_info("%s: %s create sec_fac_common_attr_group: done\n", SECLOG, __func__);
+	}
 
 	pr_info("%s: %s %s: done\n", dev_name, SECLOG, __func__);
 
+	sec_cmd_send_event_to_user(data, NULL, "RESULT=PROBE_DONE");
+
 	return 0;
 
+err_common_sysfs_group:
+	if (!IS_ERR_OR_NULL(data->vendor_attr_group))
+		sysfs_remove_group(&data->fac_dev->kobj, data->vendor_attr_group);
+err_vendor_sysfs_group:
+	sysfs_remove_group(&data->fac_dev->kobj, &sec_fac_attr_group);
 err_sysfs_group:
 #if IS_ENABLED(CONFIG_DRV_SAMSUNG)
 	sec_device_destroy(data->fac_dev->devt);
@@ -799,6 +1131,19 @@ err_alloc_cmd_result:
 }
 EXPORT_SYMBOL(sec_cmd_init);
 
+/*
+ * sec_cmd_init_without_platdata
+ *
+ * If device driver doesn't use sec_ts_plat_data as platform_data, you should init cmds with this function.
+ * and should make sysfs like sec_fac_common_attrs on device driver side
+ */
+int sec_cmd_init_without_platdata(struct sec_cmd_data *data, struct sec_cmd *cmds,
+			int len, int devt, struct attribute_group *vendor_attr_group)
+{
+	return sec_cmd_init(data, NULL, cmds, len, devt, vendor_attr_group);
+}
+EXPORT_SYMBOL(sec_cmd_init_without_platdata);
+
 void sec_cmd_exit(struct sec_cmd_data *data, int devt)
 {
 #ifdef USE_SEC_CMD_QUEUE
@@ -807,6 +1152,11 @@ void sec_cmd_exit(struct sec_cmd_data *data, int devt)
 #endif
 
 	pr_info("%s: %s %s\n", dev_name(data->fac_dev), SECLOG, __func__);
+
+	if (!IS_ERR_OR_NULL(data->fac_dev))
+		sysfs_remove_group(&data->fac_dev->kobj, &sec_fac_common_attr_group);
+	if (!IS_ERR_OR_NULL(data->vendor_attr_group))
+		sysfs_remove_group(&data->fac_dev->kobj, data->vendor_attr_group);
 	sysfs_remove_group(&data->fac_dev->kobj, &sec_fac_attr_group);
 	dev_set_drvdata(data->fac_dev, NULL);
 #if IS_ENABLED(CONFIG_DRV_SAMSUNG)
@@ -818,9 +1168,8 @@ void sec_cmd_exit(struct sec_cmd_data *data, int devt)
 	mutex_lock(&data->fifo_lock);
 	while (kfifo_len(&data->cmd_queue)) {
 		ret = kfifo_out(&data->cmd_queue, &cmd, sizeof(struct command));
-		if (!ret) {
+		if (!ret)
 			pr_err("%s %s: kfifo_out failed, it seems empty, ret=%d\n", SECLOG, __func__, ret);
-		}
 		pr_info("%s %s: remove pending commands: %s", SECLOG, __func__, cmd.cmd);
 	}
 	mutex_unlock(&data->fifo_lock);
@@ -831,17 +1180,16 @@ void sec_cmd_exit(struct sec_cmd_data *data, int devt)
 	cancel_delayed_work_sync(&data->cmd_work);
 	flush_delayed_work(&data->cmd_work);
 #endif
+	if (!IS_ERR_OR_NULL(data->dev)) {
+		struct sec_ts_plat_data *plat_data = data->dev->platform_data;
+
+		plat_data->sec = NULL;
+	}
 	data->fac_dev = NULL;
 	kfree(data->cmd_result);
 	mutex_destroy(&data->cmd_lock);
 	list_del(&data->cmd_list_head);
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
-	if (devt == SEC_CLASS_DEVT_TSP1)
-		main_sec = NULL;
-	if (devt == SEC_CLASS_DEVT_TSP2)
-		sub_sec = NULL;
-#endif
 }
 EXPORT_SYMBOL(sec_cmd_exit);
 
@@ -869,18 +1217,18 @@ void sec_cmd_send_event_to_user(struct sec_cmd_data *data, char *test, char *res
 	strncat(timestamp, eol, 1);
 	snprintf(feature, 32, "FEATURE=TSP");
 	strncat(feature, eol, 1);
-	if (!test) {
+	if (!test)
 		snprintf(stest, 32, "TEST=NULL");
-	} else {
+	else
 		snprintf(stest, 32, "%s", test);
-	}
+
 	strncat(stest, eol, 1);
 
-	if (!result) {
+	if (!result)
 		snprintf(sresult, 64, "RESULT=NULL");
-	} else {
+	else
 		snprintf(sresult, 64, "%s", result);
-	}
+
 	strncat(sresult, eol, 1);
 
 	pr_info("%s: %s %s: time:%s, feature:%s, test:%s, result:%s\n",
@@ -896,336 +1244,51 @@ void sec_cmd_send_event_to_user(struct sec_cmd_data *data, char *test, char *res
 }
 EXPORT_SYMBOL(sec_cmd_send_event_to_user);
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
-void sec_cmd_virtual_tsp_register(struct sec_cmd_data *sec)
+void sec_cmd_send_status_uevent(struct sec_cmd_data *data, enum sec_cmd_status_uevent_type type, int value)
 {
-	if (strcmp(dev_name(sec->fac_dev), SEC_CLASS_DEV_NAME_TSP1) == 0) {
-		main_sec = sec;
-		input_info(true, sec->fac_dev, "%s: main\n", __func__);
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 10, 0))
-		main_sec->sysfs_functions = devm_kzalloc(main_sec->fac_dev, sizeof(struct sec_ts_virtual_sysfs_function), GFP_KERNEL);
-		if (!main_sec->sysfs_functions) {
-			return;
-		}
-#endif
-	} else if (strcmp(dev_name(sec->fac_dev), SEC_CLASS_DEV_NAME_TSP2) == 0) {
-		sub_sec = sec;
-		input_info(true, sec->fac_dev, "%s: sub\n", __func__);
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 10, 0))
-		sub_sec->sysfs_functions = devm_kzalloc(sub_sec->fac_dev, sizeof(struct sec_ts_virtual_sysfs_function), GFP_KERNEL);
-		if (!sub_sec->sysfs_functions) {
-			return ;
-		}
-#endif
-	}
-}
+	char test[32] = { 0 };
+	char result[32] = { 0 };
 
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 10, 0))
-int sec_cmd_virtual_tsp_read_sysfs(struct sec_cmd_data *sec, const char *path, char *buf, int len)
+	switch (type) {
+	case STATUS_TYPE_WET:
+		snprintf(test, sizeof(test), "STATUS=WET");
+		break;
+	case STATUS_TYPE_NOISE:
+		snprintf(test, sizeof(test), "STATUS=NOISE");
+		break;
+	case STATUS_TYPE_FREQ:
+		snprintf(test, sizeof(test), "STATUS=FREQ");
+		break;
+	default:
+		pr_info("%s: %s %s: undefined type %d\n",
+			dev_name(data->fac_dev), SECLOG, __func__, type);
+		return;
+	}
+
+	snprintf(result, sizeof(result), "VALUE=%d", value);
+	sec_cmd_send_event_to_user(data, test, result);
+}
+EXPORT_SYMBOL(sec_cmd_send_status_uevent);
+
+void sec_cmd_send_gesture_uevent(struct sec_cmd_data *data, int type, int x, int y)
 {
-	int ret = 0;
+	struct sec_ts_plat_data *plat_data;
+	char test[32] = { 0 };
+	char result[32] = { 0 };
 
-	if (main_sec) {
-		if (strcmp(path, PATH_MAIN_SEC_CMD_STATUS) == 0)
-			sec_cmd_show_status(main_sec->fac_dev, NULL, buf);
-		else if (strcmp(path, PATH_MAIN_SEC_CMD_RESULT) == 0)
-			sec_cmd_show_result(main_sec->fac_dev, NULL, buf);
-		else if (strcmp(path, PATH_MAIN_SEC_CMD_STATUS_ALL) == 0)
-			sec_cmd_show_status_all(main_sec->fac_dev, NULL, buf);
-		else if (strcmp(path, PATH_MAIN_SEC_CMD_RESULT_ALL) == 0)
-			sec_cmd_show_result_all(main_sec->fac_dev, NULL, buf);
-		else if (strcmp(path, PATH_MAIN_SEC_SYSFS_SUPPORT_FEATURE) == 0) {
-			if (main_sec->sysfs_functions->sec_tsp_support_feature_show != NULL)
-				main_sec->sysfs_functions->sec_tsp_support_feature_show(main_sec->fac_dev, NULL, buf);
-		} else if (strcmp(path, PATH_MAIN_SEC_SYSFS_PROX_POWER_OFF) == 0) {
-			if (main_sec->sysfs_functions->sec_tsp_prox_power_off_show != NULL)
-				main_sec->sysfs_functions->sec_tsp_prox_power_off_show(main_sec->fac_dev, NULL, buf);
-		}
-	}
+	if (!data->dev)
+		return;
 
-	if (sub_sec) {
-		if (strcmp(path, PATH_SUB_SEC_CMD_STATUS) == 0)
-			sec_cmd_show_status(sub_sec->fac_dev, NULL, buf);
-		else if (strcmp(path, PATH_SUB_SEC_CMD_RESULT) == 0)
-			sec_cmd_show_result(sub_sec->fac_dev, NULL, buf);
-		else if (strcmp(path, PATH_SUB_SEC_CMD_STATUS_ALL) == 0)
-			sec_cmd_show_status_all(sub_sec->fac_dev, NULL, buf);
-		else if (strcmp(path, PATH_SUB_SEC_CMD_RESULT_ALL) == 0)
-			sec_cmd_show_result_all(sub_sec->fac_dev, NULL, buf);
-		else if (strcmp(path, PATH_SUB_SEC_SYSFS_PROX_POWER_OFF) == 0) {
-			if (sub_sec->sysfs_functions->sec_tsp_prox_power_off_show != NULL)
-				sub_sec->sysfs_functions->sec_tsp_prox_power_off_show(sub_sec->fac_dev, NULL, buf);
-		}
-	}
+	plat_data = data->dev->platform_data;
+	if (IS_ERR_OR_NULL(plat_data))
+		return;
 
-	if (ret < 0) {
-		input_err(true, sec->fac_dev, "%s: failed to read, len:%d, ret:%d\n", __func__, len, ret);
-		ret = -EIO;
-	}
+	snprintf(test, sizeof(test), "GESTURE=%d", type);
+	snprintf(result, sizeof(result), "POS=%d,%d", x, y);
 
-	return ret;
+	sec_cmd_send_event_to_user(data, test, result);
 }
-#else
-int sec_cmd_virtual_tsp_read_sysfs(struct sec_cmd_data *sec, const char *path, char *buf, int len)
-{
-	int ret = 0;
-	mm_segment_t old_fs;
-	struct file *sysfs;
-
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
-
-	sysfs = filp_open(path, O_RDONLY, 0444);
-	if (IS_ERR(sysfs)) {
-		ret = PTR_ERR(sysfs);
-		input_err(true, sec->fac_dev, "%s: %s open fail, %d\n", __func__, path, ret);
-		set_fs(old_fs);
-		return ret;
-	}
-
-	ret = sysfs->f_op->read(sysfs, buf, len, &sysfs->f_pos);
-	if (ret < 0) {
-		input_err(true, sec->fac_dev, "%s: failed to read, len:%d, ret:%d\n", __func__, len, ret);
-		ret = -EIO;
-	}
-
-	filp_close(sysfs, current->files);
-	set_fs(old_fs);
-
-	return ret;
-}
-#endif
-EXPORT_SYMBOL(sec_cmd_virtual_tsp_read_sysfs);
-
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 10, 0))
-int sec_cmd_virtual_tsp_write_sysfs(struct sec_cmd_data *sec, const char *path, const char *cmd)
-{
-	int ret = 0;
-	int len;
-
-	len = strlen(cmd);
-	if (strncmp(path, PATH_MAIN_SEC_CMD, 23) == 0) {
-		if (main_sec)
-			ret = sec_cmd_store(main_sec->fac_dev, NULL, cmd, len);
-	} else if (strncmp(path, PATH_SUB_SEC_CMD, 23) == 0) {
-		if (sub_sec)
-			ret = sec_cmd_store(sub_sec->fac_dev, NULL, cmd, len);
-	} else if (strncmp(path, PATH_MAIN_SEC_SYSFS_DUALSCREEN_POLICY, 38) == 0) {
-		if (main_sec) {
-			if (main_sec->sysfs_functions->dualscreen_policy_store != NULL)
-				ret = main_sec->sysfs_functions->dualscreen_policy_store(main_sec->fac_dev, NULL, cmd, len);
-		}
-	} else if (strncmp(path, PATH_SUB_SEC_SYSFS_DUALSCREEN_POLICY, 38) == 0) {
-		if (sub_sec) {
-			if (sub_sec->sysfs_functions->dualscreen_policy_store != NULL)
-				ret = sub_sec->sysfs_functions->dualscreen_policy_store(sub_sec->fac_dev, NULL, cmd, len);
-		}
-	} else if (strncmp(path, PATH_MAIN_SEC_SYSFS_PROX_POWER_OFF, 34) == 0) {
-		if (main_sec) {
-			if (main_sec->sysfs_functions->sec_tsp_prox_power_off_store != NULL)
-				ret = main_sec->sysfs_functions->sec_tsp_prox_power_off_store(main_sec->fac_dev, NULL, cmd, len);
-		}
-	} else if (strncmp(path, PATH_SUB_SEC_SYSFS_PROX_POWER_OFF, 34) == 0) {
-		if (sub_sec) {
-			if (sub_sec->sysfs_functions->sec_tsp_prox_power_off_store != NULL)
-				ret = sub_sec->sysfs_functions->sec_tsp_prox_power_off_store(sub_sec->fac_dev, NULL, cmd, len);
-		}
-	}
-
-	if (ret != len) {
-		input_err(true, sec->fac_dev, "%s: failed to write, len:%d, ret:%d\n", __func__, len, ret);
-		ret = -EIO;
-	}
-
-	return ret;
-}
-#else
-int sec_cmd_virtual_tsp_write_sysfs(struct sec_cmd_data *sec, const char *path, const char *cmd)
-{
-	int ret = 0;
-	mm_segment_t old_fs;
-	struct file *sysfs;
-	int len;
-
-	if (strncmp(path, PATH_SUB_SEC_SYSFS_DUALSCREEN_POLICY, 38) == 0)
-		return ret;
-
-	len = strlen(cmd);
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
-
-	sysfs = filp_open(path, O_WRONLY, 0220);
-	if (IS_ERR(sysfs)) {
-		ret = PTR_ERR(sysfs);
-		input_err(true, sec->fac_dev, "%s: %s open fail, %d\n", __func__, path, ret);
-		set_fs(old_fs);
-		return ret;
-	}
-
-	ret = sysfs->f_op->write(sysfs, cmd, len, &sysfs->f_pos);
-	if (ret != len) {
-		input_err(true, sec->fac_dev, "%s: failed to write, len:%d, ret:%d\n", __func__, len, ret);
-		ret = -EIO;
-	}
-
-	filp_close(sysfs, current->files);
-	set_fs(old_fs);
-
-	return ret;
-}
-#endif
-EXPORT_SYMBOL(sec_cmd_virtual_tsp_write_sysfs);
-
-static int sec_cmd_virtual_tsp_get_cmd_status(struct sec_cmd_data *sec, char *path)
-{
-	u8 buff[16];
-	int ret;
-
-	memset(buff, 0x00, sizeof(buff));
-
-	ret = sec_cmd_virtual_tsp_read_sysfs(sec, path, buff, sizeof(buff));
-	if (ret < 0)
-		return SEC_CMD_STATUS_FAIL;
-
-	if (strncmp(buff, "WAITING", 7) == 0)
-		return SEC_CMD_STATUS_WAITING;
-	else if (strncmp(buff, "OK", 2) == 0)
-		return SEC_CMD_STATUS_OK;
-	else if (strncmp(buff, "FAIL", 4) == 0)
-		return SEC_CMD_STATUS_FAIL;
-	else if (strncmp(buff, "RUNNING", 7) == 0)
-		return SEC_CMD_STATUS_RUNNING;
-	else if (strncmp(buff, "EXPAND", 6) == 0)
-		return SEC_CMD_STATUS_EXPAND;
-	else
-		return SEC_CMD_STATUS_NOT_APPLICABLE;
-}
-
-int sec_cmd_virtual_tsp_write_cmd(struct sec_cmd_data *sec, bool main, bool sub)
-{
-	u8 buff[16];
-	int ret_sub = 0;
-	int ret_main = 0;
-	bool exit = false;
-
-	sec_cmd_set_default_result(sec);
-
-	if (!main && !sub) {
-		snprintf(buff, sizeof(buff), "%s", "NA");
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
-		goto err;
-	}
-
-	if (sub && sub_sec) {
-		input_dbg(true, sec->fac_dev, "%s: send to sub\n", sec->cmd);
-		ret_sub = sec_cmd_virtual_tsp_write_sysfs(sec, PATH_SUB_SEC_CMD, sec->cmd);
-		if (ret_sub < 0) {
-			snprintf(buff, sizeof(buff), "%s", "NG");
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			goto main;
-		}
-		sec->cmd_state = sec_cmd_virtual_tsp_get_cmd_status(sec, PATH_SUB_SEC_CMD_STATUS);
-		input_dbg(true, sec->fac_dev, "%s: sub_sec OK\n", sec->cmd);
-		if (!sub_sec->cmd_is_running)
-			exit = true;
-		sec_cmd_virtual_tsp_read_sysfs(sec, PATH_SUB_SEC_CMD_RESULT, sec->cmd_result, SEC_CMD_RESULT_STR_LEN);
-		memset(sec->cmd_result, 0x00, SEC_CMD_RESULT_STR_LEN_EXPAND);
-		sec_cmd_set_cmd_result(sec, sub_sec->cmd_result, strlen(sub_sec->cmd_result));
-	}
-main:
-	if (main && main_sec) {
-		input_dbg(true, sec->fac_dev, "%s: send to main\n", sec->cmd);
-		ret_main = sec_cmd_virtual_tsp_write_sysfs(sec, PATH_MAIN_SEC_CMD, sec->cmd);
-		if (ret_main < 0) {
-			snprintf(buff, sizeof(buff), "%s", "NG");
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			goto err;
-		}
-		sec->cmd_state = sec_cmd_virtual_tsp_get_cmd_status(sec, PATH_MAIN_SEC_CMD_STATUS);
-		input_dbg(true, sec->fac_dev, "%s: main_sec OK\n", sec->cmd);
-		if (!main_sec->cmd_is_running)
-			exit = true;
-		sec_cmd_virtual_tsp_read_sysfs(sec, PATH_MAIN_SEC_CMD_RESULT, sec->cmd_result, SEC_CMD_RESULT_STR_LEN);
-		memset(sec->cmd_result, 0x00, SEC_CMD_RESULT_STR_LEN_EXPAND);
-		sec_cmd_set_cmd_result(sec, main_sec->cmd_result, strlen(main_sec->cmd_result));
-	}
-	if (exit) {
-		input_dbg(true, sec->fac_dev, "%s: set_cmd_exit\n", sec->cmd);
-		sec_cmd_set_cmd_exit(sec);
-	} else if ((main && !main_sec) || (sub && !sub_sec)) {
-		input_err(true, sec->fac_dev, "%s: some device is not registered in virtual tsp.\n", sec->cmd);
-		sec_cmd_set_cmd_exit(sec);
-	}
-
-	return (ret_sub < 0 || ret_main < 0) ? -1 : 0;
-
-err:
-	sec_cmd_set_cmd_result(sec, buff, SEC_CMD_RESULT_STR_LEN);
-	sec_cmd_set_cmd_exit(sec);
-
-	return -1;
-}
-EXPORT_SYMBOL(sec_cmd_virtual_tsp_write_cmd);
-
-void sec_cmd_virtual_tsp_write_cmd_factory_all(struct sec_cmd_data *sec, bool main, bool sub)
-{
-	u8 buff[16];
-	int ret = 0;
-
-	sec_cmd_set_default_result(sec);
-
-	if (!main && !sub) {
-		snprintf(buff, sizeof(buff), "%s", "NA");
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
-		goto err;
-	}
-
-	if (sub && sub_sec) {
-		input_dbg(true, sec->fac_dev, "%s: sub\n", sec->cmd);
-		ret = sec_cmd_virtual_tsp_write_sysfs(sec, PATH_SUB_SEC_CMD, sec->cmd);
-		if (ret < 0) {
-			snprintf(buff, sizeof(buff), "%s", "NG");
-			sec->cmd_all_factory_state = SEC_CMD_STATUS_FAIL;
-			goto main;
-		}
-		sec->cmd_all_factory_state = sec_cmd_virtual_tsp_get_cmd_status(sec, PATH_SUB_SEC_CMD_STATUS_ALL);
-		sec_cmd_virtual_tsp_read_sysfs(sec, PATH_SUB_SEC_CMD_RESULT_ALL, sec->cmd_result_all, SEC_CMD_RESULT_STR_LEN);
-	}
-main:
-	if (main && main_sec) {
-		input_dbg(true, sec->fac_dev, "%s: main\n", sec->cmd);
-		ret = sec_cmd_virtual_tsp_write_sysfs(sec, PATH_MAIN_SEC_CMD, sec->cmd);
-		if (ret < 0) {
-			snprintf(buff, sizeof(buff), "%s", "NG");
-			sec->cmd_all_factory_state = SEC_CMD_STATUS_FAIL;
-			goto err;
-		}
-		sec->cmd_all_factory_state = sec_cmd_virtual_tsp_get_cmd_status(sec, PATH_MAIN_SEC_CMD_STATUS_ALL);
-		sec_cmd_virtual_tsp_read_sysfs(sec, PATH_MAIN_SEC_CMD_RESULT_ALL, sec->cmd_result_all, SEC_CMD_RESULT_STR_LEN);
-	}
-
-	return;
-
-err:
-	sec_cmd_set_cmd_result_all(sec, buff, SEC_CMD_RESULT_STR_LEN, "NONE");
-}
-EXPORT_SYMBOL(sec_cmd_virtual_tsp_write_cmd_factory_all);
-#endif
-
-#if IS_ENABLED(CONFIG_SEC_KUNIT) && !IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
-
-static int __init sec_cmd_m_init(void)
-{
-	return 0;
-}
-
-static void __exit sec_cmd_m_exit(void)
-{
-}
-
-module_init(sec_cmd_m_init);
-module_exit(sec_cmd_m_exit);
-#endif
+EXPORT_SYMBOL(sec_cmd_send_gesture_uevent);
 
 MODULE_DESCRIPTION("Samsung input command");
 MODULE_LICENSE("GPL");

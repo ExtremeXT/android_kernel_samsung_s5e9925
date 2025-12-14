@@ -24,6 +24,7 @@
 /* check whether the descriptor bLength has the minimal length */
 #define DESC_LENGTH_CHECK(p) \
 	 (p->bLength >= sizeof(*p))
+
 static void *find_uac_clock_desc(struct usb_host_interface *iface, int id,
 				 bool (*validator)(void *, int), u8 type)
 {

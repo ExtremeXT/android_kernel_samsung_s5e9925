@@ -191,32 +191,26 @@
 .endm
 
 /*
- * Macro to execute VERW insns that mitigate transient data sampling
- * attacks such as MDS or TSA. On affected systems a microcode update
- * overloaded VERW insns to also clear the CPU buffers. VERW clobbers
- * CFLAGS.ZF.
+ * Macro to execute VERW instruction that mitigate transient data sampling
+ * attacks such as MDS. On affected systems a microcode update overloaded VERW
+ * instruction to also clear the CPU buffers. VERW clobbers CFLAGS.ZF.
+ *
  * Note: Only the memory operand variant of VERW clears the CPU buffers.
  */
-.macro __CLEAR_CPU_BUFFERS feature
-	ALTERNATIVE "jmp .Lskip_verw_\@", "", \feature
+.macro CLEAR_CPU_BUFFERS
+	ALTERNATIVE "jmp .Lskip_verw_\@", "", X86_FEATURE_CLEAR_CPU_BUF
 #ifdef CONFIG_X86_64
-	verw x86_verw_sel(%rip)
+	verw mds_verw_sel(%rip)
 #else
 	/*
 	 * In 32bit mode, the memory operand must be a %cs reference. The data
 	 * segments may not be usable (vm86 mode), and the stack segment may not
 	 * be flat (ESPFIX32).
 	 */
-	verw %cs:x86_verw_sel
+	verw %cs:mds_verw_sel
 #endif
 .Lskip_verw_\@:
 .endm
-
-#define CLEAR_CPU_BUFFERS \
-	__CLEAR_CPU_BUFFERS X86_FEATURE_CLEAR_CPU_BUF
-
-#define VM_CLEAR_CPU_BUFFERS \
-	__CLEAR_CPU_BUFFERS X86_FEATURE_CLEAR_CPU_BUF_VM
 
 #else /* __ASSEMBLY__ */
 
@@ -230,12 +224,6 @@
 extern void __x86_return_thunk(void);
 #else
 static inline void __x86_return_thunk(void) {}
-#endif
-
-#ifdef CONFIG_MITIGATION_ITS
-extern void its_return_thunk(void);
-#else
-static inline void its_return_thunk(void) {}
 #endif
 
 extern void retbleed_return_thunk(void);
@@ -254,11 +242,6 @@ extern void (*x86_return_thunk)(void);
 #ifdef CONFIG_RETPOLINE
 
 typedef u8 retpoline_thunk_t[RETPOLINE_THUNK_SIZE];
-
-#define ITS_THUNK_SIZE	64
-typedef u8 its_thunk_t[ITS_THUNK_SIZE];
-
-extern its_thunk_t	 __x86_indirect_its_thunk_array[];
 
 #define GEN(reg) \
 	extern retpoline_thunk_t __x86_indirect_thunk_ ## reg;
@@ -404,22 +387,22 @@ DECLARE_STATIC_KEY_FALSE(switch_to_cond_stibp);
 DECLARE_STATIC_KEY_FALSE(switch_mm_cond_ibpb);
 DECLARE_STATIC_KEY_FALSE(switch_mm_always_ibpb);
 
-DECLARE_STATIC_KEY_FALSE(cpu_buf_idle_clear);
+DECLARE_STATIC_KEY_FALSE(mds_idle_clear);
 
 DECLARE_STATIC_KEY_FALSE(mmio_stale_data_clear);
 
-extern u16 x86_verw_sel;
+extern u16 mds_verw_sel;
 
 #include <asm/segment.h>
 
 /**
- * x86_clear_cpu_buffers - Buffer clearing support for different x86 CPU vulns
+ * mds_clear_cpu_buffers - Mitigation for MDS and TAA vulnerability
  *
  * This uses the otherwise unused and obsolete VERW instruction in
  * combination with microcode which triggers a CPU buffer flush when the
  * instruction is executed.
  */
-static __always_inline void x86_clear_cpu_buffers(void)
+static __always_inline void mds_clear_cpu_buffers(void)
 {
 	static const u16 ds = __KERNEL_DS;
 
@@ -436,15 +419,14 @@ static __always_inline void x86_clear_cpu_buffers(void)
 }
 
 /**
- * x86_idle_clear_cpu_buffers - Buffer clearing support in idle for the MDS
- * and TSA vulnerabilities.
+ * mds_idle_clear_cpu_buffers - Mitigation for MDS vulnerability
  *
  * Clear CPU buffers if the corresponding static key is enabled
  */
-static __always_inline void x86_idle_clear_cpu_buffers(void)
+static inline void mds_idle_clear_cpu_buffers(void)
 {
-	if (static_branch_likely(&cpu_buf_idle_clear))
-		x86_clear_cpu_buffers();
+	if (static_branch_likely(&mds_idle_clear))
+		mds_clear_cpu_buffers();
 }
 
 #endif /* __ASSEMBLY__ */

@@ -64,14 +64,14 @@ int exynos_drm_atomic_check_tui(struct drm_atomic_state *state)
 
 		if (new_exynos_crtc_state->tui_status &&
 				!new_exynos_crtc_state->tui_changed) {
-			DRM_ERROR("tui enabled reject commit(%pK)\n", state);
+			DRM_DEBUG("tui enabled reject commit(%pK)\n", state);
 			return -EPERM;
 		}
 
 		if (old_exynos_crtc_state->tui_changed &&
          !new_exynos_crtc_state->tui_changed &&
 				(new_crtc_state->plane_mask == 0)) {
-			DRM_ERROR("reject clear display commit(%pK)\n", state);
+			DRM_DEBUG("reject clear display commit(%pK)\n", state);
 			return -EPERM;
 		}
 	}

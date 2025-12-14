@@ -485,8 +485,6 @@ static int usbtmc488_ioctl_read_stb(struct usbtmc_file_data *file_data,
 	u8 tag;
 	__u8 stb;
 	int rv;
-	long wait_rv;
-	unsigned long expire;
 
 	dev_dbg(dev, "Enter ioctl_read_stb iin_ep_present: %d\n",
 		data->iin_ep_present);
@@ -529,14 +527,12 @@ static int usbtmc488_ioctl_read_stb(struct usbtmc_file_data *file_data,
 	}
 
 	if (data->iin_ep_present) {
-		expire = msecs_to_jiffies(file_data->timeout);
-		wait_rv = wait_event_interruptible_timeout(
+		rv = wait_event_interruptible_timeout(
 			data->waitq,
 			atomic_read(&data->iin_data_valid) != 0,
-			expire);
-		if (wait_rv < 0) {
-			dev_dbg(dev, "wait interrupted %ld\n", wait_rv);
-			rv = wait_rv;
+			file_data->timeout);
+		if (rv < 0) {
+			dev_dbg(dev, "wait interrupted %d\n", rv);
 			goto exit;
 		}
 
@@ -728,7 +724,7 @@ static struct urb *usbtmc_create_urb(void)
 	if (!urb)
 		return NULL;
 
-	dmabuf = kmalloc(bufsize, GFP_KERNEL);
+	dmabuf = kzalloc(bufsize, GFP_KERNEL);
 	if (!dmabuf) {
 		usb_free_urb(urb);
 		return NULL;

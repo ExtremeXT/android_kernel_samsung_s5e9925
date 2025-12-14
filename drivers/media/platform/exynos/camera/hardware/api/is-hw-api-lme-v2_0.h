@@ -55,6 +55,7 @@ int lme_hw_s_reset(void __iomem *base);
 void lme_hw_s_init(void __iomem *base);
 unsigned int lme_hw_is_occurred(unsigned int status, enum lme_event_type type);
 int lme_hw_wait_idle(void __iomem *base, u32 set_id);
+int lme_hw_check_idle(void __iomem *base, u32 set_id);
 void lme_hw_dump(void __iomem *base);
 void lme_hw_s_core(void __iomem *base, u32 set_id);
 int lme_hw_s_rdma_init(void __iomem *base, struct lme_param_set *param_set, u32 enable, u32 id, u32 set_id);

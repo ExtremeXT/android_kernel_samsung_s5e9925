@@ -619,7 +619,7 @@ static int __nocfi is_hw_3aa_open(struct is_hw_ip *hw_ip, u32 instance,
 	struct taa_buf_info info;
 	enum taa_internal_buf_id buf_id;
 
-	msdbg_hw(2, "[%s] core: 0x%lx context0: 0x%lx, zsl: 0x%lx, strp: 0x%lx\n", instance, hw_ip,
+	msdbg_hw(2, "[%s] core: 0x%pK context0: 0x%pK, zsl: 0x%pK, strp: 0x%pK\n", instance, hw_ip,
 		hw_ip->regs[REG_SETA], hw_ip->regs[REG_EXT1],
 		hw_ip->regs[REG_EXT2], hw_ip->regs[REG_EXT3]);
 

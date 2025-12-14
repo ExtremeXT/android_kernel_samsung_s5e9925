@@ -442,7 +442,7 @@ DHDCFLAGS += -DWL_STA_ASSOC_RAND
 #Soft AP MAC randomization
 DHDCFLAGS += -DWL_SOFTAP_RAND
 #p2p MAC randomization
-DHDCFLAGS += -DWL_P2P_RAND
+#DHDCFLAGS += -DWL_P2P_RAND
 
 #PNO
 DHDCFLAGS += -DWL_SCHED_SCAN
@@ -765,6 +765,10 @@ endif
   DHDCFLAGS += -DWL_DUAL_STA -DWL_DUAL_APSTA
 # Target Wake Time
   DHDCFLAGS += -DWL_TWT
+ifneq ($(filter y m,$(CONFIG_HDM)),)
+# Support Knox HDM feature
+  DHDCFLAGS += -DDHD_SUPPORT_HDM
+endif
 # For Samsung factory mode only
 ifeq ($(CONFIG_SEC_FACTORY),y)
 # Detect NON DMA M2M corruption
@@ -874,7 +878,7 @@ ifneq ($(filter y m,$(CONFIG_BCM4375)),)
   DHDCFLAGS += -DWL_SAE
  endif
  DHDCFLAGS += -DWL_STATIC_IF
- DHDCFLAGS += -DWL_STATIC_IFNAME_PREFIX="\"wlan1\""
+ DHDCFLAGS += -DWL_STATIC_IFNAME_PREFIX="\"swlan0\""
  #OWE
  DHDCFLAGS += -DWL_OWE
  # Disable HE on P2P
@@ -1079,6 +1083,10 @@ endif
   DHDCFLAGS += -DWL11AX
 # Advertise HE capabilities
   DHDCFLAGS += -DWL_CAP_HE
+ifeq ($(CONFIG_HDM),y)
+# Support Knox HDM feature
+  DHDCFLAGS += -DDHD_SUPPORT_HDM
+endif
 # For Samsung factory mode only
 ifeq ($(CONFIG_SEC_FACTORY),y)
 # Detect NON DMA M2M corruption

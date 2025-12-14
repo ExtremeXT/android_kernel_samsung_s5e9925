@@ -1,12 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * sec_secure_touch.c - samsung secure touch driver
- *
- * Copyright (C) 2018 Samsung Electronics
+ * Copyright (C) 2018 Samsung Electronics Co., Ltd.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
- *
  */
 
 struct sec_secure_touch *g_ss_touch;
@@ -14,9 +12,6 @@ struct sec_secure_touch *g_ss_touch;
 #include "sec_secure_touch.h"
 #include <linux/notifier.h>
 #include "sec_input.h"
-
-int sec_secure_touch_set_device(struct sec_secure_touch *data, int dev_num);
-void sec_secure_touch_sysfs_notify(struct sec_secure_touch *data);
 
 int sec_secure_touch_set_device(struct sec_secure_touch *data, int dev_num)
 {
@@ -45,7 +40,7 @@ int sec_secure_touch_set_device(struct sec_secure_touch *data, int dev_num)
 	return ret;
 }
 
-struct sec_touch_driver *sec_secure_touch_register(void *drv_data, int dev_num, struct kobject *kobj)
+struct sec_touch_driver *sec_secure_touch_register(void *drv_data, struct device *dev, int dev_num, struct kobject *kobj)
 {
 	struct sec_secure_touch *data = g_ss_touch;
 	int number = dev_num - 1;
@@ -71,6 +66,7 @@ struct sec_touch_driver *sec_secure_touch_register(void *drv_data, int dev_num, 
 	data->touch_driver[number].drv_number = dev_num;
 	data->touch_driver[number].drv_data = drv_data;
 	data->touch_driver[number].kobj = kobj;
+	data->touch_driver[number].dev = dev;
 	data->touch_driver[number].registered = 1;
 
 	data->device_number++;
@@ -97,6 +93,7 @@ void sec_secure_touch_unregister(int dev_num)
 	data->device_number--;
 
 }
+EXPORT_SYMBOL(sec_secure_touch_unregister);
 
 void sec_secure_touch_sysfs_notify(struct sec_secure_touch *data)
 {
@@ -108,7 +105,7 @@ void sec_secure_touch_sysfs_notify(struct sec_secure_touch *data)
 	dev_info(&g_ss_touch->pdev->dev, "%s\n", __func__);
 }
 
-static ssize_t secure_dev_count_show(struct device *dev,
+static ssize_t dev_count_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	struct sec_secure_touch *data = dev_get_drvdata(dev);
@@ -119,7 +116,7 @@ static ssize_t secure_dev_count_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d", data->device_number);
 }
 
-static DEVICE_ATTR(dev_count, 0444, secure_dev_count_show, NULL);
+static DEVICE_ATTR_RO(dev_count);
 
 static struct attribute *sec_secure_touch_attrs[] = {
 	&dev_attr_dev_count.attr,
@@ -130,7 +127,7 @@ static struct attribute_group sec_secure_touch_attr_group = {
 	.attrs = sec_secure_touch_attrs,
 };
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
+#if IS_ENABLED(CONFIG_SEC_INPUT_MULTI_DEVICE)
 static void sec_secure_touch_hall_ic_work(struct work_struct *work)
 {
 	struct sec_secure_touch *data = container_of(work, struct sec_secure_touch, folder_work.work);
@@ -146,29 +143,32 @@ static void sec_secure_touch_hall_ic_work(struct work_struct *work)
 				return;
 			}
 
-			sysfs_remove_link(&data->device->kobj, "secure");
-			data->touch_driver[SECURE_TOUCH_SUB_DEV].enabled = 0;
+			if (!IS_ERR_OR_NULL(sysfs_get_dirent(data->device->kobj.sd, "secure"))) {
+				sysfs_remove_link(&data->device->kobj, "secure");
+				data->touch_driver[SECURE_TOUCH_SUB_DEV].enabled = 0;
+			}
 		} else {
-			pr_info("%s: %s: error: %d\n", SECLOG, __func__, __LINE__);
+			pr_info("%s: %s: sub is not enabled: %d\n", SECLOG, __func__, __LINE__);
 		}
 
 		if (data->touch_driver[SECURE_TOUCH_MAIN_DEV].registered) {
 			if (data->touch_driver[SECURE_TOUCH_MAIN_DEV].enabled == 1) {
-				pr_info("%s: %s: already created\n", SECLOG, __func__);
 				mutex_unlock(&data->lock);
 				return;
 			}
 
-			ret = sysfs_create_link(&data->device->kobj, data->touch_driver[SECURE_TOUCH_MAIN_DEV].kobj, "secure");
-			if (ret < 0) {
-				mutex_unlock(&data->lock);
-				return;
-			}
+			if (!IS_ERR_OR_NULL(data->touch_driver[SECURE_TOUCH_MAIN_DEV].kobj)) {
+				ret = sysfs_create_link(&data->device->kobj, data->touch_driver[SECURE_TOUCH_MAIN_DEV].kobj, "secure");
+				if (ret < 0) {
+					pr_info("%s: %s: ret:%d, line:%d\n", SECLOG, __func__, ret, __LINE__);
+					mutex_unlock(&data->lock);
+					return;
+				}
 
-			pr_info("%s: %s: create link ret:%d, %s\n", SECLOG, __func__, ret, data->touch_driver[SECURE_TOUCH_MAIN_DEV].kobj->name);
-			data->touch_driver[SECURE_TOUCH_MAIN_DEV].enabled = 1;
+				data->touch_driver[SECURE_TOUCH_MAIN_DEV].enabled = 1;
+			}
 		} else {
-			pr_info("%s: %s: error: %d\n", SECLOG, __func__, __LINE__);
+			pr_info("%s: %s: main is not enabled: %d\n", SECLOG, __func__, __LINE__);
 		}
 	} else if (data->hall_ic == SECURE_TOUCH_FOLDER_CLOSE) {
 		if (data->touch_driver[SECURE_TOUCH_MAIN_DEV].enabled) {
@@ -177,29 +177,33 @@ static void sec_secure_touch_hall_ic_work(struct work_struct *work)
 				mutex_unlock(&data->lock);
 				return;
 			}
-			sysfs_remove_link(&data->device->kobj, "secure");
-			data->touch_driver[SECURE_TOUCH_MAIN_DEV].enabled = 0;
+
+			if (!IS_ERR_OR_NULL(sysfs_get_dirent(data->device->kobj.sd, "secure"))) {
+				sysfs_remove_link(&data->device->kobj, "secure");
+				data->touch_driver[SECURE_TOUCH_MAIN_DEV].enabled = 0;
+			}
 		} else {
-			pr_info("%s: %s: error: %d\n", SECLOG, __func__, __LINE__);
+			pr_info("%s: %s: main is not enabled: %d\n", SECLOG, __func__, __LINE__);
 		}
 
 		if (data->touch_driver[SECURE_TOUCH_SUB_DEV].registered) {
 			if (data->touch_driver[SECURE_TOUCH_SUB_DEV].enabled == 1) {
-				pr_info("%s: %s: already created\n", SECLOG, __func__);
 				mutex_unlock(&data->lock);
 				return;
 			}
 
-			ret = sysfs_create_link(&data->device->kobj, data->touch_driver[SECURE_TOUCH_SUB_DEV].kobj, "secure");
-			if (ret < 0) {
-				mutex_unlock(&data->lock);
-				return;
-			}
+			if (!IS_ERR_OR_NULL(data->touch_driver[SECURE_TOUCH_SUB_DEV].kobj)) {
+				ret = sysfs_create_link(&data->device->kobj, data->touch_driver[SECURE_TOUCH_SUB_DEV].kobj, "secure");
+				if (ret < 0) {
+					pr_info("%s: %s: ret:%d, line:%d\n", SECLOG, __func__, ret, __LINE__);
+					mutex_unlock(&data->lock);
+					return;
+				}
 
-			pr_info("%s: %s: create link ret:%d, %s\n", SECLOG, __func__, ret, data->touch_driver[SECURE_TOUCH_SUB_DEV].kobj->name);
-			data->touch_driver[SECURE_TOUCH_SUB_DEV].enabled = 1;
+				data->touch_driver[SECURE_TOUCH_SUB_DEV].enabled = 1;
+			}
 		} else {
-			pr_info("%s: %s: error: %d\n", SECLOG, __func__, __LINE__);
+			pr_info("%s: %s: sub is not enabled: %d\n", SECLOG, __func__, __LINE__);
 		}
 	} else {
 		mutex_unlock(&data->lock);
@@ -235,6 +239,47 @@ static int sec_secure_touch_hall_ic_notifier(struct notifier_block *nb, unsigned
 			data->touch_driver[SECURE_TOUCH_MAIN_DEV].is_running ? "tsp1" : "",
 			data->touch_driver[SECURE_TOUCH_SUB_DEV].is_running ? "tsp2" : "");
 
+	if (data->device_number < 2)
+		return 0;
+
+	if (data->hall_ic == SECURE_TOUCH_FOLDER_OPEN) {
+		if (data->touch_driver[SECURE_TOUCH_SUB_DEV].registered) {
+			if (data->touch_driver[SECURE_TOUCH_SUB_DEV].enabled) {
+				struct sec_ts_plat_data *pdata;
+				struct sec_trusted_touch *pvm;
+
+				if (!data->touch_driver[SECURE_TOUCH_SUB_DEV].dev)
+					goto out;
+				pdata = data->touch_driver[SECURE_TOUCH_SUB_DEV].dev->platform_data;
+				pvm = pdata->pvm;
+
+				if (atomic_read(&pvm->trusted_touch_enabled) == 1) {
+					pr_info("[sec_input] %s wait for disabling trusted touch(sub)\n", __func__);
+					wait_for_completion_interruptible(&pvm->trusted_touch_powerdown);
+					pr_info("[sec_input] %s complete disabling trusted touch(sub)\n", __func__);
+				}
+			}
+		}
+	} else if (data->hall_ic == SECURE_TOUCH_FOLDER_CLOSE) {
+		if (data->touch_driver[SECURE_TOUCH_MAIN_DEV].registered) {
+			if (data->touch_driver[SECURE_TOUCH_MAIN_DEV].enabled) {
+				struct sec_ts_plat_data *pdata;
+				struct sec_trusted_touch *pvm;
+
+				if (!data->touch_driver[SECURE_TOUCH_MAIN_DEV].dev)
+					goto out;
+				pdata = data->touch_driver[SECURE_TOUCH_MAIN_DEV].dev->platform_data;
+				pvm = pdata->pvm;
+
+				if (atomic_read(&pvm->trusted_touch_enabled) == 1) {
+					pr_info("[sec_input] %s wait for disabling trusted touch(main)\n", __func__);
+					wait_for_completion_interruptible(&pvm->trusted_touch_powerdown);
+					pr_info("[sec_input] %s complete disabling trusted touch(main)\n", __func__);
+				}
+			}
+		}
+	}
+out:
 	schedule_work(&data->folder_work.work);
 
 	return 0;
@@ -309,7 +354,7 @@ static int sec_secure_touch_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
+#if IS_ENABLED(CONFIG_SEC_INPUT_MULTI_DEVICE)
 #if IS_ENABLED(CONFIG_HALL_NOTIFIER)
 	data->nb.notifier_call = sec_secure_touch_hall_ic_notifier;
 	data->nb.priority = 1;
@@ -320,7 +365,7 @@ static int sec_secure_touch_probe(struct platform_device *pdev)
 	data->nb_ssh.priority = 1;
 	sensorfold_notifier_register(&data->nb_ssh);
 #endif
-	INIT_DELAYED_WORK(&data->folder_work, sec_secure_touch_hall_ic_work);	
+	INIT_DELAYED_WORK(&data->folder_work, sec_secure_touch_hall_ic_work);
 #else
 	sec_secure_touch_set_device(data, 1);
 #endif
@@ -335,7 +380,7 @@ static int sec_secure_touch_remove(struct platform_device *pdev)
 	int ii;
 
 	pr_info("%s: %s\n", SECLOG, __func__);
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
+#if IS_ENABLED(CONFIG_SEC_INPUT_MULTI_DEVICE)
 	mutex_lock(&data->lock);
 #if IS_ENABLED(CONFIG_HALL_NOTIFIER)
 	hall_notifier_unregister(&data->nb);
@@ -377,22 +422,21 @@ struct platform_driver sec_secure_touch_driver = {
 	},
 };
 
-static int __init sec_secure_touch_init(void)
+int sec_secure_touch_init(void)
 {
 	pr_info("%s: %s\n", SECLOG, __func__);
 
 	platform_driver_register(&sec_secure_touch_driver);
 	return 0;
 }
+EXPORT_SYMBOL(sec_secure_touch_init);
 
-static void __exit sec_secure_touch_exit(void)
+void sec_secure_touch_exit(void)
 {
 	pr_info("%s; %s\n", SECLOG, __func__);
 
 };
-
-module_init(sec_secure_touch_init);
-module_exit(sec_secure_touch_exit);
+EXPORT_SYMBOL(sec_secure_touch_exit);
 
 MODULE_DESCRIPTION("Samsung Secure Touch Driver");
 MODULE_LICENSE("GPL");

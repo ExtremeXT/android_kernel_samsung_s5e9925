@@ -103,9 +103,7 @@ int __init clocksource_i8253_init(void)
 #ifdef CONFIG_CLKEVT_I8253
 void clockevent_i8253_disable(void)
 {
-	unsigned long flags;
-
-	raw_spin_lock_irqsave(&i8253_lock, flags);
+	raw_spin_lock(&i8253_lock);
 
 	/*
 	 * Writing the MODE register should stop the counter, according to
@@ -135,7 +133,7 @@ void clockevent_i8253_disable(void)
 
 	outb_p(0x30, PIT_MODE);
 
-	raw_spin_unlock_irqrestore(&i8253_lock, flags);
+	raw_spin_unlock(&i8253_lock);
 }
 
 static int pit_shutdown(struct clock_event_device *evt)

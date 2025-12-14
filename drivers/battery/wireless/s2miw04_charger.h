@@ -25,7 +25,7 @@
 #include <linux/pm_wakeup.h>
 #include "../common/sec_charging_common.h"
 
-#define MFC_FW_BIN_VERSION		0x203A
+#define MFC_FW_BIN_VERSION		0x303A
 #define MFC_FW_VER_BIN_LSI		0xBFC
 #define MTP_MAX_PROGRAM_SIZE 0x4000
 #define MTP_VERIFY_ADDR			0x0000
@@ -125,9 +125,9 @@
 #define MFC_WPC_TRX_DATA2_VALUE1_REG		0x5A
 /********************************************************************************/
 
-#define WPCTx_E_FOD_MIN_CURRENT_HIGH_F			0x56
+#define WPCTx_E_FOD_MIN_CURRENT_HIGH_F		0x56
 #define WPCTx_E_FOD_POWER_LIMIT				0x57
-#define WPCTx_E_FOD_NU_PEAKING_DELAY			0x5B
+#define WPCTx_E_FOD_NU_PEAKING_DELAY		0x5B
 
 #define MFC_ADT_TIMEOUT_PKT_REG				0x5C
 #define MFC_ADT_TIMEOUT_STR_REG				0x5D
@@ -183,26 +183,25 @@
 #define MFC_WPC_FOD_9A_REG					0x82
 #define MFC_WPC_FOD_9B_REG					0x83
 
-#define WPCTx_E_FOD_INIT_FREQ					0x84
-#define WPCTx_E_FOD_INIT_DUTY					0x85
+#define WPCTx_E_FOD_INIT_FREQ				0x84
+#define WPCTx_E_FOD_INIT_DUTY				0x85
 #define WPCTx_E_FOD_DELAY					0x86
-#define WPCTx_E_FOD_2Q_DESIGNED					0x87
+#define WPCTx_E_FOD_2Q_DESIGNED				0x87
 #define WPCTx_E_FOD_Q_THRESHOLD_NORMAL				0x88 /* [7:4] : WPCTx_E_FOD_Q_THRESHOLD_NORMAL, [3:0] : WPCTx_E_FOD_MIN_CURRENT_Q */
 #define WPCTx_E_FOD_CURRENT_THRESHOLD_DUTY_INIT		0x89
-#define WPCTx_E_FOD_CURRENT_THRESHOLD_DUTY		0x8A
-#define WPCTx_E_FOD_CURRENT_CHECK_FREQ			0x8B
+#define WPCTx_E_FOD_CURRENT_THRESHOLD_DUTY	0x8A
+#define WPCTx_E_FOD_CURRENT_CHECK_FREQ		0x8B
 
-#define WPCTX_E_FOD_Q_LIMIT				0x800
+#define WPCTX_E_FOD_Q_LIMIT					0x800
 #define WPCTX_E_FOD_I1_LIMIT				0x801
 #define WPCTX_E_FOD_I2_LIMIT				0x802
-#define WPCTX_E_FOD_MIN_FREQ_CURRENT_LIMIT		0x803
-#define WPCTX_E_FOD_POWER_LOSS_LIMIT			0x804
+#define WPCTX_E_FOD_MIN_FREQ_CURRENT_LIMIT	0x803
+#define WPCTX_E_FOD_POWER_LOSS_LIMIT		0x804
 #define WPCTX_E_FOD_PING_CURRENT_LIMIT		0x805
 
 #define MFC_ADT_ERROR_CODE_REG				0x8D
 
-#define MFC_TX_FOD_GAIN_REG				0x8F
-
+#define MFC_TX_FOD_GAIN_REG					0x8F
 #define MFC_TX_FOD_OFFSET_L_REG				0x90
 #define MFC_TX_FOD_OFFSET_H_REG				0x91
 #define MFC_TX_FOD_THRESH1_L_REG			0x92
@@ -381,7 +380,7 @@
 #define TX_ID_UNKNOWN				0x00
 #define TX_ID_SNGL_PORT_START		0x01
 #define TX_ID_VEHICLE_PAD			0x11
-#define TX_ID_DREAM_DOWN			0x14
+#define TX_ID_PG950_D_PAD			0x14
 #define TX_ID_P1100_PAD				0x16
 #define TX_ID_P1300_PAD			0x17
 #define TX_ID_P2400_PAD_NOAUTH			0x18
@@ -391,7 +390,7 @@
 #define TX_ID_P5400_PAD_NOAUTH			0x27
 #define TX_ID_MULTI_PORT_END		0x2F
 #define TX_ID_STAND_TYPE_START		0x30
-#define TX_ID_DREAM_STAND			0x31
+#define TX_ID_PG950_S_PAD			0x31
 #define TX_ID_N3300_PAD			0x35
 #define TX_ID_STAND_TYPE_END		0x3F
 #define TX_ID_BATT_PACK_TA			0x41 /* 0x40 ~ 0x41 is N/C*/
@@ -404,12 +403,14 @@
 #define TX_ID_UNO_TX_MAX			0x9F
 
 #define TX_ID_AUTH_PAD				0xA0
-#define TX_ID_DAVINCI_PAD_V			0xA1
-#define TX_ID_DAVINCI_PAD_H			0xA2
+#define TX_ID_P5200_PAD				0xA0
+#define TX_ID_N5200_V_PAD			0xA1
+#define TX_ID_N5200_H_PAD			0xA2
 #define TX_ID_P2400_PAD				0xA3
 #define TX_ID_P5400_PAD				0xA4
 #define TX_ID_AUTH_PAD_ACLASS_END	0xAF
 #define TX_ID_AUTH_PAD_END			0xBF /* reserved 0xA1 ~ 0xBF for auth pad */
+#define TX_ID_JIG_PAD				0xED /* for factory */
 #define TX_ID_FG_PAD				0xEF /* Galaxy Friends */
 #define TX_ID_NON_AUTH_PAD			0xF0
 #define TX_ID_NON_AUTH_PAD_END		0xFF
@@ -866,6 +867,10 @@ struct mfc_charger_platform_data {
 	u32 *wireless20_vrect_list;
 	u32 *wireless20_max_power_list;
 	u8 len_wc20_list;
+	u32 *hv_fod_cc;
+	u32 *hv_fod_cv;
+	u32 *hv_fod_full;
+	u8 hv_fod_len;
 	bool ic_on_mode;
 	int hw_rev_changed; /* this is only for noble/zero2 */
 	int otp_firmware_result;
@@ -897,6 +902,8 @@ struct mfc_charger_platform_data {
 	u32 wpc_vout_ctrl_full;
 	bool wpc_headroom_ctrl_full;
 	bool mis_align_guide;
+	bool unknown_cmb_ctrl;
+	bool default_clamp_volt;
 	u32 mis_align_target_vout;
 	u32 mis_align_offset;
 	struct mfc_fod_data *fod_list;
@@ -904,8 +911,6 @@ struct mfc_charger_platform_data {
 	int tx_conflict_curr;
 
 	struct mfc_iec_data iec_params;
-
-	u32 fw_ver;
 };
 
 #define mfc_charger_platform_data_t \
@@ -944,7 +949,7 @@ struct mfc_charger_data {
 	struct wakeup_source *align_check_ws;
 	struct wakeup_source *mode_change_ws;
 	struct wakeup_source *wpc_cs100_ws;
-	struct wakeup_source *wpc_check_rx_power_ws;
+	struct wakeup_source *wpc_rx_power_trans_fail_ws;
 	struct workqueue_struct *wqueue;
 	struct work_struct wcin_work;
 	struct delayed_work wpc_det_work;
@@ -975,7 +980,7 @@ struct mfc_charger_data {
 	struct delayed_work wpc_init_work;
 	struct delayed_work align_check_work;
 	struct delayed_work mode_change_work;
-	struct delayed_work wpc_check_rx_power_work;
+	struct delayed_work wpc_rx_power_trans_fail_work;
 
 	struct alarm phm_alarm;
 
@@ -1039,7 +1044,18 @@ struct mfc_charger_data {
 	int vout_strength;
 	u32 mis_align_tx_try_cnt;
 	bool skip_phm_work_in_sleep;
+	u8 pdrc_state;
 	bool check_rx_power;
+
+	int mfc_adc_tx_vout;
+	int mfc_adc_tx_iout;
+	int mfc_adc_ping_frq;
+	int mfc_adc_tx_min_op_frq;
+	int mfc_adc_tx_max_op_frq;
+	int mfc_adc_vout;
+	int mfc_adc_vrect;
+	int mfc_adc_rx_iout;
+	int mfc_adc_op_frq;
 
 #if defined(CONFIG_WIRELESS_IC_PARAM)
 	unsigned int wireless_param_info;
@@ -1059,13 +1075,13 @@ struct mfc_charger_data {
 
 #define opfreq_ctrl_pad(pad_id) (\
 	((pad_id >= TX_ID_NON_AUTH_PAD) && (pad_id <= TX_ID_NON_AUTH_PAD_END)) || \
-	((pad_id >= TX_ID_DAVINCI_PAD_V) && (pad_id <= TX_ID_AUTH_PAD_ACLASS_END)) || \
+	((pad_id >= TX_ID_N5200_V_PAD) && (pad_id <= TX_ID_AUTH_PAD_ACLASS_END)) || \
 	(pad_id == TX_ID_P1300_PAD) || \
 	(pad_id == TX_ID_N3300_PAD) || \
 	(pad_id == TX_ID_P4300_PAD))
 
 #define volt_ctrl_pad(pad_id) (\
-	(pad_id != TX_ID_DREAM_STAND) && \
-	(pad_id != TX_ID_DREAM_DOWN))
+	(pad_id != TX_ID_PG950_S_PAD) && \
+	(pad_id != TX_ID_PG950_D_PAD))
 
 #endif /* __WIRELESS_CHARGER_S2MIW04_H */

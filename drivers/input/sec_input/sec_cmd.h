@@ -1,3 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0
+ * Copyright (C) 2022 Samsung Electronics Co., Ltd.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #ifndef _SEC_CMD_H_
 #define _SEC_CMD_H_
 #include <linux/kernel.h>
@@ -35,42 +43,44 @@
 
 #define SEC_CMD(name, func)		.cmd_name = name, .cmd_func = func
 #define SEC_CMD_H(name, func)		.cmd_name = name, .cmd_func = func, .cmd_log = 1
+#define SEC_CMD_V2(name, func, force_func, use_cases, wait_result) \
+					.cmd_name = name, .cmd_func = func, .cmd_func_forced = force_func, \
+					.cmd_use_cases = use_cases, .wait_read_result = wait_result
+#define SEC_CMD_V2_H(name, func, force_func, use_cases, wait_result) \
+					.cmd_name = name, .cmd_func = func, .cmd_func_forced = force_func, \
+					.cmd_use_cases = use_cases, .wait_read_result = wait_result, .cmd_log = 1
+
 #define SEC_CMD_BUF_SIZE		(4096 - 1)
 #define SEC_CMD_STR_LEN			256
 #define SEC_CMD_RESULT_STR_LEN		(4096 - 1)
 #define SEC_CMD_RESULT_STR_LEN_EXPAND	(SEC_CMD_RESULT_STR_LEN * 6)
 #define SEC_CMD_PARAM_NUM		8
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
-#define DEV_COUNT		2
-
-#define FLIP_STATUS_DEFAULT	-1
-#define FLIP_STATUS_MAIN	0
-#define FLIP_STATUS_SUB		1
-
-#define PATH_MAIN_SEC_CMD		"/sys/class/sec/tsp1/cmd"
-#define PATH_MAIN_SEC_CMD_STATUS	"/sys/class/sec/tsp1/cmd_status"
-#define PATH_MAIN_SEC_CMD_RESULT	"/sys/class/sec/tsp1/cmd_result"
-#define PATH_MAIN_SEC_CMD_STATUS_ALL	"/sys/class/sec/tsp1/cmd_status_all"
-#define PATH_MAIN_SEC_CMD_RESULT_ALL	"/sys/class/sec/tsp1/cmd_result_all"
-#define PATH_MAIN_SEC_SYSFS_SUPPORT_FEATURE "/sys/class/sec/tsp1/support_feature"
-#define PATH_MAIN_SEC_SYSFS_PROX_POWER_OFF "/sys/class/sec/tsp1/prox_power_off"
-#define PATH_MAIN_SEC_SYSFS_DUALSCREEN_POLICY "/sys/class/sec/tsp1/dualscreen_policy"
-
-#define PATH_SUB_SEC_CMD		"/sys/class/sec/tsp2/cmd"
-#define PATH_SUB_SEC_CMD_STATUS		"/sys/class/sec/tsp2/cmd_status"
-#define PATH_SUB_SEC_CMD_RESULT		"/sys/class/sec/tsp2/cmd_result"
-#define PATH_SUB_SEC_CMD_STATUS_ALL	"/sys/class/sec/tsp2/cmd_status_all"
-#define PATH_SUB_SEC_CMD_RESULT_ALL	"/sys/class/sec/tsp2/cmd_result_all"
-#define PATH_SUB_SEC_SYSFS_PROX_POWER_OFF "/sys/class/sec/tsp2/prox_power_off"
-#define PATH_SUB_SEC_SYSFS_DUALSCREEN_POLICY "/sys/class/sec/tsp2/dualscreen_policy"
-#endif
+#define WAIT_RESULT true
+#define EXIT_RESULT false
 
 struct sec_cmd {
 	struct list_head	list;
 	const char		*cmd_name;
 	void			(*cmd_func)(void *device_data);
+	int			(*cmd_func_forced)(void *device_data);
+/*
+ * cmd_use_cases using as below
+ * 1 : call function, 0 : no call
+ * first bit(1<<0) CHECK_POWEROFF
+ * second bit(1<<1) CHECK_LPMODE
+ * third bit(1<<2) CHECK_POWERON
+ */
+	int			cmd_use_cases;
+	bool			wait_read_result;
 	int			cmd_log;
+	bool			not_support_cmds;
+};
+
+enum sec_cmd_status_uevent_type {
+	STATUS_TYPE_WET = 0,
+	STATUS_TYPE_NOISE,
+	STATUS_TYPE_FREQ,
 };
 
 enum SEC_CMD_STATUS {
@@ -110,17 +120,9 @@ struct command {
 };
 #endif
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
-struct sec_ts_virtual_sysfs_function {
-	ssize_t (*sec_tsp_support_feature_show)(struct device *dev, struct device_attribute *attr, char *buf);
-	ssize_t (*sec_tsp_prox_power_off_show)(struct device *dev, struct device_attribute *attr, char *buf);
-	ssize_t (*sec_tsp_prox_power_off_store)(struct device *dev, struct device_attribute *attr, const char *buf, size_t count);
-	ssize_t (*dualscreen_policy_store)(struct device *dev, struct device_attribute *attr, const char *buf, size_t count);
-};
-#endif
-
 struct sec_cmd_data {
 	struct device		*fac_dev;
+	struct device		*dev;
 	struct list_head	cmd_list_head;
 	u8			cmd_state;
 	char			cmd[SEC_CMD_STR_LEN];
@@ -129,7 +131,7 @@ struct sec_cmd_data {
 	int			cmd_result_expand;
 	int			cmd_result_expand_count;
 	int			cmd_buffer_size;
-	volatile bool		cmd_is_running;
+	atomic_t			cmd_is_running;
 	struct mutex		cmd_lock;
 	struct mutex		fs_lock;
 #ifdef USE_SEC_CMD_QUEUE
@@ -143,25 +145,20 @@ struct sec_cmd_data {
 	int item_count;
 	char cmd_result_all[SEC_CMD_RESULT_STR_LEN];
 	u8 cmd_all_factory_state;
-
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
-	struct sec_ts_virtual_sysfs_function *sysfs_functions;
-#endif
+	struct attribute_group *vendor_attr_group;
 };
 
-extern void sec_cmd_set_cmd_exit(struct sec_cmd_data *data);
-extern void sec_cmd_set_default_result(struct sec_cmd_data *data);
-extern void sec_cmd_set_cmd_result(struct sec_cmd_data *data, char *buff, int len);
-extern void sec_cmd_set_cmd_result_all(struct sec_cmd_data *data, char *buff, int len, char *item);
-extern int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds, int len, int devt);
-extern void sec_cmd_exit(struct sec_cmd_data *data, int devt);
-extern void sec_cmd_send_event_to_user(struct sec_cmd_data *data, char *test, char *result);
+void sec_cmd_set_cmd_exit(struct sec_cmd_data *data);
+void sec_cmd_set_default_result(struct sec_cmd_data *data);
+void sec_cmd_set_cmd_result(struct sec_cmd_data *data, char *buff, int len);
+void sec_cmd_set_cmd_result_all(struct sec_cmd_data *data, char *buff, int len, char *item);
+int sec_cmd_init(struct sec_cmd_data *data, struct device *dev, struct sec_cmd *cmds,
+			int len, int devt, struct attribute_group *vendor_attr_group);
+int sec_cmd_init_without_platdata(struct sec_cmd_data *data, struct sec_cmd *cmds,
+			int len, int devt, struct attribute_group *vendor_attr_group);
+void sec_cmd_exit(struct sec_cmd_data *data, int devt);
+void sec_cmd_send_event_to_user(struct sec_cmd_data *data, char *test, char *result);
+void sec_cmd_send_status_uevent(struct sec_cmd_data *data, enum sec_cmd_status_uevent_type type, int value);
+void sec_cmd_send_gesture_uevent(struct sec_cmd_data *data, int type, int x, int y);
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
-void sec_cmd_virtual_tsp_register(struct sec_cmd_data *sec);
-int sec_cmd_virtual_tsp_read_sysfs(struct sec_cmd_data *sec, const char *path, char *buf, int len);
-int sec_cmd_virtual_tsp_write_sysfs(struct sec_cmd_data *sec, const char *path, const char *cmd);
-int sec_cmd_virtual_tsp_write_cmd(struct sec_cmd_data *sec, bool main, bool sub);
-void sec_cmd_virtual_tsp_write_cmd_factory_all(struct sec_cmd_data *sec, bool main, bool sub);
-#endif
 #endif /* _SEC_CMD_H_ */

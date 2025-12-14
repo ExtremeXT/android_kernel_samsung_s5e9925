@@ -1363,6 +1363,13 @@ int sensor_imx754_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_d
 		goto p_err_i2c_unlock;
 	}
 
+	if (fll_shifter > 3) {
+		info("[%s] FLL reflection timing 1V\n",	__func__);
+		ret = is_sensor_write8(client, 0x3014, 0x00);
+		if (ret < 0)
+			goto p_err_i2c_unlock;
+	}
+
 	ret = is_sensor_write16(client, 0x0340, frame_length_lines);
 	if (ret < 0)
 		goto p_err_i2c_unlock;

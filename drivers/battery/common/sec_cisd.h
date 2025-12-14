@@ -125,24 +125,10 @@ enum cisd_data_per_day {
 	CISD_DATA_BUCK_OFF_PER_DAY,
 	CISD_DATA_USB_OVERHEAT_ALONE_PER_DAY,
 	CISD_DATA_DROP_VALUE_PER_DAY,
+	CISD_DATA_CHG_RETENTION_TIME_PER_DAY,
+	CISD_DATA_TOTAL_CHG_RETENTION_TIME_PER_DAY,
 
 	CISD_DATA_MAX_PER_DAY,
-};
-
-enum {
-	WC_DATA_INDEX = 0,
-	WC_UNKNOWN,
-	WC_SNGL_NOBLE,
-	WC_SNGL_VEHICLE,
-	WC_SNGL_MINI,
-	WC_SNGL_ZERO,
-	WC_SNGL_DREAM,
-	WC_STAND_HERO,
-	WC_STAND_DREAM,
-	WC_EXT_PACK,
-	WC_EXT_PACK_TA,
-
-	WC_DATA_MAX,
 };
 
 enum {
@@ -154,6 +140,7 @@ enum {
 	CISD_CABLE_PD,
 	CISD_CABLE_PD_HIGH,
 	CISD_CABLE_HV_WC_20,
+	CISD_CABLE_FPDO_DC,
 
 	CISD_CABLE_TYPE_MAX,
 };
@@ -175,6 +162,11 @@ enum {
 	EVENT_OVP_SIGNAL,
 	EVENT_OTG,
 	EVENT_D2D,
+#if IS_ENABLED(CONFIG_DUAL_BATTERY)
+	EVENT_MAIN_BAT_ERR,
+	EVENT_SUB_BAT_ERR,
+	EVENT_BAT_WA_ERR,
+#endif
 	EVENT_DATA_MAX,
 };
 
@@ -226,7 +218,7 @@ struct cisd {
 
 	unsigned int ab_vbat_max_count;
 	unsigned int ab_vbat_check_count;
-	unsigned int max_voltage_thr;
+	int max_voltage_thr;
 
 	unsigned int gpio_ovp_power;
 	unsigned int irq_ovp_power;

@@ -576,6 +576,7 @@ static int ring_context_alloc(struct intel_context *ce)
 	/* One ringbuffer to rule them all */
 	GEM_BUG_ON(!engine->legacy.ring);
 	ce->ring = engine->legacy.ring;
+	ce->timeline = intel_timeline_get(engine->legacy.timeline);
 
 	GEM_BUG_ON(ce->state);
 	if (engine->context_size) {
@@ -589,8 +590,6 @@ static int ring_context_alloc(struct intel_context *ce)
 		if (engine->default_state)
 			__set_bit(CONTEXT_VALID_BIT, &ce->flags);
 	}
-
-	ce->timeline = intel_timeline_get(engine->legacy.timeline);
 
 	return 0;
 }

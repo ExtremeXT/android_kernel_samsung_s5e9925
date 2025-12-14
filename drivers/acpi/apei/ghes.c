@@ -1478,7 +1478,7 @@ void __init ghes_init(void)
 {
 	int rc;
 
-	acpi_sdei_init();
+	sdei_init();
 
 	if (acpi_disabled)
 		return;

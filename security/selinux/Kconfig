@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 config SECURITY_SELINUX
 	bool "NSA SELinux Support"
-	depends on SECURITY_NETWORK && NET && INET
+	depends on SECURITY_NETWORK && AUDIT && NET && INET
 	select NETWORK_SECMARK
 	default n
 	help
@@ -60,20 +60,6 @@ config SECURITY_SELINUX_DEVELOP
 	  can interactively toggle the kernel between enforcing mode and
 	  permissive mode (if permitted by the policy) via
 	  /sys/fs/selinux/enforce.
-
-config SECURITY_SELINUX_ALWAYS_ENFORCE
-	bool "NSA SELinux Always Enforcing"
-	depends on SECURITY_SELINUX_DEVELOP
-	default n
-	help
-	  This option will prevent anything from setting SELinux to permissive.
-
-config SECURITY_SELINUX_ALWAYS_PERMISSIVE
-	bool "NSA SELinux Always Permissive"
-	depends on SECURITY_SELINUX_DEVELOP
-	default n
-	help
-	  This option will prevent anything from setting SELinux to enforcing.
 
 config SECURITY_SELINUX_AVC_STATS
 	bool "NSA SELinux AVC Statistics"

@@ -1363,7 +1363,7 @@ static const rsn_akm_wpa_auth_entry_t rsn_akm_wpa_auth_lookup_tbl[] = {
 #define _S(x) #x
 #define S(x) _S(x)
 
-#define SOFT_AP_IF_NAME         "wlan1"
+#define SOFT_AP_IF_NAME         "swlan0"
 
 /* watchdog timer for disconnecting when fw is not associated for FW_ASSOC_WATCHDOG_TIME ms */
 uint32 fw_assoc_watchdog_ms = 0;
@@ -19184,12 +19184,12 @@ void wl_cfg80211_enable_trace(bool set, u32 level)
 		wl_dbg_level |= (WL_DBG_LEVEL & level);
 }
 
-uint32 wl_cfg80211_get_print_level(void)
+uint32 wl_cfg80211_get_print_level()
 {
 	return wl_dbg_level;
 }
 
-uint32 wl_cfg80211_get_log_level(void)
+uint32 wl_cfg80211_get_log_level()
 {
 	return wl_log_level;
 }

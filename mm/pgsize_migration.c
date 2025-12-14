@@ -257,11 +257,19 @@ static const struct vm_operations_struct pad_vma_ops = {
 };
 
 /*
- * Initialize @pad VMA fields with information from the original @vma.
+ * Returns a new VMA representing the padding in @vma, if no padding
+ * in @vma returns NULL.
  */
-static void init_pad_vma(struct vm_area_struct *vma, struct vm_area_struct *pad)
+struct vm_area_struct *get_pad_vma(struct vm_area_struct *vma)
 {
-	memcpy(pad, vma, sizeof(struct vm_area_struct));
+	struct vm_area_struct *pad;
+
+	if (!is_pgsize_migration_enabled() || !(vma->vm_flags & VM_PAD_MASK))
+		return NULL;
+
+	pad = kzalloc(sizeof(struct vm_area_struct), GFP_KERNEL);
+
+	*pad = *vma;
 
 	/* Remove file */
 	pad->vm_file = NULL;
@@ -277,34 +285,60 @@ static void init_pad_vma(struct vm_area_struct *vma, struct vm_area_struct *pad)
 
 	/* Remove padding bits */
 	pad->vm_flags &= ~VM_PAD_MASK;
+
+	return pad;
 }
 
 /*
- * Calls the show_pad_vma_fn on the @pad VMA.
+ * Returns a new VMA exclusing the padding from @vma; if no padding in
+ * @vma returns @vma.
  */
-void show_map_pad_vma(struct vm_area_struct *vma, struct seq_file *m,
-		      void *func, bool smaps)
+struct vm_area_struct *get_data_vma(struct vm_area_struct *vma)
 {
-	struct vm_area_struct pad;
+	struct vm_area_struct *data;
 
 	if (!is_pgsize_migration_enabled() || !(vma->vm_flags & VM_PAD_MASK))
+		return vma;
+
+	data = kzalloc(sizeof(struct vm_area_struct), GFP_KERNEL);
+
+	*data = *vma;
+
+	/* Adjust the end to the start of the padding section */
+	data->vm_end = VMA_PAD_START(data);
+
+	return data;
+}
+
+/*
+ * Calls the show_pad_vma_fn on the @pad VMA, and frees the copies of @vma
+ * and @pad.
+ */
+void show_map_pad_vma(struct vm_area_struct *vma, struct vm_area_struct *pad,
+		      struct seq_file *m, void *func, bool smaps)
+{
+	if (!pad)
 		return;
 
-	init_pad_vma(vma, &pad);
+	/*
+	 * This cannot happen. If @pad vma was allocated the corresponding
+	 * @vma should have the VM_PAD_MASK bit(s) set.
+	 */
+	BUG_ON(!(vma->vm_flags & VM_PAD_MASK));
 
-	/* The pad VMA should be anonymous. */
-	BUG_ON(pad.vm_file);
-
-	/* The pad VMA should be PROT_NONE. */
-	BUG_ON(pad.vm_flags & (VM_READ|VM_WRITE|VM_EXEC));
-
-	/* The pad VMA itself cannot have padding; infinite recursion */
-	BUG_ON(pad.vm_flags & VM_PAD_MASK);
+	/*
+	 * This cannot happen. @pad is a section of the original VMA.
+	 * Therefore @vma cannot be null if @pad is not null.
+	 */
+	BUG_ON(!vma);
 
 	if (smaps)
-		((show_pad_smaps_fn)func)(m, &pad);
+		((show_pad_smaps_fn)func)(m, pad);
 	else
-		((show_pad_maps_fn)func)(m, &pad);
+		((show_pad_maps_fn)func)(m, pad);
+
+	kfree(pad);
+	kfree(vma);
 }
 
 /*

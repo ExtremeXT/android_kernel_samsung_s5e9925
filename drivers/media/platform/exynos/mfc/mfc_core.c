@@ -164,13 +164,13 @@ int mfc_core_sysmmu_fault_handler(struct iommu_fault *fault, void *param)
 			core->id, (unsigned int)(fault->event.addr),
 			core->logging_data->fault_trans_info);
 
-	call_dop(core, dump_and_stop_debug_mode, core);
+	call_dop(core, dump_and_stop_always, core);
 
 	/*
 	 * if return 0, sysmmu occurs kernel panic for debugging
 	 * if -EAGAIN, sysmmu doesn't occur kernel panic (but need async-fault in dt).
 	 */
-	if (!core->dev->pdata->debug_mode && !core->dev->debugfs.debug_mode_en) {
+	if (core->dev->otf_inst_bits) {
 		mfc_core_handle_error(core);
 		ret = -EAGAIN;
 	} else {
@@ -423,57 +423,60 @@ static int __mfc_itmon_notifier(struct notifier_block *nb, unsigned long action,
 	struct itmon_notifier *itmon_info = nb_data;
 	int is_mfc_itmon = 0, is_master = 0;
 	int ret = NOTIFY_OK;
-	size_t cmp_size;
+	char name[10];
+	size_t size;
 
 	core = container_of(nb, struct mfc_core, itmon_nb);
+	mfc_core_debug(2, "[MFCITMON] notifier: +\n");
 
-	if (IS_ERR_OR_NULL(itmon_info))
+	if (IS_ERR_OR_NULL(itmon_info)) {
+		mfc_core_debug(2, "[MFCITMON] notifier: -\n");
 		return ret;
+	}
 
 	/*
-	 * Multi core device should be compared till core number,
-	 * in the other case, only need to match the 3 words "MFC".
+	 * Node name is defined in bootloader
+	 * ex: MFC_D, MFC_D0, MFC_D1, MFD_D0, MFD_D1, MFC0_D0, MFC1_D0, MFC_P...
 	 */
-	if (IS_MULTI_CORE_DEVICE(core->dev))
-		cmp_size = strlen(core->name);
-	else
-		cmp_size = strlen("MFC");
+	if (core->id == MFC_CORE_MAIN) {
+		size = strlen("MFC");
+		snprintf(name, size + 1, "MFC");
+	} else {
+		size = strlen("MFD");
+		snprintf(name, size + 1, "MFD");
+	}
 
 	/* print dump if it is an MFC ITMON error */
 	if (itmon_info->port &&
-			strncmp(core->name, itmon_info->port, cmp_size) == 0) {
+			strncmp(name, itmon_info->port, size) == 0) {
 		is_mfc_itmon = 1;
 		is_master = 1;
 	} else if (itmon_info->master &&
-			strncmp(core->name, itmon_info->master, cmp_size) == 0) {
+			strncmp(name, itmon_info->master, size) == 0) {
 		is_mfc_itmon = 1;
 		is_master = 1;
 	} else if (itmon_info->dest &&
-			strncmp(core->name, itmon_info->dest, cmp_size) == 0) {
+			strncmp(name, itmon_info->dest, size) == 0) {
 		is_mfc_itmon = 1;
 		is_master = 0;
 	}
 
-	if (!is_mfc_itmon)
+	if (!is_mfc_itmon) {
+		mfc_core_debug(2, "[MFCITMON] It is not mfc itmon\n");
 		return ret;
-
-	dev_err(core->device, "mfc_itmon_notifier: +\n");
-	dev_err(core->device, "MFC is %s\n", is_master ? "master" : "dest");
-	if (!core->itmon_notified) {
-		dev_err(core->device, "dump MFC information\n");
-		if (is_master || (!is_master && itmon_info->onoff))
-			call_dop(core, dump_and_stop_always, core);
-		else
-			call_dop(core, dump_info_without_regs, core);
-	} else {
-		dev_err(core->device, "MFC notifier has already been called. skip MFC information\n");
 	}
-	dev_err(core->device, "mfc_itmon_notifier: -\n");
-	core->itmon_notified = 1;
-	ret = NOTIFY_BAD;
 
-	dbg_snapshot_expire_watchdog();
-	BUG();
+	dev_err(core->device, "[MFCITMON] mfc_itmon_notifier: ++\n");
+	dev_err(core->device, "[MFCITMON] MFC is %s\n", is_master ? "master" : "dest");
+	if (!core->itmon_notified) {
+		dev_err(core->device, "[MFCITMON] dump MFC information\n");
+		core->itmon_notified = 1;
+		call_dop(core, dump_and_stop_always, core);
+	} else {
+		dev_err(core->device, "[MFCITMON] MFC notifier has already been called. skip MFC information\n");
+	}
+	dev_err(core->device, "[MFCITMON] mfc_itmon_notifier: --\n");
+	ret = NOTIFY_BAD;
 
 	return ret;
 }

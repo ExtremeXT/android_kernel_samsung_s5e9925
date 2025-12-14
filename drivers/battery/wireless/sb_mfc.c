@@ -44,7 +44,6 @@ struct sb_mfc {
 static unsigned int __read_mostly wireless_ic;
 module_param(wireless_ic, uint, 0444);
 
-extern int max77705_charger_probed(void);
 
 int sb_mfc_check_chip_id(int chip_id)
 {
@@ -116,12 +115,11 @@ static int get_chip_id(struct i2c_client *i2c)
 		ret = i2c_read(i2c, 0x00, &temp);
 		if (ret >= 0) {
 			mfc_log("chip_id = 0x%x\n", temp);
-			ret =  temp;
-			break;
+			return temp;
 		}
 	}
 
-	return ret;
+	return 0;
 }
 
 static int parse_dt(struct sb_mfc *mfc, struct device *dev)
@@ -149,7 +147,7 @@ static int parse_dt(struct sb_mfc *mfc, struct device *dev)
 
 static bool check_chip_id(int chip_id)
 {
-	static int chip_id_list[2] = { 0x20, 0x04 };
+	static int chip_id_list[3] = { 0x20, 0x04, 0x38 };
 	int i;
 
 	if (chip_id == 0)
@@ -201,6 +199,7 @@ static int probe(struct i2c_client *i2c, const struct i2c_device_id *id)
 	/* check chip id */
 	wpc_det = gpio_get_value(mfc->wpc_det_gpio);
 	if (!wpc_det) {
+		sec_chg_check_dev_modprobe(SC_DEV_MAIN_CHG);
 		set_uno(mfc->chg_name, true);
 		msleep(200);
 	}
@@ -215,12 +214,15 @@ static int probe(struct i2c_client *i2c, const struct i2c_device_id *id)
 	ret = -ENODEV;
 	mfc_log("Loaded...wireless_ic = 0x%x\n", wireless_ic);
 
+	sec_chg_set_dev_init(SC_DEV_SB_MFC);
+
 	kfree(mfc);
 	return ret;
 
 failed_dt:
 	kfree(mfc);
 skip_probe:
+	sec_chg_set_dev_init(SC_DEV_SB_MFC);
 	return ret;
 }
 
@@ -286,7 +288,6 @@ static struct i2c_driver i2c = {
 static int __init sb_mfc_init(void)
 {
 	mfc_log("\n");
-	max77705_charger_probed();
 	return i2c_add_driver(&i2c);
 }
 module_init(sb_mfc_init);

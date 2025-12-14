@@ -259,6 +259,9 @@ ifeq ($(CONFIG_EXYNOS_GPU_PROFILER), m)
         sgpu-$(CONFIG_DRM_SGPU_DVFS) += sgpu_profiler_external_v1.o
 endif
 
+# add sgpu_power_tracepoint
+sgpu-y += sgpu_power_trace_points.o
+
 # add SGPU Debug messages
 sgpu-y += sgpu_dmsg.o
 obj-$(CONFIG_DRM_SGPU)+= sgpu.o

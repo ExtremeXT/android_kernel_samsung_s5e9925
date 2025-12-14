@@ -1,4 +1,10 @@
-
+/* SPDX-License-Identifier: GPL-2.0
+ * Copyright (C) 2022 Samsung Electronics Co., Ltd.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
 #ifndef _SEC_TSP_LOG_H_
 #define _SEC_TSP_LOG_H_
 
@@ -13,7 +19,8 @@
 #include <linux/sched/clock.h>
 
 #define SEC_TSP_LOG_BUF_SIZE		(256 * 1024)	/* 256 KB */
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
+#define SEC_TSP_FAIL_HIST_BUF_SIZE	(50 * 1024)	/* 50 KB */
+#if IS_ENABLED(CONFIG_SEC_INPUT_MULTI_DEVICE)
 #define SEC_TSP_RAW_DATA_BUF_SIZE	(2 * 50 * 1024)	/* 100 KB */
 #else
 #define SEC_TSP_RAW_DATA_BUF_SIZE	(50 * 1024)	/* 50 KB */
@@ -32,18 +39,12 @@
  * ( Timestamp + additional Message + Tsp logs )
  */
 void sec_tsp_sponge_log(char *buf);
-void sec_debug_tsp_log(char *fmt, ...);
 void sec_debug_tsp_log_msg(char *msg, char *fmt, ...);
+void sec_debug_tsp_fail_hist(char *msg, char *fmt, ...);
 void sec_tsp_log_fix(void);
-void sec_debug_tsp_raw_data(char *fmt, ...);
-
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
-void sec_debug_tsp_raw_data_msg(char mode, char *msg, char *fmt, ...);
 void sec_tsp_raw_data_clear(char mode);
-#else
-void sec_debug_tsp_raw_data_msg(char *msg, char *fmt, ...);
-void sec_tsp_raw_data_clear(void);
-#endif
-
+void sec_debug_tsp_raw_data_msg(char mode, char *msg, char *fmt, ...);
 void sec_debug_tsp_command_history(char *buf);
+
+int sec_tsp_log_init(void);
 #endif /* _SEC_TSP_LOG_H_ */

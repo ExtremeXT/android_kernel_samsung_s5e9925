@@ -136,6 +136,25 @@ int lme_hw_wait_idle(void __iomem *base, u32 set_id)
 	return ret;
 }
 
+int lme_hw_check_idle(void __iomem *base, u32 set_id)
+{
+    u32 ret;
+    u32 idle;
+    u32 chain_idle;
+
+    dbg_lme(1, "[API][%s] is called!", __func__);
+
+    idle = LME_GET_F(base + GET_LME_COREX_OFFSET(COREX_DIRECT), LME_R_IDLENESS_STATUS, LME_F_IDLENESS_STATUS);
+    chain_idle = LME_GET_F(base + GET_LME_COREX_OFFSET(COREX_DIRECT), LME_R_IDLENESS_STATUS, LME_F_CHAIN_IDLENESS_STATUS);
+
+    dbg_lme(1,"[LME] idle status when FS coming (idle:%d, chain_idle:%d)\n",
+        idle, chain_idle);
+
+    ret = chain_idle * 16 + idle;
+
+    return ret;
+}
+
 void lme_hw_dump(void __iomem *base)
 {
 	info_hw("[LME] SFR DUMP (v2.1)\n");

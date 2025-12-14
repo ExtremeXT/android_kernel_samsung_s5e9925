@@ -25,13 +25,13 @@
 #include <linux/pm_wakeup.h>
 #include "../common/sec_charging_common.h"
 
-#define MFC_FW_BIN_VERSION			0x150
-#define MFC_FW_BIN_FULL_VERSION		0x01500000
+#define MFC_FW_BIN_VERSION			0x152
+#define MFC_FW_BIN_FULL_VERSION		0x01520000
 #define MFC_FW_BIN_VERSION_ADDR		0x0084 //fw rev85 address
 #define MTP_MAX_PROGRAM_SIZE 0x4000
 #define MTP_VERIFY_ADDR			0x0000
 #define MTP_VERIFY_SIZE			0x4680
-#define MTP_VERIFY_CHKSUM		0x4875
+#define MTP_VERIFY_CHKSUM		0x5EC9
 
 #define MFC_FLASH_FW_HEX_PATH		"mfc/mfc_fw_flash.bin"
 #define MFC_FW_SDCARD_BIN_PATH		"wpc_fw_sdcard.bin"
@@ -279,14 +279,8 @@
 #define MFC_RX_PPP_PACKET_COUNTER2			0x02AA
 #define MFC_RX_PPP_PACKET_COUNTER3			0x02AB
 
-#define	IEC_DATA2					0x0480
-#define IEC_DATA1					0x048C
-#define P_FO1_THLD					0x048E
-#define W_FO_THLD					0x0494
-#define P_FO2_THLD					0x0498
-#define FOD_COUNTER					0x049A
-#define P_nFO_THLD					0x049C
-#define IEC_FOD_ENABLE					0x049D
+#define	MFC_TX_IEC_DATA2					0x0480
+#define MFC_TX_IEC_FOD_ENABLE				0x049D
 
 /* ADT Buffer Registers, (0x0800 ~ 0x0FFF) */
 #define MFC_ADT_BUFFER_ADT_TYPE_REG				0x0800
@@ -367,7 +361,7 @@
 #define TX_ID_UNKNOWN				0x00
 #define TX_ID_SNGL_PORT_START			0x01
 #define TX_ID_VEHICLE_PAD			0x11
-#define TX_ID_DREAM_DOWN			0x14
+#define TX_ID_PG950_D_PAD			0x14
 #define TX_ID_P1100_PAD				0x16
 #define TX_ID_P1300_PAD				0x17
 #define TX_ID_P2400_PAD_NOAUTH			0x18
@@ -377,7 +371,7 @@
 #define TX_ID_P5400_PAD_NOAUTH			0x27
 #define TX_ID_MULTI_PORT_END			0x2F
 #define TX_ID_STAND_TYPE_START			0x30
-#define TX_ID_DREAM_STAND			0x31
+#define TX_ID_PG950_S_PAD			0x31
 #define TX_ID_N3300_PAD				0x35
 #define TX_ID_STAND_TYPE_END			0x3F
 #define TX_ID_BATT_PACK_TA			0x41 /* 0x40 ~ 0x41 is N/C*/
@@ -391,8 +385,9 @@
 #define TX_ID_UNO_TX_MAX			0x9F
 
 #define TX_ID_AUTH_PAD				0xA0
-#define TX_ID_DAVINCI_PAD_V			0xA1
-#define TX_ID_DAVINCI_PAD_H			0xA2
+#define TX_ID_P5200_PAD				0xA0
+#define TX_ID_N5200_V_PAD			0xA1
+#define TX_ID_N5200_H_PAD			0xA2
 #define TX_ID_P2400_PAD				0xA3
 #define TX_ID_P5400_PAD				0xA4
 #define TX_ID_AUTH_PAD_ACLASS_END		0xAF
@@ -473,7 +468,7 @@
 #define MFC_STAT_L_TXCONFLICT_MASK				(1 << MFC_STAT_L_TXCONFLICT_SHIFT)
 
 #define MFC_STAT_H_TRX_DATA_RECEIVED_SHIFT		7
-#define MFC_STAT_H_TX_OCP_SHIFT					6
+#define MFC_STAT_H_TX_IEC_FOD_SHIFT				6
 #define MFC_STAT_H_TX_OVER_TEMP_SHIFT			5
 #define MFC_STAT_H_TX_FOD_SHIFT					4
 #define MFC_STAT_H_TX_CON_DISCON_SHIFT			3
@@ -481,7 +476,7 @@
 #define MFC_STAT_H_ADT_RECEIVED_SHIFT			1
 #define MFC_STAT_H_ADT_SENT_SHIFT				0
 #define MFC_STAT_H_TRX_DATA_RECEIVED_MASK		(1 << MFC_STAT_H_TRX_DATA_RECEIVED_SHIFT)
-#define MFC_STAT_H_TX_OCP_MASK					(1 << MFC_STAT_H_TX_OCP_SHIFT)
+#define MFC_STAT_H_TX_IEC_FOD_MASK					(1 << MFC_STAT_H_TX_IEC_FOD_SHIFT)
 #define MFC_STAT_H_TX_OVER_TEMP_MASK			(1 << MFC_STAT_H_TX_OVER_TEMP_SHIFT)
 #define MFC_STAT_H_TX_FOD_MASK					(1 << MFC_STAT_H_TX_FOD_SHIFT)
 #define MFC_STAT_H_TX_CON_DISCON_MASK			(1 << MFC_STAT_H_TX_CON_DISCON_SHIFT)
@@ -509,7 +504,7 @@
 
 /* Interrupt A Enable Register (0x25) */
 #define MFC_INTA_H_TRX_DATA_RECEIVED_SHIFT		7
-#define MFC_INTA_H_TX_OCP_SHIFT					6
+#define MFC_INTA_H_TX_IEC_FOD_SHIFT				6
 #define MFC_INTA_H_TX_MODE_RX_NOT_DET			5
 #define MFC_INTA_H_TX_FOD_SHIFT					4
 #define MFC_INTA_H_TX_CON_DISCON_SHIFT			3
@@ -517,7 +512,7 @@
 #define MFC_INTA_H_ADT_RECEIVED_SHIFT			1
 #define MFC_INTA_H_ADT_SENT_SHIFT				0
 #define MFC_INTA_H_TRX_DATA_RECEIVED_MASK		(1 << MFC_INTA_H_TRX_DATA_RECEIVED_SHIFT)
-#define MFC_INTA_H_TX_OCP_MASK					(1 << MFC_INTA_H_TX_OCP_SHIFT)
+#define MFC_INTA_H_TX_IEC_FOD_MASK					(1 << MFC_INTA_H_TX_IEC_FOD_SHIFT)
 #define MFC_INTA_H_TX_MODE_RX_NOT_DET_MASK			(1 << MFC_INTA_H_TX_MODE_RX_NOT_DET)
 #define MFC_INTA_H_TX_FOD_MASK					(1 << MFC_INTA_H_TX_FOD_SHIFT)
 #define MFC_INTA_H_TX_CON_DISCON_MASK			(1 << MFC_INTA_H_TX_CON_DISCON_SHIFT)
@@ -731,6 +726,7 @@ enum {
 	MFC_PACKET,
 	MFC_FLICKER_TEST,
 	TEST,
+	MFC_FOD_THR,
 };
 
 static const u8 mfc_idt_vout_val[] = {
@@ -816,15 +812,18 @@ typedef struct _mfc_fod_data {
 	u32 *data[FOD_STATE_MAX];
 } mfc_fod_data;
 
-#define NoTA 0
-#define WithTA 1
 struct mfc_iec_data {
-	u16 reg_048E;
-	u16 reg_0494;
-	u16 reg_0498;
-	u8 reg_049A;
-	u8 reg_049C;
-	u8 reg_049D;
+	u8 fod_enable;
+	u16 fod_thres1;
+	u16 fod_thres2;
+	u8 fod_counter;
+};
+
+enum mfc_iec_state {
+	IEC_STATE_NONE = 0,
+	IEC_STATE_NORMAL,
+	IEC_STATE_FOD,
+	IEC_STATE_THROTTLING,
 };
 
 static const u8 MTPVerifier9320[] = {
@@ -1143,7 +1142,7 @@ struct mfc_charger_platform_data {
 	mfc_fod_data *fod_list;
 	int fod_data_count;
 
-	struct mfc_iec_data iec_params[WithTA + 1];
+	struct mfc_iec_data iec_params;
 };
 
 #define mfc_charger_platform_data_t \
@@ -1183,7 +1182,8 @@ struct mfc_charger_data {
 	struct wakeup_source *wpc_tx_ac_missing_ws;
 	struct wakeup_source *align_check_ws;
 	struct wakeup_source *mode_change_ws;
-	struct wakeup_source *wpc_check_rx_power_ws;
+	struct wakeup_source *wpc_rx_power_trans_fail_ws;
+	struct wakeup_source *wpc_tx_iec_fod_ws;
 	struct workqueue_struct *wqueue;
 	struct work_struct wcin_work;
 	struct delayed_work wpc_det_work;
@@ -1209,7 +1209,8 @@ struct mfc_charger_data {
 	struct delayed_work wpc_init_work;
 	struct delayed_work align_check_work;
 	struct delayed_work mode_change_work;
-	struct delayed_work wpc_check_rx_power_work;
+	struct delayed_work wpc_rx_power_trans_fail_work;
+	struct delayed_work wpc_tx_iec_fod_work;
 
 	struct alarm phm_alarm;
 
@@ -1249,7 +1250,6 @@ struct mfc_charger_data {
 	bool wc_tx_ac_missing;
 	int wc_rx_type;
 	bool wc_rx_connected;
-	bool wc_rx_fod;
 	bool wc_ldo_status;
 	int non_sleep_mode_cnt;
 	u8 adt_transfer_status;
@@ -1273,6 +1273,20 @@ struct mfc_charger_data {
 	u32 mis_align_tx_try_cnt;
 	bool skip_phm_work_in_sleep;
 	bool check_rx_power;
+
+	u8 tx_iec_fod_cnt;
+	u8 tx_iec_fod_state;
+
+	int mfc_adc_tx_vout;
+	int mfc_adc_tx_iout;
+	int mfc_adc_ping_frq;
+	int mfc_adc_tx_min_op_frq;
+	int mfc_adc_tx_max_op_frq;
+	int mfc_adc_vout;
+	int mfc_adc_vrect;
+	int mfc_adc_rx_iout;
+	int mfc_adc_op_frq;
+
 #if defined(CONFIG_WIRELESS_IC_PARAM)
 	unsigned int wireless_param_info;
 	unsigned int wireless_fw_ver_param;
@@ -1291,13 +1305,13 @@ struct mfc_charger_data {
 
 #define opfreq_ctrl_pad(pad_id) (\
 	((pad_id >= TX_ID_NON_AUTH_PAD) && (pad_id <= TX_ID_NON_AUTH_PAD_END)) || \
-	((pad_id >= TX_ID_DAVINCI_PAD_V) && (pad_id <= TX_ID_AUTH_PAD_ACLASS_END)) || \
+	((pad_id >= TX_ID_N5200_V_PAD) && (pad_id <= TX_ID_AUTH_PAD_ACLASS_END)) || \
 	(pad_id == TX_ID_P1300_PAD) || \
 	(pad_id == TX_ID_N3300_PAD) || \
 	(pad_id == TX_ID_P4300_PAD))
 
 #define volt_ctrl_pad(pad_id) (\
-	(pad_id != TX_ID_DREAM_STAND) && \
-	(pad_id != TX_ID_DREAM_DOWN))
+	(pad_id != TX_ID_PG950_S_PAD) && \
+	(pad_id != TX_ID_PG950_D_PAD))
 
 #endif /* __WIRELESS_CHARGER_P9320_H */

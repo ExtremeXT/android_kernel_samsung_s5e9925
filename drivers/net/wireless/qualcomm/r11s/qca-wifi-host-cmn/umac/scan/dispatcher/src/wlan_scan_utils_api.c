@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -2167,7 +2167,9 @@ static uint8_t util_get_link_info_offset(uint8_t *ml_ie, bool *is_ml_ie_valid)
 	return 0;
 }
 
-static void util_get_ml_bv_partner_link_info(struct scan_cache_entry *scan_entry)
+static void
+util_get_ml_bv_partner_link_info(struct wlan_objmgr_pdev *pdev,
+				 struct scan_cache_entry *scan_entry)
 {
 	uint8_t *ml_ie = scan_entry->ie_list.multi_link_bv;
 	bool is_ml_ie_valid;
@@ -2180,6 +2182,10 @@ static void util_get_ml_bv_partner_link_info(struct scan_cache_entry *scan_entry
 	uint8_t link_idx = 0;
 	uint8_t rnr_idx = 0;
 	struct rnr_bss_info *rnr = NULL;
+	uint16_t freq;
+	struct scan_cache_entry tmp_entry = {0};
+	struct qdf_mac_addr bcast_addr = QDF_MAC_ADDR_BCAST_INIT;
+	struct scan_mbssid_info *mbssid;
 
 	/* Update partner info  from RNR IE */
 	while ((rnr_idx < MAX_RNR_BSS) && (rnr_idx < scan_entry->rnr.count)) {
@@ -2187,15 +2193,38 @@ static void util_get_ml_bv_partner_link_info(struct scan_cache_entry *scan_entry
 			break;
 		rnr = &scan_entry->rnr.bss_info[rnr_idx];
 		if (rnr->mld_info_valid && !rnr->mld_info.mld_id) {
+			mbssid = &scan_entry->mbssid_info;
+			freq =
+			     wlan_reg_chan_opclass_to_freq(rnr->channel_number,
+							   rnr->operating_class,
+							   true);
+
+			if ((!scan_entry->mbssid_info.profile_count) &&
+			    !(rnr->bss_params & TBTT_BSS_PARAM_TRANS_BSSID_BIT)) {
+				       scm_scan_get_scan_entry_by_mac_freq(pdev,
+							     &rnr->bssid, freq,
+							     &tmp_entry);
+				if (tmp_entry.frm_subtype) {
+					qdf_mem_copy(mbssid,
+						     &tmp_entry.mbssid_info,
+						     sizeof(*mbssid));
+				} else {
+					qdf_mem_copy(mbssid->non_trans_bssid,
+						     rnr->bssid.bytes,
+						     QDF_MAC_ADDR_SIZE);
+					qdf_mem_copy(mbssid->trans_bssid,
+						     bcast_addr.bytes,
+						     QDF_MAC_ADDR_SIZE);
+				}
+			}
+
 			link_info = &scan_entry->ml_info.link_info[link_idx];
 			qdf_mem_copy(&link_info->link_addr,
 				     &rnr->bssid, QDF_MAC_ADDR_SIZE);
 
 			link_info->link_id = rnr->mld_info.link_id;
-			link_info->freq =
-				wlan_reg_chan_opclass_to_freq(rnr->channel_number,
-							      rnr->operating_class,
-							      true);
+			link_info->freq = freq;
+
 			if (!link_info->freq)
 				scm_debug("freq 0 rnr channel %u op_class %u",
 					  rnr->channel_number,
@@ -2283,7 +2312,8 @@ static void util_get_ml_bv_partner_link_info(struct scan_cache_entry *scan_entry
 	}
 }
 
-static void util_scan_update_ml_info(struct scan_cache_entry *scan_entry)
+static void util_scan_update_ml_info(struct wlan_objmgr_pdev *pdev,
+				     struct scan_cache_entry *scan_entry)
 {
 	uint8_t *ml_ie = scan_entry->ie_list.multi_link_bv;
 	uint16_t multi_link_ctrl;
@@ -2328,10 +2358,11 @@ static void util_scan_update_ml_info(struct scan_cache_entry *scan_entry)
 	if (multi_link_ctrl & CMN_INFO_LINK_ID_PRESENT_BIT)
 		scan_entry->ml_info.self_link_id = ml_ie[offset] & 0x0F;
 
-	util_get_ml_bv_partner_link_info(scan_entry);
+	util_get_ml_bv_partner_link_info(pdev, scan_entry);
 }
 #else
-static void util_scan_update_ml_info(struct scan_cache_entry *scan_entry)
+static void util_scan_update_ml_info(struct wlan_objmgr_pdev *pdev,
+				     struct scan_cache_entry *scan_entry)
 {
 }
 #endif
@@ -2515,7 +2546,7 @@ util_scan_gen_scan_entry(struct wlan_objmgr_pdev *pdev,
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	util_scan_update_ml_info(scan_entry);
+	util_scan_update_ml_info(pdev, scan_entry);
 
 	scan_node->entry = scan_entry;
 	qdf_list_insert_front(scan_list, &scan_node->node);
@@ -3050,8 +3081,9 @@ static uint32_t util_gen_new_ie(uint8_t *ie, uint32_t ielen,
 	 * copied to new ie, skip ssid, capability, bssid-index ie
 	 */
 	tmp_new = sub_copy;
-	while (((tmp_new + tmp_new[1] + MIN_IE_LEN) - sub_copy) <=
-	       (subie_len - 1)) {
+	while ((subie_len > 0) &&
+	       (((tmp_new + tmp_new[1] + MIN_IE_LEN) - sub_copy) <=
+		subie_len)) {
 		if (!(tmp_new[0] == WLAN_ELEMID_NONTX_BSSID_CAP ||
 		      tmp_new[0] == WLAN_ELEMID_SSID ||
 		      tmp_new[0] == WLAN_ELEMID_MULTI_BSSID_IDX ||
@@ -3141,6 +3173,8 @@ util_handle_nontx_prof(uint8_t *mbssid_elem, uint8_t *subelement,
 	}
 
 	if (!mbssid_info->skip_bssid_copy) {
+		scm_debug("trans_bssid " QDF_MAC_ADDR_FMT,
+			  QDF_MAC_ADDR_REF(bssid));
 		qdf_mem_copy(mbssid_info->trans_bssid,
 			     bssid, QDF_MAC_ADDR_SIZE);
 		mbssid_info->profile_num =
@@ -3149,6 +3183,8 @@ util_handle_nontx_prof(uint8_t *mbssid_elem, uint8_t *subelement,
 				   mbssid_elem[MBSSID_INDICATOR_POS],
 				   mbssid_index_ie[BSS_INDEX_POS],
 				   new_bssid);
+		qdf_mem_copy(mbssid_info->non_trans_bssid, new_bssid,
+			     QDF_MAC_ADDR_SIZE);
 	}
 	/* In single MBSS IE, there could be subelement holding
 	 * remaining vendor IEs of non tx profile from last MBSS IE
@@ -3914,3 +3950,18 @@ util_scan_entry_single_pmk(struct wlan_objmgr_psoc *psoc,
 	return false;
 }
 #endif
+
+void
+util_scan_entry_renew_timestamp(struct wlan_objmgr_pdev *pdev,
+				struct scan_cache_entry *scan_entry)
+{
+	struct wlan_scan_obj *scan_obj;
+
+	scan_entry->scan_entry_time = qdf_mc_timer_get_system_time();
+	/* update timestamp in nanoseconds needed by kernel layers */
+	scan_entry->boottime_ns = qdf_get_bootbased_boottime_ns();
+
+	scan_obj = wlan_psoc_get_scan_obj(wlan_pdev_get_psoc(pdev));
+	if (scan_obj->cb.inform_beacon)
+		scan_obj->cb.inform_beacon(pdev, scan_entry);
+}

@@ -2592,6 +2592,8 @@ static ssize_t exynos_serial_uart_log(struct file *file, char __user *userbuf, s
 	static int copied_bytes;
 	int offset;
 
+	mutex_lock(&ourport->local_buf_log_lock);
+
 	if (copied_bytes >= LOG_BUFFER_SIZE) {
 		struct uart_port *port;
 
@@ -2601,6 +2603,7 @@ static ssize_t exynos_serial_uart_log(struct file *file, char __user *userbuf, s
 
 		if (port && port->state->pm_state == UART_PM_STATE_ON)
 			exynos_print_reg_status(ourport);
+		mutex_unlock(&ourport->local_buf_log_lock);
 		return 0;
 	}
 
@@ -2609,9 +2612,11 @@ static ssize_t exynos_serial_uart_log(struct file *file, char __user *userbuf, s
 		ret = copy_to_user(userbuf, ourport->uart_local_buf.buffer + offset, bytes);
 		if (ret) {
 			pr_err("Failed to exynos_serial_serial_log : %d\n", (int)ret);
+			mutex_unlock(&ourport->local_buf_log_lock);
 			return ret;
 		}
 		copied_bytes += bytes;
+		mutex_unlock(&ourport->local_buf_log_lock);
 		return bytes;
 	} else {
 		int byte_to_read = LOG_BUFFER_SIZE-copied_bytes;
@@ -2619,12 +2624,15 @@ static ssize_t exynos_serial_uart_log(struct file *file, char __user *userbuf, s
 		ret = copy_to_user(userbuf, ourport->uart_local_buf.buffer + offset, byte_to_read);
 		if (ret) {
 			pr_err("Failed to exynos_serial_log : %d\n", (int)ret);
+			mutex_unlock(&ourport->local_buf_log_lock);
 			return ret;
 		}
 		copied_bytes += byte_to_read;
+		mutex_unlock(&ourport->local_buf_log_lock);
 		return byte_to_read;
 	}
 
+	mutex_unlock(&ourport->local_buf_log_lock);
 	return 0;
 }
 static const struct proc_ops proc_fops_serial_log = {

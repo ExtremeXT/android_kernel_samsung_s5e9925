@@ -632,6 +632,9 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 			send_otg_notify(o_notify, NOTIFY_EVENT_PD_USB_COMM_CAPABLE, USB_NOTIFY_NO_COMM_CAPABLE);
 #endif
 			send_otg_notify(o_notify, NOTIFY_EVENT_PD_CONTRACT, 0);
+#if defined(CONFIG_USB_AUDIO_POWER_SAVING)
+			send_otg_notify(o_notify, NOTIFY_EVENT_REVERSE_BYPASS_DEVICE_ATTACH, 0);
+#endif
 #endif
 #if IS_ENABLED(CONFIG_COMBO_REDRIVER_PTN36502)
 			ptn36502_config(SAFE_STATE, 0);
@@ -711,6 +714,9 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 			typec_set_pwr_role(usbc_data->port, TYPEC_SOURCE);
 #if IS_ENABLED(CONFIG_USB_HOST_NOTIFY)
 			send_otg_notify(o_notify, NOTIFY_EVENT_POWER_SOURCE, 1);
+#endif
+#if defined(CONFIG_USB_AUDIO_POWER_SAVING)
+			send_otg_notify(o_notify, NOTIFY_EVENT_REVERSE_BYPASS_DEVICE_ATTACH, 1);
 #endif
 			if (cc_data->current_pr != SRC) {
 				cc_data->previous_pr = cc_data->current_pr;

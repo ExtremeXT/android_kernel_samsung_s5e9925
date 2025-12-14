@@ -228,8 +228,10 @@ int pdic_notifier_register(struct notifier_block *nb, notifier_fn_t notifier,
 				__func__, ret);
 
 	/* current pdic's attached_device status notify */
+	mutex_lock(&pdic_notifier.notify_mutex);
 	nb->notifier_call(nb, 0,
 			&(pdic_notifier.pdic_template));
+	mutex_unlock(&pdic_notifier.notify_mutex);
 
 	return ret;
 }
@@ -307,6 +309,13 @@ int pdic_notifier_notify(PD_NOTI_TYPEDEF *p_noti, void *pd, int pdic_attach)
 {
 	int ret = 0;
 
+#if IS_BUILTIN(CONFIG_PDIC_NOTIFIER)
+	/* Check if PDIC Notifier is ready. */
+	if (!pdic_notifier_init_done)
+		pdic_notifier_init();
+#endif
+
+	mutex_lock(&pdic_notifier.notify_mutex);
 	pdic_notifier.pdic_template = *p_noti;
 
 	switch (p_noti->id) {
@@ -355,6 +364,7 @@ int pdic_notifier_notify(PD_NOTI_TYPEDEF *p_noti, void *pd, int pdic_attach)
 		pr_info("%s: src:%01x dest:%01x id:%02x ErrState:%02x\n", __func__,
 			p_noti->src, p_noti->dest, p_noti->id, p_noti->sub1);
 			pdic_uevent_work(PDIC_NOTIFY_ID_FAC, p_noti->sub1);
+			mutex_unlock(&pdic_notifier.notify_mutex);
 			return 0;
 #endif
 	case PDIC_NOTIFY_ID_WATER:
@@ -366,6 +376,7 @@ int pdic_notifier_notify(PD_NOTI_TYPEDEF *p_noti, void *pd, int pdic_attach)
 			pdic_uevent_work(PDIC_NOTIFY_ID_WATER, ((PD_NOTI_ATTACH_TYPEDEF *)p_noti)->attach);
 #ifdef CONFIG_SEC_FACTORY
 			pr_info("%s: Do not notifier, just return\n", __func__);
+			mutex_unlock(&pdic_notifier.notify_mutex);
 			return 0;
 #endif
 		break;
@@ -384,6 +395,7 @@ int pdic_notifier_notify(PD_NOTI_TYPEDEF *p_noti, void *pd, int pdic_attach)
 		pr_info("%s: src:%01x dest:%01x id:%02x pinStatus:%02x\n", __func__,
 			p_noti->src, p_noti->dest, p_noti->id, p_noti->sub1);
 			pdic_uevent_work(PDIC_NOTIFY_ID_CC_PIN_STATUS, p_noti->sub1);
+			mutex_unlock(&pdic_notifier.notify_mutex);
 			return 0;
 #endif
 	case PDIC_NOTIFY_ID_DEVICE_INFO:
@@ -431,7 +443,6 @@ int pdic_notifier_notify(PD_NOTI_TYPEDEF *p_noti, void *pd, int pdic_attach)
 	ret = blocking_notifier_call_chain(&(pdic_notifier.notifier_call_chain),
 			p_noti->id, &(pdic_notifier.pdic_template));
 
-
 	switch (ret) {
 	case NOTIFY_STOP_MASK:
 	case NOTIFY_BAD:
@@ -446,8 +457,8 @@ int pdic_notifier_notify(PD_NOTI_TYPEDEF *p_noti, void *pd, int pdic_attach)
 		break;
 	}
 
+	mutex_unlock(&pdic_notifier.notify_mutex);
 	return ret;
-
 }
 EXPORT_SYMBOL(pdic_notifier_notify);
 
@@ -463,6 +474,7 @@ int pdic_notifier_init(void)
 	pdic_notifier_init_done = 1;
 	pdic_core_init();
 	BLOCKING_INIT_NOTIFIER_HEAD(&(pdic_notifier.notifier_call_chain));
+	mutex_init(&pdic_notifier.notify_mutex);
 
 out:
 	return ret;
@@ -470,6 +482,7 @@ out:
 
 static void __exit pdic_notifier_exit(void)
 {
+	mutex_destroy(&pdic_notifier.notify_mutex);
 	pr_info("%s: exit\n", __func__);
 }
 

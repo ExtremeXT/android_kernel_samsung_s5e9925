@@ -13,6 +13,7 @@
 #include <linux/dma-buf.h>
 #include <linux/dma-direct.h>
 #include <linux/dma-heap.h>
+#include <linux/dma-mapping.h>
 #include <linux/err.h>
 #include <linux/fdtable.h>
 #include <linux/genalloc.h>
@@ -30,6 +31,7 @@
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/sort.h>
+#include <linux/shrinker.h>
 #include <trace/hooks/mm.h>
 
 #include "secure_buffer.h"
@@ -37,7 +39,7 @@
 struct hpa_dma_heap {
 	struct dma_heap *dma_heap;
 	const char *name;
-	unsigned int protection_id;
+	unsigned char protection_id;
 	atomic_long_t total_bytes;
 };
 
@@ -73,40 +75,40 @@ static atomic_t hpa_eventid;
 
 enum hpa_event_type {
 	HPA_EVENT_ALLOC = 0,
+	HPA_EVENT_ALLOC_POOL,
+	HPA_EVENT_ALLOC_PAGE_WITH_FLUSH,
+	HPA_EVENT_PROT,
+	HPA_EVENT_UNPROT,
 	HPA_EVENT_FREE,
-	HPA_EVENT_DMA_MAP,
-	HPA_EVENT_DMA_UNMAP,
 };
 
 static char * const hpa_event_name[] = {
 	"alloc",
+	"alloc_pool",
+	"alloc_page_w_flush",
+	"prot",
+	"unprot",
 	"free",
-	"map_dma_buf",
-	"unmap_dma_buf",
 };
 
 static struct hpa_event {
-	ktime_t begin;
-	ktime_t done;
-	unsigned char heapname[16];
-	unsigned long ino;
+	ktime_t timestamp;
+	unsigned long elapsed;
 	size_t size;
+	unsigned char protid;
 	enum hpa_event_type type;
 } hpa_events[HPA_EVENT_LOG];
 
-#define hpa_event_begin() ktime_t begin  = ktime_get()
-
-void hpa_event_record(enum hpa_event_type type, struct dma_buf *dmabuf, ktime_t begin)
+void hpa_event_record(enum hpa_event_type type, size_t size, unsigned char protid, ktime_t begin)
 {
 	int idx = HPA_EVENT_CLAMP_ID(atomic_inc_return(&hpa_eventid));
 	struct hpa_event *event = &hpa_events[idx];
 
-	event->begin = begin;
-	event->done = ktime_get();
-	strlcpy(event->heapname, dmabuf->exp_name, sizeof(event->heapname));
-	event->ino = file_inode(dmabuf->file)->i_ino;
-	event->size = dmabuf->size;
+	event->timestamp = begin;
+	event->elapsed = ktime_us_delta(ktime_get(), begin);
 	event->type = type;
+	event->size = size;
+	event->protid = protid;
 }
 
 #ifdef CONFIG_DEBUG_FS
@@ -115,22 +117,21 @@ static int hpa_event_show(struct seq_file *s, void *unused)
 	int index = HPA_EVENT_CLAMP_ID(atomic_read(&hpa_eventid) + 1);
 	int i = index;
 
-	seq_printf(s, "%14s %18s %16s %16s %10s %10s\n",
-		   "timestamp", "event", "name", "size(kb)", "ino",  "elapsed(us)");
+	seq_printf(s, "%14s %18s %16s %16s %10s\n",
+		   "timestamp", "event", "protection id", "size(kb)", "elapsed(us)");
 
 	do {
 		struct hpa_event *event = &hpa_events[HPA_EVENT_CLAMP_ID(i)];
-		long elapsed = ktime_us_delta(event->done, event->begin);
-		struct timespec64 ts = ktime_to_timespec64(event->begin);
+		struct timespec64 ts = ktime_to_timespec64(event->timestamp);
 
-		if (elapsed == 0)
+		if (event->elapsed == 0)
 			continue;
 
 		seq_printf(s, "[%06ld.%06ld]", ts.tv_sec, ts.tv_nsec / NSEC_PER_USEC);
-		seq_printf(s, "%18s %16s %16zd %10lu %10ld", hpa_event_name[event->type],
-			   event->heapname, event->size >> 10, event->ino, elapsed);
+		seq_printf(s, "%18s %16d %16zd %10ld", hpa_event_name[event->type],
+			   event->protid, event->size >> 10, event->elapsed);
 
-		if (elapsed > 100 * USEC_PER_MSEC)
+		if (event->elapsed > 100 * USEC_PER_MSEC)
 			seq_puts(s, " *");
 
 		seq_puts(s, "\n");
@@ -168,9 +169,6 @@ void hpa_debug_init(void)
 {
 }
 #endif
-#define MAX_EXCEPTION_AREAS 4
-static phys_addr_t hpa_exception_areas[MAX_EXCEPTION_AREAS][2];
-static int nr_hpa_exception;
 
 #define HPA_SECURE_DMA_BASE	0x80000000
 #define HPA_SECURE_DMA_SIZE	0x80000000
@@ -187,6 +185,135 @@ static int nr_hpa_exception;
  * is 16MiB.
  */
 #define MAX_SECURE_VA_ALIGN	(SZ_16M / PAGE_SIZE)
+
+/**
+ * struct hpa_page_pool - hpa page pool struct
+ * @count:		array of number of pages in the pool
+ * @items:		array of list of pages
+ * @lock:		lock protecting this struct and especially the count item list
+ *
+ * Allows you to keep a pool of pre allocated pages to use
+ */
+struct hpa_page_pool {
+	int count;
+	struct list_head items;
+	spinlock_t lock;
+} hpa_pool;
+
+static struct page *hpa_page_pool_remove(void)
+{
+	struct page *page;
+
+	spin_lock(&hpa_pool.lock);
+	page = list_first_entry_or_null(&hpa_pool.items, struct page, lru);
+	if (page) {
+		hpa_pool.count--;
+		list_del_init(&page->lru);
+		spin_unlock(&hpa_pool.lock);
+		mod_node_page_state(page_pgdat(page), NR_KERNEL_MISC_RECLAIMABLE,
+				    -(1 << HPA_DEFAULT_ORDER));
+		return page;
+	}
+	spin_unlock(&hpa_pool.lock);
+
+	return NULL;
+}
+
+static void hpa_page_pool_add(struct page *page)
+{
+	spin_lock(&hpa_pool.lock);
+	list_add_tail(&page->lru, &hpa_pool.items);
+	hpa_pool.count++;
+	spin_unlock(&hpa_pool.lock);
+	mod_node_page_state(page_pgdat(page), NR_KERNEL_MISC_RECLAIMABLE,
+			    1 << HPA_DEFAULT_ORDER);
+}
+
+static unsigned long alloc_pages_from_pool(struct page **pages, int required)
+{
+	int alloced = 0;
+
+	while (alloced < required) {
+		pages[alloced] = hpa_page_pool_remove();
+
+		if (!pages[alloced])
+			break;
+
+		alloced++;
+	}
+
+	return alloced;
+}
+
+static unsigned long hpa_page_pool_get_count(void)
+{
+	/*
+	 * No lock is required to access hpa_pool.count because it is not necessary
+	 * to obtail the exact count. That function is only supported for debugging purposes.
+	 */
+	return hpa_pool.count << HPA_DEFAULT_ORDER;
+}
+
+static int hpa_page_pool_shrink(int nr_to_scan)
+{
+	int freed = 0;
+
+	if (nr_to_scan == 0)
+		return hpa_page_pool_get_count();
+
+	while (freed < nr_to_scan) {
+		struct page *page;
+
+		page = hpa_page_pool_remove();
+		if (!page)
+			break;
+
+		__free_pages(page, HPA_DEFAULT_ORDER);
+		freed += (1 << HPA_DEFAULT_ORDER);
+	}
+
+	return freed;
+}
+
+static unsigned long hpa_page_pool_shrink_count(struct shrinker *shrinker,
+						struct shrink_control *sc)
+{
+	return hpa_page_pool_shrink(0);
+}
+
+static unsigned long hpa_page_pool_shrink_scan(struct shrinker *shrinker,
+					       struct shrink_control *sc)
+{
+	if (sc->nr_to_scan == 0)
+		return 0;
+	return hpa_page_pool_shrink(sc->nr_to_scan);
+}
+
+struct shrinker hpa_pool_shrinker = {
+	.count_objects = hpa_page_pool_shrink_count,
+	.scan_objects = hpa_page_pool_shrink_scan,
+	.seeks = DEFAULT_SEEKS,
+	.batch = 0,
+};
+
+static long hpa_heap_get_pool_size(struct dma_heap *heap)
+{
+	const char *name = dma_heap_get_name(heap);
+
+	/*
+	 * All HPA heaps share the page pool. We only calculate
+	 * the pool for representative HPA heap. Otherwise, it is
+	 * overcalculated by the number of registered HPA heaps.
+	 */
+	if (strcmp(name, hpa_heaps[0].name))
+		return 0;
+
+	return hpa_page_pool_get_count() << PAGE_SHIFT;
+}
+
+#define MAX_EXCEPTION_AREAS 4
+static phys_addr_t hpa_exception_areas[MAX_EXCEPTION_AREAS][2];
+static int nr_hpa_exception;
 
 static struct gen_pool *hpa_iova_pool;
 
@@ -599,8 +726,6 @@ static struct sg_table *hpa_heap_map_dma_buf(struct dma_buf_attachment *a,
 	struct sg_table *table;
 	int ret = 0;
 
-	hpa_event_begin();
-
 	table = hpa_dup_sg_table(&buffer->sg_table);
 	if (IS_ERR(table))
 		return table;
@@ -623,8 +748,6 @@ static struct sg_table *hpa_heap_map_dma_buf(struct dma_buf_attachment *a,
 
 	hpa_trace_map(a->dmabuf, a->dev);
 
-	hpa_event_record(HPA_EVENT_DMA_MAP, a->dmabuf, begin);
-
 	return table;
 }
 
@@ -632,8 +755,6 @@ static void hpa_heap_unmap_dma_buf(struct dma_buf_attachment *a,
 				   struct sg_table *table,
 				   enum dma_data_direction direction)
 {
-	hpa_event_begin();
-
 	hpa_trace_unmap(a->dmabuf, a->dev);
 
 	if (!dev_iommu_fwspec_get(a->dev))
@@ -641,8 +762,6 @@ static void hpa_heap_unmap_dma_buf(struct dma_buf_attachment *a,
 
 	sg_free_table(table);
 	kfree(table);
-
-	hpa_event_record(HPA_EVENT_DMA_UNMAP, a->dmabuf, begin);
 }
 
 static int hpa_heap_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma)
@@ -663,23 +782,24 @@ static void hpa_heap_dma_buf_release(struct dma_buf *dmabuf)
 	struct device *dev = dma_heap_get_dev(buffer->heap->dma_heap);
 	struct sg_table *sgt = &buffer->sg_table;
 	struct scatterlist *sg;
-	int i;
-	int unprot_err;
+	int i, unprot_err;
+	unsigned char protid = buffer->heap->protection_id;
+	ktime_t begin;
 
-	hpa_event_begin();
-
+	begin = ktime_get();
 	unprot_err = hpa_heap_unprotect(buffer->priv, dev);
+	hpa_event_record(HPA_EVENT_UNPROT, dmabuf->size, protid, begin);
 
+	begin = ktime_get();
 	if (!unprot_err) {
 		for_each_sgtable_sg(sgt, sg, i)
-			__free_pages(sg_page(sg), HPA_DEFAULT_ORDER);
+			hpa_page_pool_add(sg_page(sg));
 
 		atomic_long_sub(dmabuf->size, &buffer->heap->total_bytes);
 	}
 
 	hpa_dma_buffer_free(buffer);
-
-	hpa_event_record(HPA_EVENT_FREE, dmabuf, begin);
+	hpa_event_record(HPA_EVENT_FREE, dmabuf->size, protid, begin);
 }
 
 #define HPA_HEAP_FLAG_PROTECTED BIT(1)
@@ -700,26 +820,6 @@ const struct dma_buf_ops hpa_dma_buf_ops = {
 	.get_flags = hpa_heap_dma_buf_get_flags,
 };
 
-static void hpa_cache_flush(struct device *dev, struct hpa_dma_buffer *buffer)
-{
-	dma_map_sgtable(dev, &buffer->sg_table, DMA_TO_DEVICE, 0);
-	dma_unmap_sgtable(dev, &buffer->sg_table, DMA_FROM_DEVICE, 0);
-}
-
-static void hpa_pages_clean(struct sg_table *sgt)
-{
-	struct sg_page_iter piter;
-	struct page *p;
-	void *vaddr;
-
-	for_each_sgtable_page(sgt, &piter, 0) {
-		p = sg_page_iter_page(&piter);
-		vaddr = kmap_atomic(p);
-		memset(vaddr, 0, PAGE_SIZE);
-		kunmap_atomic(vaddr);
-	}
-}
-
 static struct dma_buf *hpa_heap_allocate(struct dma_heap *heap, unsigned long len,
 					 unsigned long fd_flags, unsigned long heap_flags)
 {
@@ -730,11 +830,11 @@ static struct dma_buf *hpa_heap_allocate(struct dma_heap *heap, unsigned long le
 	struct scatterlist *sg;
 	struct dma_buf *dmabuf;
 	struct page **pages;
-	unsigned long size, nr_pages;
+	unsigned long size, nr_pages, nr_pool_pages;
 	int ret, protret = 0;
 	pgoff_t pg;
-
-	hpa_event_begin();
+	ktime_t begin, total = ktime_get();
+	unsigned char protid = hpa_heap->protection_id;
 
 	size = ALIGN(len, HPA_CHUNK_SIZE);
 	nr_pages = size / HPA_CHUNK_SIZE;
@@ -749,10 +849,27 @@ static struct dma_buf *hpa_heap_allocate(struct dma_heap *heap, unsigned long le
 	if (!pages)
 		return ERR_PTR(-ENOMEM);
 
-	ret = alloc_pages_highorder_except(HPA_DEFAULT_ORDER, pages, nr_pages,
-					   hpa_exception_areas, nr_hpa_exception);
-	if (ret)
-		goto err_alloc;
+	begin = ktime_get();
+	nr_pool_pages = alloc_pages_from_pool(pages, nr_pages);
+	hpa_event_record(HPA_EVENT_ALLOC_POOL, size, protid, begin);
+
+	if (nr_pool_pages < nr_pages) {
+		begin = ktime_get();
+		ret = alloc_pages_highorder_except(HPA_DEFAULT_ORDER, pages + nr_pool_pages,
+						   nr_pages - nr_pool_pages, hpa_exception_areas,
+						   nr_hpa_exception);
+		for (pg = nr_pool_pages; pg < nr_pages; pg++) {
+			dma_addr_t dma_addr = dma_map_page(dev, pages[pg], 0, HPA_CHUNK_SIZE, DMA_TO_DEVICE);
+			dma_unmap_page(dev, dma_addr, HPA_CHUNK_SIZE, DMA_FROM_DEVICE);
+		}
+		if (ret) {
+			for (pg = 0; pg < nr_pool_pages; pg++)
+				hpa_page_pool_add(pages[pg]);
+
+			goto err_alloc;
+		}
+		hpa_event_record(HPA_EVENT_ALLOC_PAGE_WITH_FLUSH, size, protid, begin);
+	}
 
 	sort(pages, nr_pages, sizeof(*pages), hpa_compare_pages, NULL);
 
@@ -768,14 +885,13 @@ static struct dma_buf *hpa_heap_allocate(struct dma_heap *heap, unsigned long le
 		sg = sg_next(sg);
 	}
 
-	hpa_pages_clean(&buffer->sg_table);
-	hpa_cache_flush(dev, buffer);
-
+	begin = ktime_get();
 	buffer->priv = hpa_heap_protect(hpa_heap, pages, nr_pages);
 	if (IS_ERR(buffer->priv)) {
 		ret = PTR_ERR(buffer->priv);
 		goto err_prot;
 	}
+	hpa_event_record(HPA_EVENT_PROT, size, protid, begin);
 
 	exp_info.ops = &hpa_dma_buf_ops;
 	exp_info.exp_name = hpa_heap->name;
@@ -795,7 +911,7 @@ static struct dma_buf *hpa_heap_allocate(struct dma_heap *heap, unsigned long le
 
 	hpa_trace_add_task();
 
-	hpa_event_record(HPA_EVENT_ALLOC, dmabuf, begin);
+	hpa_event_record(HPA_EVENT_ALLOC, size, protid, total);
 
 	return dmabuf;
 
@@ -805,7 +921,7 @@ err_prot:
 	hpa_dma_buffer_free(buffer);
 err_buffer:
 	for (pg = 0; !protret && pg < nr_pages; pg++)
-		__free_pages(pages[pg], HPA_DEFAULT_ORDER);
+		hpa_page_pool_add(pages[pg]);
 err_alloc:
 	kvfree(pages);
 
@@ -817,6 +933,7 @@ err_alloc:
 
 static const struct dma_heap_ops hpa_heap_ops = {
 	.allocate = hpa_heap_allocate,
+	.get_pool_size = hpa_heap_get_pool_size,
 };
 
 static void hpa_add_exception_area(void)
@@ -989,6 +1106,11 @@ static int __init hpa_dma_heap_init(void)
 		pr_info("Registered %s dma-heap successfully\n", hpa_heaps[i].name);
 	}
 	register_trace_android_vh_show_mem(show_hpa_trace_handler, NULL);
+
+	INIT_LIST_HEAD(&hpa_pool.items);
+	spin_lock_init(&hpa_pool.lock);
+
+	register_shrinker(&hpa_pool_shrinker);
 
 	hpa_add_exception_area();
 	hpa_debug_init();

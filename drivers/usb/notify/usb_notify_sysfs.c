@@ -272,17 +272,9 @@ static ssize_t usb_data_enabled_store(
 
 	if (udev->set_disable) {
 		if (strcmp(usb_data_enabled, "0") == 0) {
-			if (!udev->usb_data_enabled) {
-				pr_err("%s already disabled", __func__);
-				goto error1;
-			}
 			param = NOTIFY_BLOCK_TYPE_ALL;
 			udev->usb_data_enabled = 0;
 		} else if (strcmp(usb_data_enabled, "1") == 0) {
-			if (udev->usb_data_enabled) {
-				pr_err("%s already enabled", __func__);
-				goto error1;
-			}
 			param = NOTIFY_BLOCK_TYPE_NONE;
 			udev->usb_data_enabled = 1;
 		} else {
@@ -1041,20 +1033,39 @@ static const char *lock_string(enum usb_lock_state lock_state)
 }
 #endif
 
+static const char *const LOCK_STATE_NAMES[] = {
+    "SUNNY_WORK_MODE",     // 0: USB_NOTIFY_UNLOCK
+    "CLOUDY_WORK_MODE",    // 1: USB_NOTIFY_LOCK_USB_WORK
+    "RAINY_RESTRICT_MODE",     // 2: USB_NOTIFY_LOCK_USB_RESTRICT
+    "SKY_DEFAULT"        // 3: default
+};
+
+#define TOTAL_STATES 4
+#define VALID_INPUT_CNT 3  // "sunny", "cloudy", "rainy"
+
 static ssize_t usb_sl_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct usb_notify_dev *udev = (struct usb_notify_dev *)
 		dev_get_drvdata(dev);
+    const char *state;
 
 	if (udev == NULL) {
 		pr_err("udev is NULL\n");
 		return -EINVAL;
 	}
-	pr_info("%s secure_lock = %lu\n",
-		__func__, udev->secure_lock);
 
-	return sprintf(buf, "%lu\n", udev->secure_lock);
+	state = LOCK_STATE_NAMES[udev->secure_lock % TOTAL_STATES];
+
+#ifndef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION
+    pr_info("%s %s (secure_lock = %s(%lu))\n",
+             __func__, state, lock_string(udev->secure_lock), udev->secure_lock);
+#else
+    pr_info("%s %s secure_lock = %lu\n",
+             __func__, state, udev->secure_lock);
+#endif
+
+    return snprintf(buf, PAGE_SIZE, "%s\n", state);
 }
 
 static ssize_t usb_sl_store(
@@ -1070,6 +1081,8 @@ static ssize_t usb_sl_store(
 #endif
 	int sret = -EINVAL;
 	size_t ret = -ENOMEM;
+	char input_str[25];
+	int i;
 
 	if (udev == NULL) {
 		pr_err("udev is NULL\n");
@@ -1080,21 +1093,35 @@ static ssize_t usb_sl_store(
 		goto error;
 	}
 
-#ifndef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION	
+#ifndef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION
 	pr_info("%s before secure_lock = %s first_restrict = %d +\n",
-		__func__, lock_string(udev->secure_lock), udev->first_restrict);		
+		__func__, lock_string(udev->secure_lock), udev->first_restrict);
 #else
 	pr_info("%s before secure_lock = %lu +\n",
 		__func__, udev->secure_lock);
 #endif
 
-	sret = sscanf(buf, "%lu", &secure_lock);
-	if (sret != 1)
+	sret = sscanf(buf, "%24s", input_str);
+	if (sret != 1) {
+		pr_err("%s invalid input (%s)-\n", __func__, input_str);
 		goto error;
+	}
+
+	secure_lock = ~0UL;
+	for (i = 0; i < VALID_INPUT_CNT; i++) {
+		if (strcmp(input_str, LOCK_STATE_NAMES[i]) == 0) {
+			secure_lock = i;
+			break;
+		}
+	}
+	if (secure_lock == ~0UL) {
+		pr_err("%s disallow input (%s)-\n", __func__, input_str);
+		goto error;
+	}
 
 #ifndef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION
 	prev_secure_lock = udev->secure_lock;
-#endif	
+#endif
 	udev->secure_lock = secure_lock;
 	udev->set_lock_state(udev);
 
@@ -1105,9 +1132,9 @@ static ssize_t usb_sl_store(
 			udev->set_disable(udev, NOTIFY_BLOCK_TYPE_ALL);
 			udev->first_restrict = true;
 		}
-	} else if (udev->first_restrict && prev_secure_lock == USB_NOTIFY_LOCK_USB_RESTRICT
-				&& (secure_lock == USB_NOTIFY_UNLOCK
-						|| secure_lock == USB_NOTIFY_LOCK_USB_WORK)) {
+	} else if (udev->first_restrict
+					&& (secure_lock == USB_NOTIFY_UNLOCK
+							|| secure_lock == USB_NOTIFY_LOCK_USB_WORK)) {
 		if (udev->set_disable) {
 			udev->set_disable(udev, NOTIFY_BLOCK_TYPE_NONE);
 			udev->first_restrict = false;

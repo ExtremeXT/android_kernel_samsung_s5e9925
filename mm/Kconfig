@@ -922,6 +922,17 @@ config HPA
 	help
 	  Turns on High-order Pages Allocator based on page migration.
 
+config MEMFD_ASHMEM_SHIM
+	bool "Memfd ashmem ioctl compatibility support"
+	depends on MEMFD_CREATE
+	help
+	  This provides compatibility support for ashmem ioctl commands against
+	  memfd file descriptors. This is useful for compatibility on Android
+	  for older applications that may use ashmem's ioctl commands on the
+	  now memfds passed to them.
+
+	  Unless you are running Android, say N.
+
 config KSWAPD_CPU
 	hex "Set kswapd cpu affinity by default"
 	default 0x7F
@@ -1011,17 +1022,6 @@ config TASK_HAS_ALLOC_FREE_STAT
 	default n
 	help
 	  let struct task have alloc/free stat
-
-config MEMFD_ASHMEM_SHIM
-	bool "Memfd ashmem ioctl compatibility support"
-	depends on MEMFD_CREATE
-	help
-	  This provides compatibility support for ashmem ioctl commands against
-	  memfd file descriptors. This is useful for compatibility on Android
-	  for older applications that may use ashmem's ioctl commands on the
-	  now memfds passed to them.
-
-	  Unless you are running Android, say N.
 
 source "mm/damon/Kconfig"
 

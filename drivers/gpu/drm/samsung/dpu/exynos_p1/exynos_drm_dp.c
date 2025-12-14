@@ -515,7 +515,7 @@ static bool dp_mode_is_optimizable(struct drm_display_mode *mode, u64 max_pclk)
 	if (fps > 110 && resolution >= (1920 * 1080) && max_pclk > 250000000U)
 		return false;
 
-	if (fps > 75 && resolution >= (2560 * 1440)  && max_pclk > 300000000U)
+	if (fps >= 75 && resolution >= (2560 * 1440)  && max_pclk > 290000000U)
 		return false;
 
 	return true;

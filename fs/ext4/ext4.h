@@ -1202,7 +1202,6 @@ struct ext4_inode_info {
 #define EXT4_MOUNT_NO_AUTO_DA_ALLOC	0x10000	/* No auto delalloc mapping */
 #define EXT4_MOUNT_BARRIER		0x20000 /* Use block barriers */
 #define EXT4_MOUNT_QUOTA		0x40000 /* Some quota option set */
-#define EXT4_MOUNT_NO_SEHASH_XATTR	0x40000 /* Ignore security.sehash extended attribute */
 #define EXT4_MOUNT_USRQUOTA		0x80000 /* "old" user quota,
 						 * enable enforcement for hidden
 						 * quota files */
@@ -3274,13 +3273,6 @@ static inline ext4_group_t ext4_flex_group(struct ext4_sb_info *sbi,
 static inline unsigned int ext4_flex_bg_size(struct ext4_sb_info *sbi)
 {
 	return 1 << sbi->s_log_groups_per_flex;
-}
-
-static inline loff_t ext4_get_maxbytes(struct inode *inode)
-{
-	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))
-		return inode->i_sb->s_maxbytes;
-	return EXT4_SB(inode->i_sb)->s_bitmap_maxbytes;
 }
 
 #define ext4_std_error(sb, errno)				\

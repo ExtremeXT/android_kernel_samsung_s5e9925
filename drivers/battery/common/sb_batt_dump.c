@@ -93,8 +93,8 @@ static ssize_t show_attrs(struct device *dev,
 			battery->misc_event,
 			battery->tx_event,
 			0, /* battery->wc_rx_phm_mode */
-			0 /*battery->srccap_transit*/
-		);
+			battery->srccap_transit
+			);
 		size = sizeof(temp_buf) - strlen(temp_buf);
 
 	{
@@ -127,7 +127,7 @@ static ssize_t show_attrs(struct device *dev,
 		if (battery->wc_tx_enable) {
 			value.intval = SB_WRL_TX_MODE;
 			snprintf(temp_buf+strlen(temp_buf), size, "%d,", SB_WRL_TX_MODE);
-		} else if (is_wireless_fake_type(battery->cable_type)) {
+		} else if (is_wireless_all_type(battery->cable_type)) {
 			value.intval = SB_WRL_RX_MODE;
 			snprintf(temp_buf+strlen(temp_buf), size, "%d,", SB_WRL_RX_MODE);
 		} else

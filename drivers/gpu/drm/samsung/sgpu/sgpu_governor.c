@@ -19,6 +19,8 @@
 
 #include "sgpu_profiler_v1.h"
 
+#include <trace/events/power.h>
+#define CREATE_TRACE_POINTS
 
 #if IS_ENABLED(CONFIG_GPU_THERMAL)
 #include "exynos_tmu.h"
@@ -296,6 +298,9 @@ static int sgpu_dvfs_governor_conservative_get_target(struct devfreq *df, uint32
 		data->expire_jiffies = jiffies +
 			msecs_to_jiffies(data->downstay_times[*level]);
 	}
+
+	trace_clock_set_rate("Gpu Utilization", utilization, 0);
+
 	return 0;
 }
 
@@ -654,6 +659,9 @@ static int devfreq_sgpu_func(struct devfreq *df, unsigned long *freq)
 	data->min_freq = max(df->scaling_min_freq,
 			      (unsigned long)HZ_PER_KHZ * qos_min_freq);
 	data->min_freq = min(data->max_freq, data->min_freq);
+
+	trace_clock_set_rate("Gpu Min Limit", data->min_freq, 0);
+	trace_clock_set_rate("Gpu Max Limit", data->max_freq, 0);
 
 	if (data->in_suspend) {
 		*freq = max(data->min_freq, min(data->max_freq,	df->resume_freq));

@@ -11,16 +11,40 @@
 /* sec vibrator inputff */
 #include <linux/device.h>
 #include <linux/module.h>
+#include <linux/kernel.h>
 #include <linux/notifier.h>
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
+#include <linux/input.h>
+#include <linux/err.h>
+#include <linux/kthread.h>
 #include <linux/vibrator/sec_vibrator_inputff.h>
 
 #if defined(CONFIG_SEC_KUNIT)
-#include "kunit_test/sec_vibrator_inputff_test.h"
+#include <kunit/mock.h>
 #else
 #define __visible_for_testing static
 #endif
+
+enum compose_effect_state {
+	COMPOSE_EFFECT_END = 0,
+	COMPOSE_EFFECT_STOP = 1,
+	COMPOSE_EFFECT_PLAY = 2,
+};
+
+struct common_inputff_effect {
+	int type;
+	int effect_id;
+	int scale;
+	int duration;
+	int frequency;
+};
+
+struct common_inputff_effects {
+	struct common_inputff_effect effects[MAX_COMPOSE_EFFECT];
+	int num_of_effects;
+	int repeat;
+};
 
 static struct sec_vib_inputff_pdata  sec_vib_inputff_pdata;
 
@@ -87,6 +111,257 @@ int sec_vib_inputff_setbit(struct sec_vib_inputff_drvdata *ddata, int val)
 }
 EXPORT_SYMBOL_GPL(sec_vib_inputff_setbit);
 
+static int parsing_compose_effects(struct sec_vib_inputff_drvdata *ddata,
+		struct common_inputff_effects *input_effects)
+{
+	struct common_inputff_effect *inputff_effect;
+	int i = 0, ret = 0;
+
+	ddata->compose.num_of_compose_effects = input_effects->num_of_effects;
+	ddata->compose.compose_repeat = input_effects->repeat;
+	ddata->compose.pattern_idx = 0;
+
+	pr_info("%s num_of_effects:%d repeat:%d\n", __func__,
+		ddata->compose.num_of_compose_effects, ddata->compose.compose_repeat);
+
+	if (ddata->compose.num_of_compose_effects > MAX_COMPOSE_EFFECT) {
+		pr_err("%s error. num_of_compose_effects=%d\n", __func__,
+			ddata->compose.num_of_compose_effects);
+		ret = -EFBIG;
+		goto err;
+	}
+
+	for (i = 0; i < ddata->compose.num_of_compose_effects; i++) {
+		inputff_effect = &input_effects->effects[i];
+
+		switch (inputff_effect->type) {
+		case FF_CONSTANT:
+			ddata->effects[i].gain = (ddata->effect_gain * inputff_effect->scale) / 100;
+			ddata->effects[i].compose_effects.type = inputff_effect->type;
+			ddata->effects[i].compose_effects.id = ddata->compose.compose_effect_id;
+			ddata->effects[i].compose_effects.replay.length = inputff_effect->duration;
+			ddata->effects[i].compose_effects.u.constant.level = inputff_effect->frequency;
+			pr_info("%s <%d> gain:%d type:%d duration:%d\n", __func__, i,
+				ddata->effects[i].gain, ddata->effects[i].compose_effects.type,
+				ddata->effects[i].compose_effects.replay.length);
+			break;
+		case FF_PERIODIC:
+			ddata->effects[i].gain = (ddata->effect_gain * inputff_effect->scale) / 100;
+			ddata->effects[i].compose_effects.type = inputff_effect->type;
+			ddata->effects[i].compose_effects.id = ddata->compose.compose_effect_id;
+			ddata->effects[i].compose_effects.replay.length = inputff_effect->duration;
+			ddata->effects[i].compose_effects.u.periodic.offset = inputff_effect->effect_id;
+			ddata->effects[i].compose_effects.u.periodic.waveform = 0;
+			pr_info("%s <%d> gain:%d type:%d sep index:%d duration:%d\n", __func__, i,
+				ddata->effects[i].gain, ddata->effects[i].compose_effects.type,
+				ddata->effects[i].compose_effects.u.periodic.offset,
+				ddata->effects[i].compose_effects.replay.length);
+			break;
+		case 0:
+			ddata->effects[i].compose_effects.type = 0;
+			ddata->effects[i].compose_effects.replay.length = inputff_effect->duration;
+			pr_info("%s <%d> type:%d duration:%d\n", __func__, i,
+				ddata->effects[i].compose_effects.type,
+				ddata->effects[i].compose_effects.replay.length);
+			break;
+		default:
+			pr_err("%s invalid effect type=%d\n", __func__, inputff_effect->type);
+			ret = -EINVAL;
+			goto err;
+		}
+	}
+err:
+	return ret;
+}
+
+static void compose_effects_play_work(struct kthread_work *work)
+{
+	struct sec_vib_inputff_compose *compose =
+	    container_of(work, struct sec_vib_inputff_compose, kwork);
+	struct sec_vib_inputff_drvdata *ddata =
+	    container_of(compose, struct sec_vib_inputff_drvdata, compose);
+	struct input_dev *dev = ddata->input;
+	struct ff_effect *effect = NULL;
+	u16 gain = 0;
+	int ret = 0, type = 0, duration = 0;
+
+	if (!dev) {
+		ret = -ENOENT;
+		pr_err("%s ddata->input null\n", __func__);
+		goto exit;
+	}
+
+	if (compose->pattern_idx < compose->num_of_compose_effects) {
+		gain = ddata->effects[compose->pattern_idx].gain;
+		effect = &ddata->effects[compose->pattern_idx].compose_effects;
+		type = ddata->effects[compose->pattern_idx].compose_effects.type;
+		duration = effect->replay.length;
+
+		if (compose->effect_state == COMPOSE_EFFECT_STOP) {
+			if (ddata->vib_ops->erase)
+				ret = ddata->vib_ops->erase(dev, compose->curr_effect);
+			compose->effect_state = COMPOSE_EFFECT_END;
+		}
+		
+		switch (type) {
+		case FF_CONSTANT:
+		case FF_PERIODIC:
+			pr_info("%s type %s duration %dms\n", __func__,
+				(type == FF_CONSTANT) ? "FF_CONSTANT" : "FF_PERIODIC", duration);
+			if (ddata->vib_ops->set_gain)
+				ddata->vib_ops->set_gain(dev, gain);
+
+			ret = ddata->vib_ops->upload(dev, effect, NULL);
+			if (ret) {
+				pr_err("%s error. upload ret=%d\n", __func__, ret);
+				goto exit;
+			}
+
+			compose->curr_effect = effect->id;
+			compose->effect_state = COMPOSE_EFFECT_PLAY;
+			if (ddata->vib_ops->playback)
+				ddata->vib_ops->playback(dev, effect->id, 1);
+			break;
+		case 0:
+			pr_info("%s delay duration %dms\n", __func__, duration);
+			break;
+		default:
+			pr_err("%s error. type=%d\n", __func__, type);
+			break;
+		}
+
+		hrtimer_start(&ddata->compose_effects_timer,
+			ktime_set(duration / 1000,(duration % 1000) * 1000000),
+			HRTIMER_MODE_REL);
+
+		compose->pattern_idx++;
+
+		if (compose->pattern_idx >= ddata->compose.num_of_compose_effects && 
+			ddata->compose.compose_repeat)
+			compose->pattern_idx = 0;
+	}
+
+exit:
+	pr_info("%s exit\n", __func__);
+}
+
+static void stop_compose_effects_thread(struct sec_vib_inputff_drvdata *ddata)
+{
+	pr_info("%s\n", __func__);
+	hrtimer_cancel(&ddata->compose_effects_timer);
+	if (ddata->compose.effect_state == COMPOSE_EFFECT_PLAY) {
+		if (ddata->vib_ops->playback)
+			ddata->vib_ops->playback(ddata->input, ddata->compose.curr_effect, 0);
+		ddata->compose.effect_state = COMPOSE_EFFECT_STOP;
+	}
+}
+
+static enum hrtimer_restart compose_effect_timer(struct hrtimer *timer)
+{
+	struct sec_vib_inputff_drvdata *ddata =
+		container_of(timer, struct sec_vib_inputff_drvdata, compose_effects_timer);
+	if ( ddata->compose.effect_state == COMPOSE_EFFECT_PLAY) {
+		if (ddata->vib_ops->playback)
+			ddata->vib_ops->playback(ddata->input, ddata->compose.curr_effect, 0);
+		ddata->compose.effect_state = COMPOSE_EFFECT_STOP;
+	}
+	kthread_queue_work(&ddata->compose.kworker, &ddata->compose.kwork);
+	return HRTIMER_NORESTART;
+}
+
+static int sec_vib_inputff_upload_effect(struct input_dev *dev,
+					 struct ff_effect *effect,
+					 struct ff_effect *old)
+{
+	struct sec_vib_inputff_drvdata *ddata = input_get_drvdata(dev);
+	struct common_inputff_effects input_compose_effects;
+	int ret = 0;
+
+	if (ddata->use_common_inputff) {
+		if (effect->u.periodic.custom_len > sizeof(int)) {
+			if (copy_from_user(&input_compose_effects,
+					effect->u.periodic.custom_data,
+					sizeof(struct common_inputff_effects))) {
+				ret = -ENODATA;
+				goto err;
+			}
+			ddata->compose.compose_effect_id = effect->id;
+			ret = parsing_compose_effects(ddata, &input_compose_effects);
+			if (ret)
+				goto err;
+			ddata->compose.upload_compose_effect = 1;
+		} else {
+			if (ddata->vib_ops->upload)
+				ret = ddata->vib_ops->upload(dev, effect, old);
+		}
+	} else {
+		if (ddata->vib_ops->upload)
+			ret = ddata->vib_ops->upload(dev, effect, old);
+	}
+
+err:
+	return ret;
+}
+
+static int sec_vib_inputff_erase(struct input_dev *dev, int effect_id)
+{
+	struct sec_vib_inputff_drvdata *ddata = input_get_drvdata(dev);
+	int ret = 0;
+
+	if (ddata->use_common_inputff) {
+		if (ddata->compose.upload_compose_effect) {
+			stop_compose_effects_thread(ddata);
+			kthread_flush_work(&ddata->compose.kwork);
+			if (ddata->compose.effect_state == COMPOSE_EFFECT_STOP) {
+				ret = ddata->vib_ops->erase(dev, ddata->compose.curr_effect);
+				ddata->compose.effect_state = COMPOSE_EFFECT_END;
+			}
+			ddata->compose.upload_compose_effect = 0;
+			ddata->compose.num_of_compose_effects = 0;
+			ddata->compose.compose_repeat = 0;
+		}
+		if (ddata->vib_ops->erase)
+			ret = ddata->vib_ops->erase(dev, effect_id);
+	} else {
+		if (ddata->vib_ops->erase)
+			ret = ddata->vib_ops->erase(dev, effect_id);
+	}
+	return ret;
+}
+
+static int sec_vib_inputff_playback(struct input_dev *dev, int effect_id,
+				    int val)
+{
+	struct sec_vib_inputff_drvdata *ddata = input_get_drvdata(dev);
+	int ret = 0;
+
+	if (ddata->use_common_inputff) {
+		if (ddata->compose.upload_compose_effect) {
+			if (val) {
+				kthread_queue_work(&ddata->compose.kworker, &ddata->compose.kwork);
+			} else
+				stop_compose_effects_thread(ddata);
+		} else {
+			if (ddata->vib_ops->playback)
+				ret = ddata->vib_ops->playback(dev, effect_id, val);
+		}
+	} else {
+		if (ddata->vib_ops->playback)
+			ret = ddata->vib_ops->playback(dev, effect_id, val);
+	}
+
+	return ret;
+}
+
+static void sec_vib_inputff_set_gain(struct input_dev *dev, u16 gain)
+{
+	struct sec_vib_inputff_drvdata *ddata = input_get_drvdata(dev);
+
+	ddata->effect_gain = gain;
+	if (ddata->vib_ops->set_gain)
+		ddata->vib_ops->set_gain(dev, gain);
+}
+
 int sec_vib_inputff_register(struct sec_vib_inputff_drvdata *ddata)
 {
 	int i, ret = 0, ff = 0, ff_cnt = 0;
@@ -112,7 +387,20 @@ int sec_vib_inputff_register(struct sec_vib_inputff_drvdata *ddata)
 	ddata->input->id.product = ddata->devid;
 	ddata->input->id.version = ddata->revid;
 
-	input_set_drvdata(ddata->input, ddata->private_data);
+	input_set_drvdata(ddata->input, ddata);
+
+	init_waitqueue_head(&ddata->compose.delay_wait);
+	kthread_init_worker(&ddata->compose.kworker);
+	kthread_init_work(&ddata->compose.kwork, compose_effects_play_work);
+
+	ddata->compose.compose_thread = kthread_run(kthread_worker_fn,
+			&ddata->compose.kworker, "compose-effects");
+	if (IS_ERR(ddata->compose.compose_thread)) {
+		pr_err("%s Unable to start compose effects thread\n", __func__);
+		ret = PTR_ERR(ddata->compose.compose_thread);
+		goto err_nomem;
+	}
+
 	for (ff = FF_EFFECT_MIN; ff <= FF_MAX_EFFECTS; ff++) {
 		if (sec_vib_inputff_getbit(ddata, ff)) {
 			input_set_capability(ddata->input, EV_FF, ff);
@@ -132,10 +420,10 @@ int sec_vib_inputff_register(struct sec_vib_inputff_drvdata *ddata)
 	 */
 	__clear_bit(FF_RUMBLE, ddata->input->ffbit);
 
-	ddata->input->ff->upload = ddata->vib_ops->upload;
-	ddata->input->ff->playback = ddata->vib_ops->playback;
-	ddata->input->ff->set_gain = ddata->vib_ops->set_gain;
-	ddata->input->ff->erase = ddata->vib_ops->erase;
+	ddata->input->ff->upload = sec_vib_inputff_upload_effect;
+	ddata->input->ff->erase = sec_vib_inputff_erase;
+	ddata->input->ff->playback = sec_vib_inputff_playback;
+	ddata->input->ff->set_gain = sec_vib_inputff_set_gain;
 
 	ret = input_register_device(ddata->input);
 	if (ret) {
@@ -163,6 +451,9 @@ int sec_vib_inputff_register(struct sec_vib_inputff_drvdata *ddata)
 	sec_vib_inputff_event_cmd(ddata);
 #endif
 
+	hrtimer_init(&ddata->compose_effects_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	ddata->compose_effects_timer.function = compose_effect_timer;
+
 	ddata->vibe_init_success = true;
 
 	pr_info("%s ---\n", __func__);
@@ -172,6 +463,7 @@ err_sysfs:
 		input_unregister_device(ddata->input);
 err_input_reg:
 err_input_ff:
+	kthread_stop(ddata->compose.compose_thread);
 err_nomem:
 err_nodev:
 	return ret;
@@ -200,7 +492,12 @@ void sec_vib_inputff_unregister(struct sec_vib_inputff_drvdata *ddata)
 	}
 	if (ddata->input)
 		input_unregister_device(ddata->input);
+
+	if (ddata->compose.compose_thread)
+		kthread_stop(ddata->compose.compose_thread);
+
 	ddata->vibe_init_success = false;
+	hrtimer_cancel(&ddata->compose_effects_timer);
 
 fail:
 	return;
@@ -281,12 +578,15 @@ static int sec_vib_inputff_parse_dt(struct platform_device *pdev)
 	ret = of_property_read_u32(np, "haptic,high_temp_ref", &temp);
 	if (ret) {
 		pr_info("%s: high temperature concept isn't used\n", __func__);
+		sec_vib_inputff_pdata.high_temp_ref = SEC_VIBRATOR_INPUTFF_DEFAULT_HIGH_TEMP_REF;
 	} else {
 		sec_vib_inputff_pdata.high_temp_ref = (int)temp;
 
 		ret = of_property_read_u32(np, "haptic,high_temp_ratio", &temp);
-		if (ret)
+		if (ret) {
 			pr_info("%s: high_temp_ratio isn't used\n", __func__);
+			sec_vib_inputff_pdata.high_temp_ratio = SEC_VIBRATOR_INPUTFF_DEFAULT_HIGH_TEMP_RATIO;
+		}
 		else
 			sec_vib_inputff_pdata.high_temp_ratio = (int)temp;
 	}
@@ -329,6 +629,13 @@ static int sec_vib_inputff_parse_dt(struct platform_device *pdev)
 		sec_vib_inputff_pdata.fold_close_ratio = (int)temp;
 #endif
 
+	ret = of_property_read_string(np, "haptic,f0_cal_way",
+		(const char **)&sec_vib_inputff_pdata.f0_cal_way);
+	if (ret < 0) {
+		sec_vib_inputff_pdata.f0_cal_way = "NONE";
+		pr_err("%s: WARNING! F0 Calibration Method not found\n", __func__);
+	}
+
 	pr_info("%s : done! ---\n", __func__);
 	return 0;
 }
@@ -363,7 +670,6 @@ static struct platform_driver sec_vib_inputff_driver = {
 
 module_platform_driver(sec_vib_inputff_driver);
 
-MODULE_AUTHOR("Samsung electronics <wookwang.lee@samsung.com>");
+MODULE_AUTHOR("Samsung electronics <wookwang.lee@samsung.com>, Samsung vibrator team members");
 MODULE_DESCRIPTION("sec_vibrator_inputff");
 MODULE_LICENSE("GPL");
-

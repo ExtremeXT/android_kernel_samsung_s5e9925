@@ -219,9 +219,7 @@ enum ovl_path_type ovl_path_real(struct dentry *dentry, struct path *path)
 
 struct dentry *ovl_dentry_upper(struct dentry *dentry)
 {
-	struct inode *inode = d_inode(dentry);
-
-	return inode ? ovl_upperdentry_dereference(OVL_I(inode)) : NULL;
+	return ovl_upperdentry_dereference(OVL_I(d_inode(dentry)));
 }
 
 struct dentry *ovl_dentry_lower(struct dentry *dentry)

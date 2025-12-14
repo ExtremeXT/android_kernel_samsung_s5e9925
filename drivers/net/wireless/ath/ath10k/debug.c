@@ -583,7 +583,7 @@ static ssize_t ath10k_write_simulate_fw_crash(struct file *file,
 		ret = ath10k_debug_fw_assert(ar);
 	} else if (!strcmp(buf, "hw-restart")) {
 		ath10k_info(ar, "user requested hw restart\n");
-		ath10k_core_start_recovery(ar);
+		queue_work(ar->workqueue, &ar->restart_work);
 		ret = 0;
 	} else {
 		ret = -EINVAL;
@@ -2005,7 +2005,7 @@ static ssize_t ath10k_write_btcoex(struct file *file,
 		}
 	} else {
 		ath10k_info(ar, "restarting firmware due to btcoex change");
-		ath10k_core_start_recovery(ar);
+		queue_work(ar->workqueue, &ar->restart_work);
 	}
 
 	if (val)
@@ -2136,7 +2136,7 @@ static ssize_t ath10k_write_peer_stats(struct file *file,
 
 	ath10k_info(ar, "restarting firmware due to Peer stats change");
 
-	ath10k_core_start_recovery(ar);
+	queue_work(ar->workqueue, &ar->restart_work);
 	ret = count;
 
 exit:

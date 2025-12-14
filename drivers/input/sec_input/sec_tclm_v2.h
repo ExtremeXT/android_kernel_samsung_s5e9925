@@ -1,3 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0
+ * Copyright (C) 2022 Samsung Electronics Co., Ltd.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
 
 #ifndef _SEC_TCLM_H_
 #define _SEC_TCLM_H_
@@ -84,16 +91,12 @@ struct sec_tclm_data {
 	u8 root_of_calibration;
 	struct sec_cal_position *tclm_string;
 	u8 cal_pos_hist_last3[2 * CAL_HISTORY_QUEUE_SHORT_DISPLAY + 1];	/* 7 */
-	struct i2c_client *client;
-	int (*tclm_read)(struct i2c_client *client, int address);
-	int (*tclm_write)(struct i2c_client *client, int address);
-	int (*tclm_execute_force_calibration)(struct i2c_client *client, int cal_mode);
+
+	struct device *dev;
+	int (*tclm_read)(struct device *dev, int address);
+	int (*tclm_write)(struct device *dev, int address);
+	int (*tclm_execute_force_calibration)(struct device *dev, int cal_mode);
 	void (*tclm_parse_dt)(struct device *dev, struct sec_tclm_data *tdata);
-	struct spi_device *spi;
-	int (*tclm_read_spi)(struct spi_device *spi, int address);
-	int (*tclm_write_spi)(struct spi_device *spit, int address);
-	int (*tclm_execute_force_calibration_spi)(struct spi_device *spi, int cal_mode);
-	void (*tclm_parse_dt_dev)(struct device *dev, struct sec_tclm_data *tdata);
 
 	struct sec_tclm_nvdata nvdata;
 	u8 tclm[SEC_TCLM_NVM_OFFSET_LENGTH];

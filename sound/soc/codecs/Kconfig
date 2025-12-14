@@ -1852,7 +1852,3 @@ source "sound/soc/codecs/tas2562/Kconfig"
 source "sound/soc/codecs/tfa9878/Kconfig"
 
 endmenu
-
-config SND_SOC_CS40L26
-	tristate "Cirrus Logic CS40L26 Stub CODEC"
-

@@ -84,8 +84,8 @@ static void abox_log_memcpy(struct device *dev,
 
 static bool abox_log_check_sanity(struct ABOX_LOG_BUFFER *log_buffer)
 {
-	return (log_buffer->index_reader < ABOX_LOG_SIZE) &&
-			(log_buffer->index_writer < ABOX_LOG_SIZE) &&
+	return (log_buffer->index_reader < log_buffer->size) &&
+			(log_buffer->index_writer < log_buffer->size) &&
 			(log_buffer->size <= ABOX_LOG_SIZE);
 }
 
@@ -95,6 +95,9 @@ static void abox_log_flush(struct device *dev,
 	struct ABOX_LOG_BUFFER *log_buffer = info->log_buffer;
 	unsigned int index_writer = log_buffer->index_writer;
 	struct abox_log_kernel_buffer *kernel_buffer = &info->kernel_buffer;
+
+	if (log_buffer->size == 0)
+		return;
 
 	if (!abox_log_check_sanity(log_buffer)) {
 		dev_err_ratelimited(dev, "%d: writer=%u, reader=%u, size=%u\n",

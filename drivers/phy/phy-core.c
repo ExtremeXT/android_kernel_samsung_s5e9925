@@ -360,9 +360,9 @@ EXPORT_SYMBOL_GPL(phy_power_off);
 
 int phy_set_mode_ext(struct phy *phy, enum phy_mode mode, int submode)
 {
-	int ret = 0;
+	int ret;
 
-	if (!phy)
+	if (!phy || !phy->ops->set_mode)
 		return 0;
 
 	if (submode != USB_SET_MODE_MUTEX_SKIP)

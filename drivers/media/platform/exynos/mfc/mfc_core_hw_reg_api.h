@@ -150,6 +150,13 @@ static inline void mfc_core_risc_on(struct mfc_core *core)
 	MFC_CORE_WRITEL(0x0, MFC_REG_MFC_OFF);
 	mfc_core_debug(1, "RISC_ON\n");
 	MFC_TRACE_CORE(">> RISC ON\n");
+
+	/*
+	 * Since RISC_ON is also one of F/W operation,
+	 * clear the flag for the case where cache_flush needs to be performed
+	 * again without any h2r_cmd later.
+	 */
+	core->last_cmd_has_cache_flush = 0;
 }
 
 static inline void mfc_core_risc_off(struct mfc_core *core)

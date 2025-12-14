@@ -30,7 +30,7 @@
 #include <linux/usb/typec/common/pdic_notifier.h>
 
 #define TYPEC_MANAGER_MAJ_VERSION 2
-#define TYPEC_MANAGER_MIN_VERSION 1
+#define TYPEC_MANAGER_MIN_VERSION 2
 
 /* USB TypeC Manager notifier call sequence,
  * largest priority number device will be called first. */
@@ -64,9 +64,10 @@ typedef enum {
 
 typedef enum
 {
-	VBUS_NOTIFIER,
-	PDIC_NOTIFIER,
-	MUIC_NOTIFIER
+	VBUS_NOTIFIER = 1 << 0,
+	PDIC_NOTIFIER = 1 << 1,
+	MUIC_NOTIFIER = 1 << 2,
+	ALL_NOTIFIER = VBUS_NOTIFIER | PDIC_NOTIFIER | MUIC_NOTIFIER
 }notifier_register;
 
 typedef struct
@@ -88,6 +89,12 @@ struct typec_manager_event_work
 
 struct manager_dwork {
 	struct delayed_work dwork;
+	bool pending;
+};
+
+struct manager_usb_dwork {
+	struct delayed_work dwork;
+	int data;
 	bool pending;
 };
 
@@ -114,10 +121,11 @@ struct typec_manager_muic {
 };
 
 struct typec_manager_usb {
-	uint dr;
+	int dr;
+	int notified_dr;
 	int enum_state;
 	bool enable_state;
-	int ufp_repeat_check;
+	u64 event_time_stamp;
 };
 
 typedef struct _manager_data_t
@@ -132,6 +140,8 @@ typedef struct _manager_data_t
 #if defined(CONFIG_CABLE_TYPE_NOTIFIER)
 	struct	notifier_block cable_type_nb;
 #endif
+	int confirm_notifier_register;
+	int notifier_register_try_count;
 
 	struct delayed_work manager_init_work;
 	struct workqueue_struct *manager_noti_wq;
@@ -141,6 +151,7 @@ typedef struct _manager_data_t
 #if IS_ENABLED(CONFIG_MUIC_SM5504_POGO)
 	struct manager_dwork usb_event_by_pogo;
 #endif
+	struct manager_usb_dwork manager_usb_event_delayed_work;
 
 	struct mutex mo_lock;
 	int vbus_state;
@@ -154,7 +165,7 @@ typedef struct _manager_data_t
 	int alt_is_support;
 	int usb_factory;
 
-	unsigned long otg_stamp;
+	u64 otg_stamp;
 	int vbus_by_otg_detection;
 
 	int pd_con_state;
@@ -204,7 +215,7 @@ typedef union {
 #ifdef CONFIG_USB_CONFIGFS_F_MBIM
 #define BOOT_USB_DWORK_TIME 9000
 #else
-#define BOOT_USB_DWORK_TIME 12000
+#define BOOT_USB_DWORK_TIME 18000
 #endif
 
 /* Timeout for USB off when Vbus is in LOW state */
@@ -214,9 +225,10 @@ typedef union {
 #define OTG_VBUS_CHECK_TIME 300
 
 /* Time to retry when Notifier registration fails */
-#define NOTIFIER_REG_RETRY 2000
+#define NOTIFIER_REG_RETRY_TIME 2000
+#define NOTIFIER_REG_RETRY_COUNT 5
 
-#define UFP_REPEAT_ERROR 3
+#define USB_EVENT_INTERVAL_CHECK_TIME 300
 
 #define MANAGER_NOTIFIER_BLOCK(name)	\
 	struct notifier_block (name)

@@ -2909,7 +2909,7 @@ void dtInitRoot(tid_t tid, struct inode *ip, u32 idotdot)
  *	     fsck.jfs should really fix this, but it currently does not.
  *	     Called from jfs_readdir when bad index is detected.
  */
-static int add_missing_indices(struct inode *inode, s64 bn)
+static void add_missing_indices(struct inode *inode, s64 bn)
 {
 	struct ldtentry *d;
 	struct dt_lock *dtlck;
@@ -2918,7 +2918,7 @@ static int add_missing_indices(struct inode *inode, s64 bn)
 	struct lv *lv;
 	struct metapage *mp;
 	dtpage_t *p;
-	int rc = 0;
+	int rc;
 	s8 *stbl;
 	tid_t tid;
 	struct tlock *tlck;
@@ -2943,16 +2943,6 @@ static int add_missing_indices(struct inode *inode, s64 bn)
 
 	stbl = DT_GETSTBL(p);
 	for (i = 0; i < p->header.nextindex; i++) {
-		if (stbl[i] < 0) {
-			jfs_err("jfs: add_missing_indices: Invalid stbl[%d] = %d for inode %ld, block = %lld",
-				i, stbl[i], (long)inode->i_ino, (long long)bn);
-			rc = -EIO;
-
-			DT_PUTPAGE(mp);
-			txAbort(tid, 0);
-			goto end;
-		}
-
 		d = (struct ldtentry *) &p->slot[stbl[i]];
 		index = le32_to_cpu(d->index);
 		if ((index < 2) || (index >= JFS_IP(inode)->next_index)) {
@@ -2970,7 +2960,6 @@ static int add_missing_indices(struct inode *inode, s64 bn)
 	(void) txCommit(tid, 1, &inode, 0);
 end:
 	txEnd(tid);
-	return rc;
 }
 
 /*
@@ -3324,8 +3313,7 @@ skip_one:
 		}
 
 		if (fix_page) {
-			if ((rc = add_missing_indices(ip, bn)))
-				goto out;
+			add_missing_indices(ip, bn);
 			page_fixed = 1;
 		}
 

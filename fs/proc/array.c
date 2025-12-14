@@ -512,18 +512,18 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 		cgtime = sig->cgtime;
 
 		if (whole) {
-			struct task_struct *t;
+			struct task_struct *t = task;
 
 			min_flt = sig->min_flt;
 			maj_flt = sig->maj_flt;
 			gtime = sig->gtime;
 
 			rcu_read_lock();
-			__for_each_thread(sig, t) {
+			do {
 				min_flt += t->min_flt;
 				maj_flt += t->maj_flt;
 				gtime += task_gtime(t);
-			}
+			} while_each_thread(task, t);
 			rcu_read_unlock();
 
 			thread_group_cputime_adjusted(task, &utime, &stime);

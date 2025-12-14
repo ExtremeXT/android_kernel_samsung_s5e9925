@@ -606,13 +606,13 @@ static int max77705_vdm_dp_select_pin(void *data, int multi)
 		else
 			msg_maxim("wrong pin assignment value");
 	}
-#if IS_ENABLED(CONFIG_ARCH_QCOM) && !IS_ENABLED(CONFIG_ARCH_EXYNOS)
+#if IS_ENABLED(CONFIG_IF_CB_MANAGER)
 	if (pin_sel == PDIC_NOTIFY_DP_PIN_C ||
 			pin_sel == PDIC_NOTIFY_DP_PIN_E ||
 			pin_sel == PDIC_NOTIFY_DP_PIN_A)
-		dwc3_restart_usb_host_mode(4);
+		usb_restart_host_mode(usbpd_data->man, 4);
 	else
-		dwc3_restart_usb_host_mode(2);
+		usb_restart_host_mode(usbpd_data->man, 2);
 #endif
 
 	return pin_sel;
@@ -1248,10 +1248,10 @@ void max77705_set_enable_alternate_mode(int mode)
 						status[7], status[8], status[9], status[10]);
 					usbpd_data->is_first_booting = 0;
 				} else if (mode & ALTERNATE_MODE_STOP) {
-#ifndef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION
+#ifndef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION					
 					max77705_vdm_process_set_samsung_alternate_mode(usbpd_data,
 						MAXIM_ENABLE_ALTERNATE_SRCCAP);
-#endif
+#endif						
 					msg_maxim("[ON BOOTING TIME] alternate mode is stopped!");
 				}
 				break;

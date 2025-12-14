@@ -15,6 +15,9 @@ static u32 action_table[MAX_PANEL_POWER_CTRL_ACTION] = {
 	[PANEL_POWER_CTRL_ACTION_REGULATOR_SSD_CURRENT] = (PARSE_REG | PARSE_VALUE),
 	[PANEL_POWER_CTRL_ACTION_GPIO_ENABLE] = (PARSE_GPIO),
 	[PANEL_POWER_CTRL_ACTION_GPIO_DISABLE] = (PARSE_GPIO),
+	[PANEL_POWER_CTRL_ACTION_GPIO_WAIT_LOW] = (PARSE_GPIO | PARSE_VALUE),
+	[PANEL_POWER_CTRL_ACTION_GPIO_WAIT_HIGH] = (PARSE_GPIO | PARSE_VALUE),
+	[PANEL_POWER_CTRL_ACTION_REGULATOR_FORCE_DISABLE] = (PARSE_REG),
 };
 
 static int panel_power_ctrl_action_delay(struct panel_power_ctrl *pctrl,
@@ -158,6 +161,19 @@ static int panel_power_ctrl_action_regulator(struct panel_power_ctrl *pctrl,
 				pctrl->name, paction->name, paction->reg->node_name, paction->value, ret);
 		}
 		break;
+	case PANEL_POWER_CTRL_ACTION_REGULATOR_FORCE_DISABLE:
+		if (!paction->reg) {
+			panel_err("%s %s regulator_force_disable: invalid regulator\n",
+				pctrl->name, paction->name);
+			ret = -ENODEV;
+			break;
+		}
+		ret = panel_regulator_helper_force_disable(paction->reg);
+		if (ret < 0) {
+			panel_err("failed to execute regulator_disable %s %s %s %d\n",
+				pctrl->name, paction->name, paction->reg->node_name, ret);
+		}
+		break;
 	default:
 		panel_err("%s:%s is not regulator action\n", pctrl->name, paction->name);
 		break;
@@ -165,10 +181,67 @@ static int panel_power_ctrl_action_regulator(struct panel_power_ctrl *pctrl,
 	return ret;
 }
 
-static int panel_power_ctrl_execute(struct panel_power_ctrl *pctrl)
+static int panel_power_ctrl_action_gpio_wait(struct panel_power_ctrl *pctrl,
+	struct panel_power_ctrl_action *paction)
+{
+	int i, expected_level, ret = 0;
+	int check_duration = 1;	/* 1 msec */
+	s64 time_diff;
+	ktime_t timestamp;
+
+	if (!pctrl || !paction) {
+		panel_err("invalid argument\n");
+		return -EINVAL;
+	}
+
+	switch (paction->type) {
+	case PANEL_POWER_CTRL_ACTION_GPIO_WAIT_LOW:
+		expected_level = 0;
+		break;
+	case PANEL_POWER_CTRL_ACTION_GPIO_WAIT_HIGH:
+		expected_level = 1;
+		break;
+	default:
+		panel_err("%s:%s is not gpio wait action\n", pctrl->name, paction->name);
+		ret = -EINVAL;
+		return ret;
+	}
+
+	if (!paction->gpio) {
+		panel_err("%s %s gpio_enable: invalid gpio\n", pctrl->name, paction->name);
+		ret = -ENODEV;
+		return ret;
+	}
+
+	ret = -ETIMEDOUT;
+	timestamp = ktime_get();
+
+	for (i = 0 ; i <= paction->value; i += check_duration) {
+		if (panel_gpio_helper_get_value(paction->gpio) == expected_level) {
+			ret = 0;
+			break;
+		}
+		usleep_range(1000 * check_duration, 1000 * check_duration + 100);
+	}
+	time_diff = ktime_to_ms(ktime_sub(ktime_get(), timestamp));
+
+	panel_info("%s(%s) took %llu ms (%s)\n",
+		paction->gpio->name,
+		(expected_level ? "High" : "Low"), time_diff,
+		(ret == 0 ? "Success" : "Timeout!!!"));
+
+	if (ret < 0) {
+		panel_err("failed to execute gpio_wait %s %s %s(%s) %d\n",
+			pctrl->name, paction->name, paction->gpio->name,
+			(expected_level ? "High" : "Low"), ret);
+	}
+
+	return ret;
+}
+
+static int panel_power_ctrl_action_execute(struct panel_power_ctrl *pctrl)
 {
 	struct panel_power_ctrl_action *paction;
-	int result = 0;
 	int ret = 0;
 
 	if (!pctrl)
@@ -187,6 +260,7 @@ static int panel_power_ctrl_execute(struct panel_power_ctrl *pctrl)
 		case PANEL_POWER_CTRL_ACTION_REGULATOR_DISABLE:
 		case PANEL_POWER_CTRL_ACTION_REGULATOR_SET_VOLTAGE:
 		case PANEL_POWER_CTRL_ACTION_REGULATOR_SSD_CURRENT:
+		case PANEL_POWER_CTRL_ACTION_REGULATOR_FORCE_DISABLE:
 			ret = panel_power_ctrl_action_regulator(pctrl, paction);
 			break;
 		case PANEL_POWER_CTRL_ACTION_GPIO_ENABLE:
@@ -197,25 +271,33 @@ static int panel_power_ctrl_execute(struct panel_power_ctrl *pctrl)
 		case PANEL_POWER_CTRL_ACTION_DELAY_USLEEP:
 			ret = panel_power_ctrl_action_delay(pctrl, paction);
 			break;
+		case PANEL_POWER_CTRL_ACTION_GPIO_WAIT_LOW:
+		case PANEL_POWER_CTRL_ACTION_GPIO_WAIT_HIGH:
+			ret = panel_power_ctrl_action_gpio_wait(pctrl, paction);
+			break;
 		default:
-			panel_warn("%s:%s invalid action type %d\n", pctrl->name, paction->name, paction->type);
+			panel_warn("%s:%s invalid action type %d\n",
+					pctrl->name, paction->name, paction->type);
 			ret = -ENODEV;
 			break;
 		}
 
-		panel_dbg("done %d\n", ret);
 		if (ret < 0) {
-			result = ret;
-			break;
+			panel_err("%s:%s action failed\n",
+					pctrl->name, paction->name);
+			return ret;
 		}
+
+		panel_dbg("%s:%s action done\n",
+				pctrl->name, paction->name);
 	}
 
-	panel_info("%s - %d\n", pctrl->name, result);
-	return result;
+	panel_info("%s -\n", pctrl->name);
+	return 0;
 }
 
 __visible_for_testing struct panel_power_ctrl_funcs panel_power_ctrl_funcs = {
-	.execute = panel_power_ctrl_execute,
+	.execute = panel_power_ctrl_action_execute,
 };
 
 int panel_power_ctrl_helper_execute(struct panel_power_ctrl *pctrl)
@@ -368,3 +450,120 @@ int of_get_panel_power_ctrl(struct panel_device *panel, struct device_node *seq_
 	return 0;
 }
 EXPORT_SYMBOL(of_get_panel_power_ctrl);
+
+__visible_for_testing struct panel_power_ctrl *panel_power_ctrl_find(struct panel_device *panel,
+	const char *dev_name, const char *name)
+{
+	struct panel_power_ctrl *pctrl;
+
+	if (!panel || !dev_name || !name)
+		return ERR_PTR(-EINVAL);
+
+	panel_dbg("find: %s, %s\n", dev_name, name);
+	list_for_each_entry(pctrl, &panel->power_ctrl_list, head) {
+		if (!pctrl->dev_name) {
+			panel_err("invalid 'dev_name', skip to check\n");
+			continue;
+		}
+		if (!pctrl->name) {
+			panel_err("invalid 'name', skip to check\n");
+			continue;
+		}
+		if (!strcmp(pctrl->dev_name, dev_name) && !strcmp(pctrl->name, name))
+			return pctrl;
+	}
+	return ERR_PTR(-ENODATA);
+}
+
+bool panel_power_ctrl_exists(struct panel_device *panel,
+	const char *dev_name, const char *name)
+{
+	struct panel_power_ctrl *pctrl;
+
+	if (!panel || !dev_name || !name) {
+		panel_err("invalid arg\n");
+		return false;
+	}
+
+	pctrl = panel_power_ctrl_find(panel, dev_name, name);
+	if (IS_ERR_OR_NULL(pctrl)) {
+		if (PTR_ERR(pctrl) == -ENODATA)
+			panel_dbg("not found %s\n", name);
+		else
+			panel_err("error occurred when find %s, %ld\n", name, PTR_ERR(pctrl));
+		return false;
+	}
+	return true;
+}
+
+int panel_power_ctrl_execute(struct panel_device *panel,
+	const char *dev_name, const char *name)
+{
+	struct panel_power_ctrl *pctrl;
+
+	if (!panel || !dev_name || !name) {
+		panel_err("invalid arg\n");
+		return -EINVAL;
+	}
+
+	pctrl = panel_power_ctrl_find(panel, dev_name, name);
+	if (IS_ERR_OR_NULL(pctrl)) {
+		if (PTR_ERR(pctrl) == -ENODATA) {
+			panel_dbg("%s not found\n", name);
+			return -ENODATA;
+		}
+		panel_err("error occurred when find %s, %ld\n", name, PTR_ERR(pctrl));
+		return PTR_ERR(pctrl);
+	}
+	return panel_power_ctrl_helper_execute(pctrl);
+}
+
+struct pwrctrl *create_pwrctrl(char *name, char *key)
+{
+	struct pwrctrl *pwrctrl;
+	char *dup_key;
+
+	if (!name) {
+		panel_err("name is null\n");
+		return NULL;
+	}
+
+	if (!key) {
+		panel_err("key is null\n");
+		return NULL;
+	}
+
+	pwrctrl = kzalloc(sizeof(*pwrctrl), GFP_KERNEL);
+	if (!pwrctrl)
+		return NULL;
+
+	pnobj_init(&pwrctrl->base, CMD_TYPE_PCTRL, name);
+	dup_key = kstrndup(key, PNOBJ_NAME_LEN-1, GFP_KERNEL);
+	if (!dup_key) {
+		pnobj_deinit(&pwrctrl->base);
+		kfree(pwrctrl);
+		return NULL;
+	}
+	pwrctrl->key = dup_key;
+
+	return pwrctrl;
+}
+
+struct pwrctrl *duplicate_pwrctrl(struct pwrctrl *pwrctrl)
+{
+	if (!pwrctrl)
+		return NULL;
+
+	return create_pwrctrl(get_pwrctrl_name(pwrctrl),
+			get_pwrctrl_key(pwrctrl));
+}
+
+void destroy_pwrctrl(struct pwrctrl *pwrctrl)
+{
+	if (!pwrctrl)
+		return;
+
+	pnobj_deinit(&pwrctrl->base);
+	kfree(get_pwrctrl_key(pwrctrl));
+	kfree(pwrctrl);
+}

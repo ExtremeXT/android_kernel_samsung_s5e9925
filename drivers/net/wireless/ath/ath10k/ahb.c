@@ -626,7 +626,7 @@ static int ath10k_ahb_hif_start(struct ath10k *ar)
 {
 	ath10k_dbg(ar, ATH10K_DBG_BOOT, "boot ahb hif start\n");
 
-	ath10k_core_napi_enable(ar);
+	napi_enable(&ar->napi);
 	ath10k_ce_enable_interrupts(ar);
 	ath10k_pci_enable_legacy_irq(ar);
 
@@ -644,7 +644,8 @@ static void ath10k_ahb_hif_stop(struct ath10k *ar)
 	ath10k_ahb_irq_disable(ar);
 	synchronize_irq(ar_ahb->irq);
 
-	ath10k_core_napi_sync_disable(ar);
+	napi_synchronize(&ar->napi);
+	napi_disable(&ar->napi);
 
 	ath10k_pci_flush(ar);
 }

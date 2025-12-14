@@ -40,6 +40,7 @@
 #include <linux/efi.h>
 #include "amdgpu.h"
 #include "amdgpu_trace.h"
+#include "sgpu_power_trace.h"
 #include "amdgpu_i2c.h"
 #include "atom.h"
 #include "amdgpu_atombios.h"
@@ -3855,6 +3856,7 @@ int amdgpu_device_suspend(struct drm_device *dev, bool fbcon)
 		amdgpu_bo_evict_vram(adev);
 
 	dev->switch_power_state = DRM_SWITCH_POWER_DYNAMIC_OFF;
+	trace_gpu_frequency(0, 0);
 	trace_amdgpu_device_suspend_end(0);
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "%s end", __func__);
 	return 0;

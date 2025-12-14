@@ -77,10 +77,10 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	show_val_kb(m, "MemTotal:       ", i.totalram);
 #ifdef CONFIG_RBIN
 	show_val_kb(m, "MemFree:        ", i.freeram + stats[RBIN_FREE] + hugepage_pool_pages);
-	show_val_kb(m, "MemAvailable:   ", available + stats[RBIN_FREE]);
+	show_val_kb(m, "MemAvailable:   ", available + stats[RBIN_FREE] + hugepage_pool_pages);
 #else
 	show_val_kb(m, "MemFree:        ", i.freeram + hugepage_pool_pages);
-	show_val_kb(m, "MemAvailable:   ", available);
+	show_val_kb(m, "MemAvailable:   ", available + hugepage_pool_pages);
 #endif
 	show_val_kb(m, "Buffers:        ", i.bufferram);
 	show_val_kb(m, "Cached:         ", cached);

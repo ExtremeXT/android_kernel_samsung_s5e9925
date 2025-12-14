@@ -592,9 +592,6 @@ struct SS_UNSTRUCTURED_VDM_MSG{
 	VDO_MESSAGE_Type VDO_MSG;
 } __attribute__((aligned(1), packed));
 
-#if IS_ENABLED(CONFIG_ARCH_QCOM) && !defined(CONFIG_USB_ARCH_EXYNOS)
-extern int dwc3_restart_usb_host_mode(int lanes);
-#endif
 void max77705_receive_alternate_message(struct max77705_usbc_platform_data *data,
 			MAX77705_VDM_MSG_IRQ_STATUS_Type *VDM_MSG_IRQ_State);
 void max77705_vdm_message_handler(struct max77705_usbc_platform_data *usbpd_data,

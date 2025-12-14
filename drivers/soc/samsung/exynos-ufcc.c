@@ -711,7 +711,7 @@ static void ufc_update_max_limit(void);
 static int ufc_update_min_limit(void);
 static int ufc_update_little_max_limit(void);
 
-static void reset_limit_stat(void) {
+static void reset_limit_stat() {
 	int user, type;
 
 	for (user = 0; user < USER_END; user++) {
@@ -721,7 +721,7 @@ static void reset_limit_stat(void) {
 	}
 }
 
-static void update_limit_stat(void){
+static void update_limit_stat(){
 	int user, type, freq;
 	u64 duration = ktime_to_ms(ktime_get() - ufc.last_update_time);
 

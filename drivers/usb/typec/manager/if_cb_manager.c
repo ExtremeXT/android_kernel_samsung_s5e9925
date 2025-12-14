@@ -95,6 +95,20 @@ void usb_set_vbus_current(struct if_cb_manager *man_core, int state)
 }
 EXPORT_SYMBOL(usb_set_vbus_current);
 
+int usb_restart_host_mode(struct if_cb_manager *man_core, int lanes)
+{
+	if (man_core == NULL || man_core->usb_d == NULL ||
+			man_core->usb_d->ops == NULL ||
+			man_core->usb_d->ops->usb_restart_host_mode == NULL) {
+		pr_err("%s : Member of if_cb_manager is NULL\n", __func__);
+		return -ENXIO;
+	}
+
+	return man_core->usb_d->ops->usb_restart_host_mode(
+			man_core->usb_d->data, lanes);
+}
+EXPORT_SYMBOL(usb_restart_host_mode);
+
 int muic_check_usb_killer(struct if_cb_manager *man_core)
 {
 	if (man_core == NULL || man_core->muic_d == NULL ||

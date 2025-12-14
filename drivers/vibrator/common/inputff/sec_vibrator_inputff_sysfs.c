@@ -11,12 +11,13 @@
 #include <linux/slab.h>
 #include <linux/device.h>
 #include <linux/module.h>
+#include <linux/string.h>
 #include <linux/vibrator/sec_vibrator_inputff.h>
 #ifdef CONFIG_USB_NOTIFY_PROC_LOG
 #include <linux/usb_notify.h>
 #endif
 #if defined(CONFIG_SEC_KUNIT)
-#include "kunit_test/sec_vibrator_inputff_test.h"
+#include <kunit/mock.h>
 #else
 #define __visible_for_testing static
 #endif
@@ -37,6 +38,27 @@ static uint32_t vib_le_est;
 module_param(vib_le_est, uint, 0444);
 MODULE_PARM_DESC(vib_le_est, "sec_vib_inputff_le_est value");
 #endif
+
+__visible_for_testing char *sec_vib_inputff_get_i2c_test(
+	struct sec_vib_inputff_drvdata *ddata)
+{
+	if (ddata->vib_ops->get_i2c_test) {
+		if (ddata->vib_ops->get_i2c_test(ddata->input))
+			return "PASS";
+		else
+			return "FAIL";
+	} else
+		return "NONE";
+}
+
+static ssize_t i2c_test_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
+
+	return snprintf(buf, PAGE_SIZE, "%s\n", sec_vib_inputff_get_i2c_test(ddata));
+}
+static DEVICE_ATTR_RO(i2c_test);
 
 __visible_for_testing int sec_vib_inputff_get_i2s_test(
 	struct sec_vib_inputff_drvdata *ddata)
@@ -87,16 +109,24 @@ __visible_for_testing int sec_vib_inputff_load_firmware(
 #endif
 		ddata->fw.ret[retry] = FW_LOAD_SUCCESS;
 		ddata->fw.stat = FW_LOAD_SUCCESS;
+		if (!ddata->fw_init_attempted)
+			ddata->fw_init_attempted = true;
 		if (ddata->f0_stored && ddata->fw.id == 0)
 			ddata->vib_ops->set_f0_stored(ddata->input, ddata->f0_stored);
 	} else {
-		if (retry < FWLOAD_TRY-1) {
+		if (retry < FWLOAD_TRY - 1) {
 			ddata->fw.ret[retry] = ret;
 			queue_delayed_work(ddata->fw.fw_workqueue,
 				&ddata->fw.retry_wk, msecs_to_jiffies(1000));
 			ddata->fw.retry++;
 		} else {
 			dev_err(ddata->dev, "%s firmware load retry fail\n", __func__);
+			if (!ddata->fw_init_attempted) {
+				ddata->fw_init_attempted = true;
+				if (ddata->vib_ops->get_ap_chipset
+						&& (strcmp(ddata->vib_ops->get_ap_chipset(ddata->input), "slsi") == 0))
+					goto err;
+			}
 #if IS_ENABLED(CONFIG_SEC_ABC)
 			sec_abc_send_event("MODULE=vib@WARN=fw_load_fail");
 #endif
@@ -158,6 +188,21 @@ static void firmware_load_store_work(struct work_struct *work)
 	queue_work(ddata->fw.fw_workqueue, &ddata->fw.wk);
 }
 
+static void sec_vib_inputff_start_cal_work(struct work_struct *work)
+{
+	struct sec_vib_inputff_drvdata *ddata
+		= container_of(work, struct sec_vib_inputff_drvdata, cal_work);
+	int ret;
+
+	dev_info(ddata->dev, "%s start\n", __func__);
+
+	ret = ddata->vib_ops->set_trigger_cal(ddata->input, ddata->trigger_calibration);
+	if (ret) {
+		dev_err(ddata->dev, "%s set_trigger_cal error : %d\n", __func__, ret);
+		ddata->trigger_calibration = 0;
+	}
+}
+
 static ssize_t firmware_load_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -176,6 +221,15 @@ static ssize_t firmware_load_store(struct device *dev,
 	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
 	u32 fw_id = 0;
 	int ret = 0;
+
+	if (!ddata->vib_ops->fw_load) {
+		dev_info(ddata->dev, "%s fw_upload not registered.\n", __func__);
+
+		// Mark Success for upload check
+		ddata->fw.stat = FW_LOAD_SUCCESS;
+
+		return count;
+	}
 
 	ret = kstrtou32(buf, 0, &fw_id);
 	if (ret < 0) {
@@ -267,6 +321,66 @@ err:
 }
 static DEVICE_ATTR_RW(ach_percent);
 
+static ssize_t cal_type_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
+
+	if (ddata->is_ls_calibration)
+		return snprintf(buf, PAGE_SIZE, "ls_cal\n");
+	else if (ddata->is_f0_tracking)
+		return snprintf(buf, PAGE_SIZE, "f0_cal\n");
+	else
+		return snprintf(buf, PAGE_SIZE, "NONE\n");
+}
+static DEVICE_ATTR_RO(cal_type);
+
+static ssize_t ls_calib_temp_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
+
+	u32 param_temp;
+	int ret;
+
+	if (!ddata->vib_ops->get_ls_temp || !ddata->is_ls_calibration) {
+		dev_err(ddata->dev, "%s get_ls_temp doesn't support\n", __func__);
+		return -EOPNOTSUPP;
+	}
+
+	ret = ddata->vib_ops->get_ls_temp(ddata->input, &param_temp);
+
+	return snprintf(buf, PAGE_SIZE, "0x%06X\n", param_temp);
+}
+
+static ssize_t ls_calib_temp_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
+	u32 param_temp;
+	int ret;
+
+	ret = kstrtos32(buf, 16, &param_temp);
+	if (ret < 0) {
+		dev_err(ddata->dev, "%s kstrtos32 error : %d\n", __func__, ret);
+		return ret;
+	}
+
+	if (ddata->vib_ops->set_ls_temp && ddata->is_ls_calibration) {
+		ret = ddata->vib_ops->set_ls_temp(ddata->input, param_temp);
+		if (ret) {
+			dev_err(ddata->dev, "%s set_ls_temp error : %d\n", __func__, ret);
+			return ret;
+		}
+		dev_info(ddata->dev, "%s set_ls_temp value : %d\n", __func__, param_temp);
+	} else {
+		dev_err(ddata->dev, "%s set_ls_temp doesn't support\n", __func__);
+		return -EOPNOTSUPP;
+	}
+	return count;
+}
+static DEVICE_ATTR_RW(ls_calib_temp);
+
 static ssize_t trigger_calibration_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -280,20 +394,17 @@ static ssize_t trigger_calibration_store(struct device *dev,
 {
 	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
 	int ret;
-	u32 trigger_calibration;
 
-	ret = kstrtos32(buf, 16, &trigger_calibration);
+	cancel_work_sync(&ddata->cal_work);
+
+	ret = kstrtos32(buf, 16, &ddata->trigger_calibration);
 	if (ret < 0) {
 		dev_err(ddata->dev, "%s kstrtos32 error : %d\n", __func__, ret);
 		return ret;
 	}
-	if (ddata->vib_ops->set_trigger_cal && ddata->is_f0_tracking) {
-		ret = ddata->vib_ops->set_trigger_cal(ddata->input, trigger_calibration);
-		if (ret) {
-			dev_err(ddata->dev, "%s set_trigger_cal error : %d\n", __func__, ret);
-			return -EINVAL;
-		}
-		dev_info(ddata->dev, "%s trigger_calibration : %u, ret : %d\n", __func__, trigger_calibration, ret);
+	if (ddata->vib_ops->set_trigger_cal && (ddata->is_f0_tracking || ddata->is_ls_calibration)) {
+		queue_work(ddata->cal_workqueue, &ddata->cal_work);
+		dev_info(ddata->dev, "%s trigger_calibration : %u\n", __func__, ddata->trigger_calibration);
 	} else {
 		dev_err(ddata->dev, "%s set_trigger_cal doesn't support\n", __func__);
 		return -EOPNOTSUPP;
@@ -301,6 +412,71 @@ static ssize_t trigger_calibration_store(struct device *dev,
 	return count;
 }
 static DEVICE_ATTR_RW(trigger_calibration);
+
+static ssize_t ls_calibration_results_name_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
+	int ret;
+
+	if (!ddata->vib_ops->get_ls_calib_res_name || !ddata->is_ls_calibration) {
+		dev_err(ddata->dev, "%s get_ls_calib_res doesn't support\n", __func__);
+		return -EOPNOTSUPP;
+	}
+
+	ret = ddata->vib_ops->get_ls_calib_res_name(ddata->input, buf);
+
+	return ret;
+}
+static DEVICE_ATTR_RO(ls_calibration_results_name);
+
+static ssize_t ls_calibration_results_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
+	int ret;
+
+	if (!ddata->vib_ops->get_ls_calib_res || !ddata->is_ls_calibration) {
+		dev_err(ddata->dev, "%s get_ls_calib_res doesn't support\n", __func__);
+		return -EOPNOTSUPP;
+	}
+
+	ret = ddata->vib_ops->get_ls_calib_res(ddata->input, buf);
+
+	return ret;
+}
+
+static ssize_t ls_calibration_results_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
+	int ret;
+
+	char *str_full;
+
+	str_full = kstrdup(buf, GFP_KERNEL);
+	if (!str_full) {
+		dev_err(ddata->dev, "%s kstrdup error NULL\n", __func__);
+		return -ENOMEM;
+	}
+
+	if (ddata->vib_ops->set_ls_calib_res && ddata->is_ls_calibration) {
+		ret = ddata->vib_ops->set_ls_calib_res(ddata->input, str_full);
+		if (ret) {
+			dev_err(ddata->dev, "%s set_ls_calib_res error : %d\n", __func__, ret);
+			kfree(str_full);
+			return ret;
+		}
+		dev_info(ddata->dev, "%s ls_calib_res ret : %d\n", __func__, ret);
+	} else {
+		dev_err(ddata->dev, "%s set_ls_calib_res doesn't support\n", __func__);
+		kfree(str_full);
+		return -EOPNOTSUPP;
+	}
+	kfree(str_full);
+	return count;
+}
+static DEVICE_ATTR_RW(ls_calibration_results);
 
 static ssize_t f0_measured_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -316,6 +492,32 @@ static ssize_t f0_measured_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(f0_measured);
 
+static ssize_t f0_offset_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
+	int ret;
+	u32 f0_offset;
+
+	ret = kstrtos32(buf, 16, &f0_offset);
+	if (ret < 0) {
+		dev_err(ddata->dev, "%s kstrtos32 error : %d\n", __func__, ret);
+		return ret;
+	}
+	if (ddata->vib_ops->set_f0_offset && ddata->is_f0_tracking) {
+		ret = ddata->vib_ops->set_f0_offset(ddata->input, f0_offset);
+		if (ret) {
+			dev_err(ddata->dev, "%s set_f0_offset error : %d\n", __func__, ret);
+			return -EINVAL;
+		}
+		dev_info(ddata->dev, "%s f0_offset : %u, ret : %d\n", __func__, f0_offset, ret);
+	} else {
+		dev_err(ddata->dev, "%s set_f0_offset doesn't support\n", __func__);
+		return -EOPNOTSUPP;
+	}
+	return count;
+}
+
 static ssize_t f0_offset_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -328,7 +530,7 @@ static ssize_t f0_offset_show(struct device *dev,
 
 	return snprintf(buf, PAGE_SIZE, "%08X\n", ddata->vib_ops->get_f0_offset(ddata->input));
 }
-static DEVICE_ATTR_RO(f0_offset);
+static DEVICE_ATTR_RW(f0_offset);
 
 static ssize_t f0_stored_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -340,7 +542,8 @@ static ssize_t f0_stored_show(struct device *dev,
 		return -EOPNOTSUPP;
 	}
 
-	return sprintf(buf, "%08X\n", ddata->f0_stored);
+	return sprintf(buf, "%08X\n", ddata->vib_ops->get_f0_stored ?
+		ddata->vib_ops->get_f0_stored(ddata->input) : ddata->f0_stored);
 }
 
 /*
@@ -510,6 +713,29 @@ err:
 }
 static DEVICE_ATTR_WO(use_sep_index);
 
+static ssize_t lra_resistance_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
+
+	if (!ddata->vib_ops->get_lra_resistance) {
+		dev_err(ddata->dev, "%s lra_resistance isn't supported\n", __func__);
+		return -EOPNOTSUPP;
+	}
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", ddata->vib_ops->get_lra_resistance(ddata->input));
+}
+static DEVICE_ATTR_RO(lra_resistance);
+
+static ssize_t f0_cal_way_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
+
+	return snprintf(buf, PAGE_SIZE, "%s\n", ddata->pdata->f0_cal_way);
+}
+static DEVICE_ATTR_RO(f0_cal_way);
+
 #if defined(CONFIG_SEC_VIB_FOLD_MODEL)
 static const char sec_vib_event_cmd[EVENT_CMD_MAX][MAX_STR_LEN_EVENT_CMD] = {
 	[EVENT_CMD_NONE]					= "NONE",
@@ -614,21 +840,41 @@ void sec_vib_inputff_event_cmd(struct sec_vib_inputff_drvdata *ddata)
 }
 #endif //CONFIG_SEC_VIB_FOLD_MODEL
 
+static ssize_t owt_lib_compat_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct sec_vib_inputff_drvdata *ddata = dev_get_drvdata(dev);
+
+	if (!ddata->vib_ops->get_owt_lib_compat_version) {
+		dev_err(ddata->dev, "%s get_owt_lib_compat_version isn't supported\n", __func__);
+		return -EOPNOTSUPP;
+	}
+	return snprintf(buf, PAGE_SIZE, "%s\n", ddata->vib_ops->get_owt_lib_compat_version(ddata->input));
+}
+static DEVICE_ATTR_RO(owt_lib_compat);
+
 static struct attribute *vib_inputff_sys_attr[] = {
+	&dev_attr_i2c_test.attr,
 	&dev_attr_i2s_test.attr,
 	&dev_attr_firmware_load.attr,
 	&dev_attr_current_temp.attr,
 	&dev_attr_ach_percent.attr,
+	&dev_attr_cal_type.attr,
+	&dev_attr_ls_calib_temp.attr,
 	&dev_attr_trigger_calibration.attr,
+	&dev_attr_ls_calibration_results_name.attr,
+	&dev_attr_ls_calibration_results.attr,
 	&dev_attr_f0_measured.attr,
 	&dev_attr_f0_offset.attr,
 	&dev_attr_f0_stored.attr,
 	&dev_attr_le_est.attr,
 	&dev_attr_le_stored_param.attr,
 	&dev_attr_use_sep_index.attr,
+	&dev_attr_lra_resistance.attr,
 #if defined(CONFIG_SEC_VIB_FOLD_MODEL)
 	&dev_attr_event_cmd.attr,
 #endif
+	&dev_attr_owt_lib_compat.attr,
+	&dev_attr_f0_cal_way.attr,
 	NULL,
 };
 
@@ -662,6 +908,7 @@ static void sec_vib_inputff_fw_init(struct sec_vib_inputff_drvdata *ddata)
 	INIT_WORK(&ddata->fw.wk, sec_vib_inputff_load_firmware_work);
 	INIT_DELAYED_WORK(&ddata->fw.retry_wk, sec_vib_inputff_load_firmware_retry);
 	INIT_DELAYED_WORK(&ddata->fw.store_wk, firmware_load_store_work);
+	ddata->fw_init_attempted = false;
 	queue_work(ddata->fw.fw_workqueue, &ddata->fw.wk);
 	dev_info(ddata->dev, "%s done\n", __func__);
 }
@@ -675,7 +922,12 @@ int sec_vib_inputff_sysfs_init(struct sec_vib_inputff_drvdata *ddata)
 	if (ddata->support_fw) {
 		sec_vib_inputff_vib_param_init(ddata);
 		sec_vib_inputff_fw_init(ddata);
+	} else {
+		ddata->fw.stat = FW_LOAD_SUCCESS;
 	}
+
+	ddata->cal_workqueue = alloc_ordered_workqueue("calibration_workqueue", WQ_HIGHPRI);
+	INIT_WORK(&ddata->cal_work, sec_vib_inputff_start_cal_work);
 
 	ddata->sec_vib_inputff_class = class_create(THIS_MODULE, "sec_vib_inputff");
 	if (IS_ERR(ddata->sec_vib_inputff_class)) {
@@ -721,6 +973,10 @@ void sec_vib_inputff_sysfs_exit(struct sec_vib_inputff_drvdata *ddata)
 {
 	if (ddata->support_fw)
 		sec_vib_inputff_fw_exit(ddata);
+	if (ddata->cal_workqueue) {
+		cancel_work_sync(&ddata->cal_work);
+		destroy_workqueue(ddata->cal_workqueue);
+	}
 	sysfs_remove_group(&ddata->virtual_dev->kobj, &vib_inputff_sys_attr_group);
 	device_destroy(ddata->sec_vib_inputff_class, MKDEV(0, 0));
 	class_destroy(ddata->sec_vib_inputff_class);

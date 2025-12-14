@@ -23,6 +23,13 @@ config ABC_IFPMIC_EVENT
 	help
 	  If you say yes here you will not get support for the sending event to abc module.
 
+config IFPMIC_CRC_CHECK
+	bool "Using IFPMIC_CRC_CHECK Function Support"
+	default n
+	help
+	  If you say yes here you will get support for
+	  IFPMIC_CRC_CHECK function
+	  
 config MAX77705_FW_SEPARATION_PID_BY_MODEL
 	bool "Separate of pid by model"
 	depends on CCIC_MAX77705

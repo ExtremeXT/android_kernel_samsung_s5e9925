@@ -16,6 +16,7 @@
 #include <linux/workqueue.h>
 #include <linux/delay.h>
 #include <linux/pm_wakeup.h>
+#include <linux/kthread.h>
 
 #define VIB_NOTIFIER_ON	(1)
 #define FWLOAD_TRY (3)
@@ -35,23 +36,39 @@ enum EVENT_CMD {
 #define MAX_STR_LEN_EVENT_CMD 32
 #define MIN_STR_LEN_EVENT_CMD 4
 
+#define MAX_COMPOSE_EFFECT (32)
+
+#define SEC_VIBRATOR_INPUTFF_DEFAULT_HIGH_TEMP_REF INT_MAX
+#define SEC_VIBRATOR_INPUTFF_DEFAULT_HIGH_TEMP_RATIO 100
+
 struct sec_vib_inputff_ops {
 	int (*upload)(struct input_dev *dev,
 		struct ff_effect *effect, struct ff_effect *old);
+	int (*erase)(struct input_dev *dev, int effect_id);
 	int (*playback)(struct input_dev *dev,
 		int effect_id, int val);
 	void (*set_gain)(struct input_dev *dev, u16 gain);
-	int (*erase)(struct input_dev *dev, int effect_id);
+	int (*get_i2c_test)(struct input_dev *dev);
 	int (*get_i2s_test)(struct input_dev *dev);
 	int (*fw_load)(struct input_dev *dev, unsigned int fw_id);
+	int (*get_ls_temp)(struct input_dev *dev, u32 *val);
+	int (*set_ls_temp)(struct input_dev *dev, u32 val);
 	int (*set_trigger_cal)(struct input_dev *dev, u32 val);
+	int (*get_ls_calib_res)(struct input_dev *dev, char *buf);
+	int (*set_ls_calib_res)(struct input_dev *dev, char *buf);
+	int (*get_ls_calib_res_name)(struct input_dev *dev, char *buf);
 	u32 (*get_f0_measured)(struct input_dev *dev);
 	int (*get_f0_offset)(struct input_dev *dev);
+	int (*set_f0_offset)(struct input_dev *dev, u32 val);
+	u32 (*get_f0_stored)(struct input_dev *dev);
 	u32 (*set_f0_stored)(struct input_dev *dev, u32 val);
 	int (*set_le_stored)(struct input_dev *dev, u32 val);
 	u32 (*get_le_stored)(struct input_dev *dev);
 	int (*get_le_est)(struct input_dev *dev, u32 *le);
 	int (*set_use_sep_index)(struct input_dev *dev, bool use_sep_index);
+	int (*get_lra_resistance)(struct input_dev *dev);
+	const char * (*get_owt_lib_compat_version)(struct input_dev *dev);
+	const char * (*get_ap_chipset)(struct input_dev *dev);
 };
 
 struct sec_vib_inputff_fwdata {
@@ -67,6 +84,25 @@ struct sec_vib_inputff_fwdata {
 	struct mutex stat_lock;
 };
 
+struct sec_vib_inputff_compose_effects {
+	struct ff_effect compose_effects;
+	u16 gain;
+};
+
+struct sec_vib_inputff_compose {
+	struct task_struct *compose_thread;
+	struct kthread_worker kworker;
+	struct kthread_work kwork;
+	wait_queue_head_t delay_wait;
+	int num_of_compose_effects;
+	int upload_compose_effect;
+	int compose_effect_id;
+	u32 pattern_idx;
+	int curr_effect;
+	int effect_state;
+	int compose_repeat;
+};
+
 struct sec_vib_inputff_pdata  {
 	bool probe_done;
 	int normal_ratio;
@@ -80,6 +116,7 @@ struct sec_vib_inputff_pdata  {
 	int tent_close_ratio;
 	const char *fold_cmd;
 #endif
+	const char *f0_cal_way;
 };
 
 struct sec_vib_inputff_drvdata {
@@ -102,12 +139,23 @@ struct sec_vib_inputff_drvdata {
 	int support_fw;
 	int trigger_calibration;
 	struct sec_vib_inputff_fwdata fw;
+	bool is_ls_calibration;
 	bool is_f0_tracking;
 	struct sec_vib_inputff_pdata *pdata;
-#if defined(CONFIG_SEC_VIB_FOLD_MODEL)
+
 	enum EVENT_CMD event_idx;
 	char event_cmd[MAX_STR_LEN_EVENT_CMD + 1];
-#endif
+
+	bool use_common_inputff;
+	u16 effect_gain;
+	struct sec_vib_inputff_compose_effects effects[MAX_COMPOSE_EFFECT];
+	struct sec_vib_inputff_compose compose;
+
+	struct work_struct cal_work;
+	struct workqueue_struct *cal_workqueue;
+
+	bool fw_init_attempted;
+	struct hrtimer compose_effects_timer;
 };
 
 /* firmware load status. if fail, return err number */

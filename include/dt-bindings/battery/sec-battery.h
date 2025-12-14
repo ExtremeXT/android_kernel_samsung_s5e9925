@@ -43,7 +43,13 @@
 #define SEC_BATTERY_CABLE_PDIC_APDO              38
 #define SEC_BATTERY_CABLE_POGO                   39
 #define SEC_BATTERY_CABLE_POGO_9V		 40
-#define SEC_BATTERY_CABLE_MAX                    41
+#define SEC_BATTERY_CABLE_FPDO_DC		 41
+#define SEC_BATTERY_CABLE_WIRELESS_EPP		 42
+#define SEC_BATTERY_CABLE_WIRELESS_MPP		 43
+#define SEC_BATTERY_CABLE_LO_TA			44
+#define SEC_BATTERY_CABLE_WIRELESS_EPP_NV	 45
+#define SEC_BATTERY_CABLE_WIRELESS_EPP_FAKE	 46
+#define SEC_BATTERY_CABLE_MAX			47
 
 /* d2d support type */
 #define SB_D2D_NONE	0
@@ -58,13 +64,16 @@
 
 /* ADC type */
 	/* NOT using this ADC channel */
-#define SEC_BATTERY_ADC_TYPE_NONE 	0
+#define SEC_BATTERY_ADC_TYPE_NONE	0
 	/* ADC in AP */
-#define SEC_BATTERY_ADC_TYPE_AP 	1
+#define SEC_BATTERY_ADC_TYPE_AP		1
 	 /* ADC by additional IC */
-#define SEC_BATTERY_ADC_TYPE_IC 	2
-#define SEC_BATTERY_ADC_TYPE_NUM 	3
+#define SEC_BATTERY_ADC_TYPE_IC		2
+#define SEC_BATTERY_ADC_TYPE_NUM	3
 
+/* ADC read type */
+#define SEC_BATTERY_ADC_PROCESSED 0
+#define SEC_BATTERY_ADC_RAW 1
 
 /* thermal source */
 /* none */
@@ -77,6 +86,8 @@
 #define SEC_BATTERY_THERMAL_SOURCE_CHG_ADC	3
 /* by fuel gauge */
 #define SEC_BATTERY_THERMAL_SOURCE_FG		4
+/* by fuel gauge adc */
+#define SEC_BATTERY_THERMAL_SOURCE_FG_ADC		5
 
 #define SEC_BATTERY_CABLE_CHECK_NOUSBCHARGE             1
 /* SEC_BATTERY_CABLE_CHECK_NOINCOMPATIBLECHARGE
@@ -212,12 +223,15 @@
 #define SEC_BATTERY_RECHARGE_CONDITION_LIMITER          8
 
 #define SIOP_DEFAULT	0xFFFF
+#define SIOP_SKIP		0xFFFE
 
 /* inbat ocv type */
 #define SEC_BATTERY_OCV_NONE			0
 #define SEC_BATTERY_OCV_FG_SRC_CHANGE	1
 #define SEC_BATTERY_OCV_FG_NOSRC_CHANGE	2
 #define SEC_BATTERY_OCV_ADC				3
+#define SEC_BATTERY_OCV_VOLT_FROM_PMIC	4
+
 
 /* enum sec_wireless_rx_power_list */
 #define SEC_WIRELESS_RX_POWER_5W		0
@@ -345,5 +359,7 @@
 #define SET_FOD_CC(_flag)		(FOD_FLAG_ ##_flag)
 #define SET_FOD_CV(_flag)		(FOD_FLAG_ ##_flag << 4)
 #define SET_FOD_FULL(_flag)		(FOD_FLAG_ ##_flag << 8)
+#define SET_FOD_HV_CC(_flag)	(FOD_FLAG_ ##_flag << 12)
+#define SET_FOD_HV_CV(_flag)	(FOD_FLAG_ ##_flag << 16)
 
 #endif /* _DT_BINDINGS_BATTERY_SEC_BATTERY_H */

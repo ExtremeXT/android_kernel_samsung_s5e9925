@@ -18,6 +18,7 @@
 #include "sgpu_user_interface.h"
 #include "sgpu_utilization.h"
 #include "amdgpu_trace.h"
+#include "sgpu_power_trace.h"
 
 #ifdef CONFIG_DRM_SGPU_EXYNOS
 #include <soc/samsung/cal-if.h>
@@ -56,6 +57,8 @@ static int sgpu_devfreq_target(struct device *dev, unsigned long *target_freq, u
 		return PTR_ERR(target_opp);
 	}
 	dev_pm_opp_put(target_opp);
+
+	trace_gpu_frequency(0, *target_freq);
 
 	if (cur_freq == *target_freq)
 		return 0;

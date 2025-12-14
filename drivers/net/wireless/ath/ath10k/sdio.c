@@ -562,7 +562,7 @@ static int ath10k_sdio_mbox_rx_alloc(struct ath10k *ar,
 				    ATH10K_HTC_MBOX_MAX_PAYLOAD_LENGTH);
 			ret = -ENOMEM;
 
-			ath10k_core_start_recovery(ar);
+			queue_work(ar->workqueue, &ar->restart_work);
 			ath10k_warn(ar, "exceeds length, start recovery\n");
 
 			goto err;
@@ -961,7 +961,7 @@ static int ath10k_sdio_mbox_read_int_status(struct ath10k *ar,
 	ret = ath10k_sdio_read(ar, MBOX_HOST_INT_STATUS_ADDRESS,
 			       irq_proc_reg, sizeof(*irq_proc_reg));
 	if (ret) {
-		ath10k_core_start_recovery(ar);
+		queue_work(ar->workqueue, &ar->restart_work);
 		ath10k_warn(ar, "read int status fail, start recovery\n");
 		goto out;
 	}
@@ -1863,7 +1863,7 @@ static int ath10k_sdio_hif_start(struct ath10k *ar)
 	struct ath10k_sdio *ar_sdio = ath10k_sdio_priv(ar);
 	int ret;
 
-	ath10k_core_napi_enable(ar);
+	napi_enable(&ar->napi);
 
 	/* Sleep 20 ms before HIF interrupts are disabled.
 	 * This will give target plenty of time to process the BMI done
@@ -1990,7 +1990,8 @@ static void ath10k_sdio_hif_stop(struct ath10k *ar)
 
 	spin_unlock_bh(&ar_sdio->wr_async_lock);
 
-	ath10k_core_napi_sync_disable(ar);
+	napi_synchronize(&ar->napi);
+	napi_disable(&ar->napi);
 }
 
 #ifdef CONFIG_PM
@@ -2504,7 +2505,7 @@ void ath10k_sdio_fw_crashed_dump(struct ath10k *ar)
 
 	ath10k_sdio_enable_intrs(ar);
 
-	ath10k_core_start_recovery(ar);
+	queue_work(ar->workqueue, &ar->restart_work);
 }
 
 static int ath10k_sdio_probe(struct sdio_func *func,

@@ -86,6 +86,7 @@
 #define TELE_OIS_TILT_ROM_ID TELE_OIS_ROM_ID
 #define USE_OIS_HALL_DATA_FOR_VDIS
 #define USE_OIS_STABILIZATION_DELAY 7000 //7ms
+#define USE_OIS_AF_POSITION
 /* Tele sensor crop shift and OIS calibration will be applied instead of this feature in this project */
 /* #define OIS_CENTERING_SHIFT_ENABLE */
 

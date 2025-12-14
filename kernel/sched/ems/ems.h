@@ -120,6 +120,8 @@ enum {
 	IDLE_END,
 };
 
+extern char *task_cgroup_name[];
+
 extern int ems_select_task_rq_fair(struct task_struct *p,
 		int prev_cpu, int sd_flag, int wake_flag);
 extern int __ems_select_task_rq_fair(struct task_struct *p, int prev_cpu,
@@ -721,6 +723,7 @@ static inline bool is_busy_cpu(int cpu)
 }
 
 extern int get_sched_class_idx(const struct sched_class *class);
+extern void ems_init_cgroup_map(struct cgroup_subsys_state *css);
 extern int cpuctl_task_group_idx(struct task_struct *p);
 extern const struct cpumask *cpu_coregroup_mask(int cpu);
 extern const struct cpumask *cpu_slowest_mask(void);

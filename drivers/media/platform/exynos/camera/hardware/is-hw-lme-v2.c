@@ -123,6 +123,7 @@ static int is_hw_lme_handle_interrupt(u32 id, void *context)
 	u32 status, instance, hw_fcount, strip_index, set_id, hl = 0, vl = 0;
 	int f_err;
 	int hw_slot;
+	u32 idle = 0;
 
 	hw_ip = (struct is_hw_ip *)context;
 
@@ -173,6 +174,13 @@ static int is_hw_lme_handle_interrupt(u32 id, void *context)
 
 	if (lme_hw_is_occurred(status, INTR_FRAME_START)) {
 		dbg_lme(4, "[%d][F:%d]F.S\n", instance, hw_fcount);
+
+		/*Debug for LME timeout issue*/
+		idle = lme_hw_check_idle(hw_ip->regs[REG_SETA], set_id);
+		if(idle >= 0x11){
+			dbg_lme(0, "[%d][F:%d][idle:%d] do lme dump\n", instance, hw_fcount, idle);
+			lme_hw_dump(hw_ip->regs[REG_SETA]);
+		}
 
 		if (IS_ENABLED(LME_DDK_LIB_CALL)) {
 			is_lib_isp_event_notifier(hw_ip, &hw_lme->lib[instance],

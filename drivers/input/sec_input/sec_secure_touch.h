@@ -1,3 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0
+ * Copyright (C) 2022 Samsung Electronics Co., Ltd.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #ifndef _SEC_SECURE_TOUCH_H_
 #define _SEC_SECURE_TOUCH_H_
 
@@ -42,15 +50,10 @@
 #define SECURE_TOUCH_FOLDER_CLOSE	1
 
 #define SECURE_TOUCH_DEV_NAME	"ss_touch"
-struct sec_secure_touch_platform_data {
-	void (*connect)(void *);
-	void (*disconnect)(void *);
-	int data;
-	int temp;
-};
 
 struct sec_touch_driver {
 	struct list_head list;
+	struct device *dev;
 	int drv_number;
 	int (*enable)(void *drv_data);
 	int (*disable)(void *drv_data);
@@ -69,7 +72,7 @@ struct sec_secure_touch {
 	void *data;
 	struct platform_device *pdev;
 	struct device *device;
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
+#if IS_ENABLED(CONFIG_SEC_INPUT_MULTI_DEVICE)
 	struct delayed_work folder_work;
 #endif
 	int hall_ic;
@@ -81,10 +84,13 @@ struct sec_secure_touch {
 	int current_device;
 };
 
+int sec_secure_touch_set_device(struct sec_secure_touch *data, int dev_num);
 void sec_secure_touch_sysfs_notify(struct sec_secure_touch *data);
-struct sec_touch_driver *sec_secure_touch_register(void *drv_data, int dev_num, struct kobject *kobj);
+struct sec_touch_driver *sec_secure_touch_register(void *drv_data, struct device *dev, int dev_num, struct kobject *kobj);
 void sec_secure_touch_unregister(int dev_num);
 
+int sec_secure_touch_init(void);
+void sec_secure_touch_exit(void);
 
 extern void hall_ic_register_notify(struct notifier_block *nb);
 extern void hall_ic_unregister_notify(struct notifier_block *nb);

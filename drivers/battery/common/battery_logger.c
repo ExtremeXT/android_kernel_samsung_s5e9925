@@ -19,12 +19,24 @@
 #include <linux/syscalls.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0))
 #include <stdarg.h>
+#else
+#include <linux/stdarg.h>
+#endif
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0))
 #include <linux/time64.h>
+#define SEC_TIMESPEC timespec64
+#define SEC_GETTIMEOFDAY ktime_get_real_ts64
+#define SEC_RTC_TIME_TO_TM rtc_time64_to_tm
 #else
 #include <linux/time.h>
+#define SEC_TIMESPEC timeval
+#define SEC_GETTIMEOFDAY do_gettimeofday
+#define SEC_RTC_TIME_TO_TM rtc_time_to_tm
 #endif
+
 #include <linux/rtc.h>
 #include "sec_battery.h"
 #include "battery_logger.h"
@@ -45,39 +57,23 @@ struct batterylog_root_str {
 
 static struct batterylog_root_str batterylog_root;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0))
+#if !defined(CONFIG_UML)
 static void logger_get_time_of_the_day_in_hr_min_sec(char *tbuf, int len)
 {
-	struct timespec64 tv;
+	struct SEC_TIMESPEC tv;
 	struct rtc_time tm;
 	unsigned long local_time;
 
 	/* Format the Log time R#: [hr:min:sec.microsec] */
-	ktime_get_real_ts64(&tv);
+	SEC_GETTIMEOFDAY(&tv);
 	/* Convert rtc to local time */
 	local_time = (u32)(tv.tv_sec - (sys_tz.tz_minuteswest * 60));
-	rtc_time64_to_tm(local_time, &tm);
+	SEC_RTC_TIME_TO_TM(local_time, &tm);
+
 	scnprintf(tbuf, len,
 		  "[%d-%02d-%02d %02d:%02d:%02d]",
 		  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 		  tm.tm_hour, tm.tm_min, tm.tm_sec);
-}
-#else
-static void logger_get_time_of_the_day_in_hr_min_sec(char *tbuf, int len)
-{
-	struct timeval tv;
-	struct rtc_time tm;
-	unsigned long local_time;
-
-	/* Format the Log time R#: [hr:min:sec.microsec] */
-	do_gettimeofday(&tv);
-	/* Convert rtc to local time */
-	local_time = (u32)(tv.tv_sec - (sys_tz.tz_minuteswest * 60));
-	rtc_time_to_tm(local_time, &tm);
-	scnprintf(tbuf, len,
-		"[%d-%02d-%02d %02d:%02d:%02d]",
-		tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-		tm.tm_hour, tm.tm_min, tm.tm_sec);
 }
 #endif
 
@@ -105,6 +101,9 @@ err:
 	return 0;
 }
 
+#if defined(CONFIG_UML)
+void store_battery_log(const char *fmt, ...) {}
+#else
 void store_battery_log(const char *fmt, ...)
 {
 	unsigned long long tnsec;
@@ -166,6 +165,7 @@ void store_battery_log(const char *fmt, ...)
 err:
 	mutex_unlock(&batterylog_root.battery_log_lock);
 }
+#endif
 EXPORT_SYMBOL(store_battery_log);
 
 static int batterylog_proc_open(struct inode *inode, struct file *file)
@@ -173,12 +173,21 @@ static int batterylog_proc_open(struct inode *inode, struct file *file)
 	return single_open(file, batterylog_proc_show, NULL);
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
 static const struct proc_ops batterylog_proc_fops = {
 	.proc_open	= batterylog_proc_open,
 	.proc_read	= seq_read,
 	.proc_lseek	= seq_lseek,
 	.proc_release	= single_release,
 };
+#else
+static const struct file_operations batterylog_proc_fops = {
+	.open		= batterylog_proc_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+#endif
 
 int register_batterylog_proc(void)
 {

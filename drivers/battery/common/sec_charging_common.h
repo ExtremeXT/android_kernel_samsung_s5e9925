@@ -119,10 +119,18 @@ enum sec_battery_voltage_type {
 	SEC_BATTERY_VOLTAGE_MV,
 };
 
+enum sec_battery_temp_type {
+	/* temp */
+	SEC_BATTERY_TEMP_TEMP = 0,
+	/* adc */
+	SEC_BATTERY_TEMP_ADC,
+};
+
 #if IS_ENABLED(CONFIG_DUAL_BATTERY)
 enum sec_battery_dual_mode {
 	SEC_DUAL_BATTERY_MAIN = 0,
 	SEC_DUAL_BATTERY_SUB,
+	SEC_DUAL_BATTERY_TOTAL,
 };
 #endif
 
@@ -156,21 +164,16 @@ enum sec_wireless_info_mode {
 	SEC_WIRELESS_IC_CHIP_ID,
 	SEC_WIRELESS_OTP_FIRM_VER_BIN,
 	SEC_WIRELESS_OTP_FIRM_VER,
-	SEC_WIRELESS_TX_FIRM_RESULT,
-	SEC_WIRELESS_TX_FIRM_VER,
-	SEC_TX_FIRMWARE,
 	SEC_WIRELESS_OTP_FIRM_VERIFY,
 	SEC_WIRELESS_MST_SWITCH_VERIFY,
 };
 
-enum sec_wireless_firm_update_mode {
-	SEC_WIRELESS_RX_SDCARD_MODE = 0,
-	SEC_WIRELESS_RX_BUILT_IN_MODE,
-	SEC_WIRELESS_TX_ON_MODE,
-	SEC_WIRELESS_TX_OFF_MODE,
-	SEC_WIRELESS_RX_INIT,
-	SEC_WIRELESS_RX_SPU_MODE,
-	SEC_WIRELESS_RX_SPU_VERIFY_MODE,	/* for automation test */
+enum sec_wireless_firmware_update_mode {
+	SEC_WIRELESS_FW_UPDATE_SDCARD_MODE = 0,		/* manual update mode , firmware file must be in sdcard */
+	SEC_WIRELESS_FW_UPDATE_BUILTIN_MODE,		/* factory line update mode, MSP wirtes only this mode */
+	SEC_WIRELESS_FW_UPDATE_AUTO_MODE,			/* auto update mode, it works during kernel on, very similar to BUILTIN MODE */
+	SEC_WIRELESS_FW_UPDATE_SPU_MODE,			/* spu update mode */
+	SEC_WIRELESS_FW_UPDATE_SPU_VERIFY_MODE,		/* for automation test */
 };
 
 enum sec_tx_sharing_mode {
@@ -221,7 +224,7 @@ enum sec_wireless_pad_id {
 
 enum sec_battery_adc_channel {
 	SEC_BAT_ADC_CHANNEL_CABLE_CHECK = 0,
-	SEC_BAT_ADC_CHANNEL_BAT_CHECK,
+	SEC_BAT_ADC_CHANNEL_BATID_CHECK,
 	SEC_BAT_ADC_CHANNEL_TEMP,
 	SEC_BAT_ADC_CHANNEL_TEMP_AMBIENT,
 	SEC_BAT_ADC_CHANNEL_FULL_CHECK,
@@ -395,6 +398,13 @@ enum d2d_mode {
 	HP_D2D_LCD,
 };
 
+enum mfc_phm_state {
+	EXIT_PHM = 0,
+	ENTER_PHM,
+	FAILED_PHM,
+	END_PHM,
+};
+
 /* full check condition type (can be used overlapped) */
 #define sec_battery_full_condition_t unsigned int
 
@@ -464,8 +474,9 @@ enum sec_battery_check {
 
 #define SEC_FUELGAUGE_CAPACITY_TYPE_LOST_SOC	0x40
 
+#define SEC_FUELGAUGE_CAPACITY_TYPE_REPCAP	0x80
+
 /* charger function settings (can be used overlapped) */
-#define sec_charger_functions_t unsigned int
 /* SEC_CHARGER_NO_GRADUAL_CHARGING_CURRENT
  * disable gradual charging current setting
  * SUMMIT:AICL, MAXIM:regulation loop
@@ -477,7 +488,14 @@ enum sec_battery_check {
  */
 #define SEC_CHARGER_MINIMUM_SIOP_CHARGING_CURRENT	2
 
-#if defined(CONFIG_BATTERY_AGE_FORECAST)
+#define SEC_BATTERY_CABLE_TYPE_FROM_MTK	1
+
+#if defined(CONFIG_TABLET_MODEL_CONCEPT) && !defined(CONFIG_SEC_FACTORY)
+#define SLOW_CHARGING_CURRENT_STANDARD          1000
+#else
+#define SLOW_CHARGING_CURRENT_STANDARD          400
+#endif
+
 typedef struct sec_age_data {
 	unsigned int cycle;
 	unsigned int float_voltage;
@@ -488,7 +506,6 @@ typedef struct sec_age_data {
 	unsigned int max_charging_current;
 #endif
 } sec_age_data_t;
-#endif
 
 typedef struct {
 	unsigned int cycle;
@@ -513,11 +530,17 @@ typedef struct {
 	cable_type == SEC_BATTERY_CABLE_PREPARE_WIRELESS_20 || \
 	cable_type == SEC_BATTERY_CABLE_WIRELESS_TX)
 
-#define is_wireless_type(cable_type) \
-	(is_hv_wireless_type(cable_type) || is_nv_wireless_type(cable_type))
+#define is_wireless_type(cable_type) ( \
+	is_hv_wireless_type(cable_type) || \
+	is_nv_wireless_type(cable_type))
 
-#define is_wireless_fake_type(cable_type) \
-	(is_wireless_type(cable_type) || (cable_type == SEC_BATTERY_CABLE_WIRELESS_FAKE))
+#define is_wireless_fake_type(cable_type) ( \
+	cable_type == SEC_BATTERY_CABLE_WIRELESS_FAKE || \
+	cable_type == SEC_BATTERY_CABLE_WIRELESS_EPP_FAKE)
+
+#define is_wireless_all_type(cable_type) ( \
+	is_wireless_type(cable_type) || \
+	is_wireless_fake_type(cable_type))
 
 #define is_not_wireless_type(cable_type) ( \
 	cable_type != SEC_BATTERY_CABLE_WIRELESS && \
@@ -553,6 +576,7 @@ typedef struct {
 	cable_type == SEC_BATTERY_CABLE_9V_ERR || \
 	cable_type == SEC_BATTERY_CABLE_9V_TA || \
 	cable_type == SEC_BATTERY_CABLE_9V_UNKNOWN || \
+	cable_type == SEC_BATTERY_CABLE_POGO_9V || \
 	cable_type == SEC_BATTERY_CABLE_QC20)
 
 #define is_hv_wire_12v_type(cable_type) ( \
@@ -567,20 +591,27 @@ typedef struct {
 	cable_type == SEC_BATTERY_CABLE_OTG || \
 	cable_type == SEC_BATTERY_CABLE_POWER_SHARING)
 
+
+#define chg_can_sleep_type(cable_type) ( \
+	!is_wired_type(cable_type) || cable_type == SEC_BATTERY_CABLE_TIMEOUT)
+
 #define is_slate_mode(battery) ((battery->current_event & SEC_BAT_CURRENT_EVENT_SLATE) \
 		== SEC_BAT_CURRENT_EVENT_SLATE)
 
 #define can_usb_suspend_type(cable_type) ( \
 	cable_type == SEC_BATTERY_CABLE_PDIC || \
+	cable_type == SEC_BATTERY_CABLE_FPDO_DC || \
 	cable_type == SEC_BATTERY_CABLE_PDIC_APDO || \
 	cable_type == SEC_BATTERY_CABLE_USB || \
 	cable_type == SEC_BATTERY_CABLE_USB_CDP)
 
 #define is_pd_wire_type(cable_type) ( \
 	cable_type == SEC_BATTERY_CABLE_PDIC || \
+	cable_type == SEC_BATTERY_CABLE_FPDO_DC || \
 	cable_type == SEC_BATTERY_CABLE_PDIC_APDO)
 
 #define is_pd_apdo_wire_type(cable_type) ( \
+	cable_type == SEC_BATTERY_CABLE_FPDO_DC || \
 	cable_type == SEC_BATTERY_CABLE_PDIC_APDO)
 
 #define is_pd_fpdo_wire_type(cable_type) ( \
@@ -588,6 +619,7 @@ typedef struct {
 
 #define is_hv_pdo_wire_type(cable_type, hv_pdo) ( \
 	(cable_type == SEC_BATTERY_CABLE_PDIC || \
+	cable_type == SEC_BATTERY_CABLE_FPDO_DC || \
 	cable_type == SEC_BATTERY_CABLE_PDIC_APDO) && \
 	hv_pdo)
 

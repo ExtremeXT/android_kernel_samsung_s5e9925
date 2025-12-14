@@ -1115,7 +1115,12 @@ void mfc_core_qos_ctrl_worker(struct work_struct *work)
 
 		mutex_unlock(&core->qos_mutex);
 
+		/* use pm_qos_mutex to reduce pm_qos_update latency */
 		mutex_lock(&core->pm_qos_mutex);
+		if (atomic_read(&core->qos_req_cur) == 0) {
+			mutex_unlock(&core->pm_qos_mutex);
+			return;
+		}
 
 		if (pdata->mfc_freq_control)
 			exynos_pm_qos_update_request(&core->qos_req_mfc, core->qos_ctrl[i].mfc_freq);

@@ -1,8 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (c) 2016 Samsung Electronics Co., Ltd.
- *      http://www.samsung.com
- *
- * Samsung TN debugging code
+ * Copyright (C) 2016 Samsung Electronics Co., Ltd.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -21,10 +19,6 @@
 static DEFINE_SPINLOCK(sec_tsp_dumpkey_event_lock);
 static atomic_t sec_tsp_dumpkey_acceptable_event[KEY_MAX] __read_mostly;
 
-#ifndef ARRAYSIZE
-#define ARRAYSIZE(a)		(sizeof(a) / sizeof(a[0]))
-#endif
-
 /* Input sequence 9530 */
 #define DUMP_COUNT_FIRST 3
 #define DUMP_COUNT_SECOND 3
@@ -33,10 +27,7 @@ static atomic_t sec_tsp_dumpkey_acceptable_event[KEY_MAX] __read_mostly;
 #define KEY_STATE_DOWN 1
 #define KEY_STATE_UP 0
 
-struct tsp_dump_callbacks dump_callbacks;
-EXPORT_SYMBOL(dump_callbacks);
-
-extern struct device *ptsp;
+struct tsp_dump_callbacks *dump_callbacks;
 
 static unsigned int __tsp_dump_keys[] = {
 	KEY_POWER,
@@ -46,7 +37,8 @@ static unsigned int __tsp_dump_keys[] = {
 	KEY_HOT,
 	KEY_EMERGENCY,
 	KEY_BACK,
-	KEY_RECENT
+	KEY_RECENT,
+	KEY_APPSELECT
 };
 
 struct dump_key {
@@ -74,6 +66,7 @@ struct tsp_dump_key_state tsp_dump_key_states[] = {
 	{KEY_EMERGENCY, KEY_STATE_UP},
 	{KEY_BACK, KEY_STATE_UP},
 	{KEY_RECENT, KEY_STATE_UP},
+	{KEY_APPSELECT, KEY_STATE_UP},
 };
 
 static unsigned int hold_key = KEY_VOLUMEUP;
@@ -180,10 +173,15 @@ static void set_key_state_up(unsigned int code)
 
 static void increase_step(void)
 {
+	int i;
 	if (check_step < ARRAY_SIZE(tsp_dump_key_combination))
 		check_step++;
-	else if (dump_callbacks.inform_dump)
-		dump_callbacks.inform_dump(ptsp);
+	else {
+		for (i = 0; i < NUM_DEVICES; i++) {
+			if (dump_callbacks[i].inform_dump)
+				dump_callbacks[i].inform_dump(dump_callbacks[i].ptsp);
+		}
+	}
 }
 
 static void reset_step(void)
@@ -193,10 +191,15 @@ static void reset_step(void)
 
 static void increase_count(void)
 {
+	int i;
 	if (check_count < get_count_for_dump())
 		check_count++;
-	else if (dump_callbacks.inform_dump)
-		dump_callbacks.inform_dump(ptsp);
+	else {
+		for (i = 0; i < NUM_DEVICES; i++) {
+			if (dump_callbacks[i].inform_dump)
+				dump_callbacks[i].inform_dump(dump_callbacks[i].ptsp);
+		}
+	}
 }
 
 static void reset_count(void)
@@ -244,7 +247,7 @@ static void check_tsp_dump_keys(struct sec_tsp_dumpkey_param *param)
 
 }
 
-static void inline update_acceptable_event(unsigned int event_code, bool is_add)
+static inline void update_acceptable_event(unsigned int event_code, bool is_add)
 {
 	if (is_add)
 		atomic_inc(&(sec_tsp_dumpkey_acceptable_event[event_code]));
@@ -323,6 +326,24 @@ static void sec_tsp_dumpkey_disconnect(struct input_handle *handle)
 	kfree(handle);
 }
 
+void sec_input_dumpkey_register(int dev_id, void (*callback)(struct device *dev), struct device *dev)
+{
+	if (dev_id < NUM_DEVICES && dev_id >= MULTI_DEV_NONE) {
+		dump_callbacks[dev_id].inform_dump = callback;
+		dump_callbacks[dev_id].ptsp = dev;
+	}
+}
+EXPORT_SYMBOL(sec_input_dumpkey_register);
+
+void sec_input_dumpkey_unregister(int dev_id)
+{
+	if (dev_id < NUM_DEVICES && dev_id >= MULTI_DEV_NONE) {
+		dump_callbacks[dev_id].inform_dump = NULL;
+		dump_callbacks[dev_id].ptsp = NULL;
+	}
+}
+EXPORT_SYMBOL(sec_input_dumpkey_unregister);
+
 static const struct input_device_id sec_tsp_dumpkey_ids[] = {
 	{
 		.flags = INPUT_DEVICE_ID_MATCH_EVBIT,
@@ -339,7 +360,7 @@ static struct input_handler sec_tsp_dumpkey_handler = {
 	.id_table	= sec_tsp_dumpkey_ids,
 };
 
-static int __init sec_tsp_dumpkey_init(void)
+int sec_tsp_dumpkey_init(void)
 {
 	int err;
 	size_t i;
@@ -354,19 +375,23 @@ static int __init sec_tsp_dumpkey_init(void)
 
 	spin_lock_init(&sec_tsp_dumpkey_event_lock);
 
+	dump_callbacks = kzalloc(sizeof(struct tsp_dump_callbacks) * NUM_DEVICES, GFP_KERNEL);
+	if (!dump_callbacks)
+		return -ENOMEM;
+
 	err = input_register_handler(&sec_tsp_dumpkey_handler);
 
 	return err;
 
 }
+EXPORT_SYMBOL(sec_tsp_dumpkey_init);
 
-static void __exit sec_tsp_dumpkey_exit(void)
+void sec_tsp_dumpkey_exit(void)
 {
 	input_unregister_handler(&sec_tsp_dumpkey_handler);
+	kfree(dump_callbacks);
 }
-
-module_init(sec_tsp_dumpkey_init);
-module_exit(sec_tsp_dumpkey_exit);
+EXPORT_SYMBOL(sec_tsp_dumpkey_exit);
 
 MODULE_DESCRIPTION("Samsung tsp dumpkey driver");
 MODULE_LICENSE("GPL");

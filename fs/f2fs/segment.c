@@ -2666,7 +2666,7 @@ static unsigned int __get_next_segno(struct f2fs_sb_info *sbi, int type)
 		return SIT_I(sbi)->last_victim[ALLOC_NEXT];
 
 	/* find segments from 0 to reuse freed segments */
-	if (f2fs_get_alloc_mode(sbi) == ALLOC_MODE_REUSE)
+	if (F2FS_OPTION(sbi).alloc_mode == ALLOC_MODE_REUSE)
 		return 0;
 
 	return curseg->segno;
@@ -2795,6 +2795,7 @@ static void get_atssr_segment(struct f2fs_sb_info *sbi, int type,
 		new_curseg(sbi, type, true);
 	}
 	stat_inc_seg_type(sbi, curseg);
+	sbi->sec_stat.alloc_seg_type[curseg->alloc_type]++;
 }
 
 static void __f2fs_init_atgc_curseg(struct f2fs_sb_info *sbi)
@@ -2935,6 +2936,7 @@ static int get_ssr_segment(struct f2fs_sb_info *sbi, int type,
 static bool need_new_seg(struct f2fs_sb_info *sbi, int type)
 {
 	struct curseg_info *curseg = CURSEG_I(sbi, type);
+
 	if (!is_set_ckpt_flags(sbi, CP_CRC_RECOVERY_FLAG) &&
 	    curseg->seg_type == CURSEG_WARM_NODE)
 		return true;
@@ -2967,6 +2969,7 @@ void f2fs_allocate_segment_for_resize(struct f2fs_sb_info *sbi, int type,
 		new_curseg(sbi, type, true);
 
 	stat_inc_seg_type(sbi, curseg);
+	sbi->sec_stat.alloc_seg_type[curseg->alloc_type]++;
 
 	locate_dirty_segment(sbi, segno);
 unlock:
@@ -2999,6 +3002,7 @@ alloc:
 	old_segno = curseg->segno;
 	new_curseg(sbi, type, true);
 	stat_inc_seg_type(sbi, curseg);
+	sbi->sec_stat.alloc_seg_type[curseg->alloc_type]++;
 	locate_dirty_segment(sbi, old_segno);
 }
 
@@ -3479,6 +3483,7 @@ void f2fs_allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 			else
 				change_curseg(sbi, type);
 			stat_inc_seg_type(sbi, curseg);
+			sbi->sec_stat.alloc_seg_type[curseg->alloc_type]++;
 		}
 	}
 	/*

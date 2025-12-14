@@ -14,6 +14,7 @@
 
 struct usb_ops {
 	void (*usb_set_vbus_current)(void *data, int state);
+	int (*usb_restart_host_mode)(void *data, int lanes);
 };
 
 struct muic_ops {
@@ -65,6 +66,7 @@ extern struct if_cb_manager *register_muic(struct muic_dev *muic);
 extern struct if_cb_manager *register_usbpd(struct usbpd_dev *usbpd);
 extern struct if_cb_manager *register_lvs(struct lvs_dev *lvs);
 extern void usb_set_vbus_current(struct if_cb_manager *man_core, int state);
+extern int usb_restart_host_mode(struct if_cb_manager *man_core, int lanes);
 extern int muic_check_usb_killer(struct if_cb_manager *man_core);
 extern void muic_set_bypass(struct if_cb_manager *man_core, int enable);
 extern void muic_set_bc12(struct if_cb_manager *man_core, int enable);

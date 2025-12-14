@@ -124,6 +124,16 @@ config BATTERY_AGE_FORECAST
 	  it include some charging scenario for aged batteries.
 	  it need age forecast charging tables.
 
+config BATTERY_AGE_FORECAST_DETACHABLE
+	tristate "battery age forecast for detachable"
+	default n
+	select BATTERY_AGE_FORECAST
+	help
+	  Say Y here to enable
+	  support AGE FORECAST functions for detachable model.
+	  it include some charging scenario for aged batteries.
+	  it need age forecast charging tables.
+
 config BATTERY_AGE_FORECAST_B2B
 	tristate "battery age forecast for B2B"
 	default n
@@ -172,24 +182,6 @@ config TABLET_MODEL_CONCEPT
 	  do not enable for cellphone models.
 	  tablet models support this for charging,
 	  then it make Y.
-
-config DUAL_BATTERY
-    bool "DUAL BATTERY support"
-    depends on I2C
-    help
-	  Say Y here to enable
-	  support for dual battery.
-	  This integrated all dual-battery related functions.
-	  it needs dual battery tables.
-
-config PREVENT_USB_CONN_OVERHEAT
-    bool "enable prevent usb conn overheat"
-    default n
-    help
-	  Say Y here to enable
-	  support CONFIG_PREVENT_USB_CONN_OVERHEAT.
-	  this is for prevent thermal usb conn.
-	  it include some charging scenario for thermal usb conn.
 
 config PD_CHARGER_HV_DISABLE
     bool "enable supporing disable high voltage pd charger"

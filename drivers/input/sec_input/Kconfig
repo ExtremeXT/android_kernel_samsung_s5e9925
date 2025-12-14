@@ -24,6 +24,12 @@ config INPUT_SEC_SECURE_TOUCH
 	help
 	  Say Y here if you need to use sec secure touch.
 
+config INPUT_SEC_TRUSTED_TOUCH
+	tristate "input sec secure touch"
+	depends on INPUT
+	help
+	  Say Y here if you need to use sec secure touch.
+
 config TOUCHSCREEN_DUMP_MODE
 	tristate "touchscreen dump mode"
 	help
@@ -34,14 +40,19 @@ config INPUT_SEC_NOTIFIER
 	help
 	  Say Y here if you need to use input notifier.
 
-config TOUCHSCREEN_DUAL_FOLDABLE
-	tristate "Dual TSP IC for Foldable"
+config SEC_INPUT_MULTI_DEVICE
+	tristate "Multi device for Foldable"
 	help
-	  Say Y here if you need to use dual tsp.
+	  Say Y here if you need to use Multi device.
 
 config SEC_INPUT_CMD_TEST
 	tristate "KUnit test for tsp_common_test"
 	depends on SEC_KUNIT
 	help
 	  TODO: Describe config fully.
+
+config SEC_INPUT_RAWDATA
+	tristate "input rawdata"
+	help
+	  Say Y hear if you need to use rawdata.
 

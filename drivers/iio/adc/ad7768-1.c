@@ -168,7 +168,7 @@ struct ad7768_state {
 	union {
 		struct {
 			__be32 chan;
-			aligned_s64 timestamp;
+			s64 timestamp;
 		} scan;
 		__be32 d32;
 		u8 d8[2];
