@@ -1170,7 +1170,7 @@ static int sr100_probe(struct spi_device* spi) {
 
   sr100_dev->spi = spi;
   sr100_dev->sr100_device.minor = MISC_DYNAMIC_MINOR;
-  sr100_dev->sr100_device.name = "sr100";
+  sr100_dev->sr100_device.name = "srxxx";
   sr100_dev->sr100_device.fops = &sr100_dev_fops;
   sr100_dev->sr100_device.parent = &spi->dev;
   sr100_dev->irq_gpio = platform_data->irq_gpio;
@@ -1374,7 +1374,7 @@ static const struct dev_pm_ops sr100_dev_pm_ops = { SET_SYSTEM_SLEEP_PM_OPS(
 static struct spi_driver sr100_driver = {
     .driver =
         {
-         .name = "sr100",
+         .name = "srxxx",
          .pm = &sr100_dev_pm_ops,
          .bus = &spi_bus_type,
          .owner = THIS_MODULE,
