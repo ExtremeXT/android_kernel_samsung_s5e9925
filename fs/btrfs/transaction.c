@@ -1660,7 +1660,7 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 	}
 	/* see comments in should_cow_block() */
 	set_bit(BTRFS_ROOT_FORCE_COW, &root->state);
-	smp_wmb();
+	smp_mb__after_atomic();
 
 	btrfs_set_root_node(new_root_item, tmp);
 	/* record when the snapshot was created in key.offset */
@@ -2045,7 +2045,7 @@ static inline int btrfs_start_delalloc_flush(struct btrfs_trans_handle *trans)
 		list_for_each_entry(pending, head, list) {
 			int ret;
 
-			ret = btrfs_start_delalloc_snapshot(pending->root);
+			ret = btrfs_start_delalloc_snapshot(pending->root, false);
 			if (ret)
 				return ret;
 		}
