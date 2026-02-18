@@ -6,6 +6,7 @@
  *              http://www.samsung.com/
  */
 
+#include <linux/minmax.h>
 #include <linux/string.h>
 
 #include "dl/dsp-sxml.h"
@@ -176,7 +177,6 @@ static enum dsp_sxml_err state_setpos(struct dsp_sxml *state,
 #define SXML_ERROR_XMLSTRICT	SXML_ERROR_XMLINVALID
 
 #define ENTITY_MAXLEN		(8)
-#define MIN(a, b)		((a) < (b) ? (a) : (b))
 
 static enum dsp_sxml_err parse_characters(struct dsp_sxml *state,
 	struct dsp_sxml_args *args, const char *end)

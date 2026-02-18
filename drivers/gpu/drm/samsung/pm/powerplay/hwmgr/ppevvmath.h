@@ -27,7 +27,7 @@
 #define PRECISION 5 /* Change this value to change the number of decimal places in the final output - 5 is a good default */
 
 #define SHIFTED_2 (2 << SHIFT_AMOUNT)
-#define MAX (1 << (SHIFT_AMOUNT - 1)) - 1 /* 32767 - Might change in the future */
+#define MAX_VAL (1 << (SHIFT_AMOUNT - 1)) - 1 /* 32767 - Might change in the future */
 
 /* -------------------------------------------------------------------------------
  * NEW TYPE - fINT
@@ -93,8 +93,8 @@ static int GetReal (fInt A);                              /* Internal function *
 /* -------------------------------------------------------------------------------------
  * TROUBLESHOOTING INFORMATION
  * -------------------------------------------------------------------------------------
- * 1) ConvertToFraction - InputOutOfRangeException: Only accepts numbers smaller than MAX (default: 32767)
- * 2) fAdd - OutputOutOfRangeException: Output bigger than MAX (default: 32767)
+ * 1) ConvertToFraction - InputOutOfRangeException: Only accepts numbers smaller than MAX_VAL (default: 32767)
+ * 2) fAdd - OutputOutOfRangeException: Output bigger than MAX_VAL (default: 32767)
  * 3) fMultiply - OutputOutOfRangeException:
  * 4) fGetSquare - OutputOutOfRangeException:
  * 5) fDivide - DivideByZeroException
@@ -219,7 +219,7 @@ static fInt ConvertToFraction(int X) /*Add all range checking here. Is it possib
 {
 	fInt temp;
 
-	if (X <= MAX)
+	if (X <= MAX_VAL)
 		temp.full = (X << SHIFT_AMOUNT);
 	else
 		temp.full = 0;
@@ -237,7 +237,7 @@ static fInt Convert_ULONG_ToFraction(uint32_t X)
 {
 	fInt temp;
 
-	if (X <= MAX)
+	if (X <= MAX_VAL)
 		temp.full = (X << SHIFT_AMOUNT);
 	else
 		temp.full = 0;
@@ -265,14 +265,14 @@ static fInt GetScaledFraction(int X, int factor)
 		bNEGATED = !bNEGATED; /*If bNEGATED = true due to X < 0, this will cover the case of negative cancelling negative */
 	}
 
-	if ((X > MAX) || factor > MAX) {
-		if ((X/factor) <= MAX) {
-			while (X > MAX) {
+	if ((X > MAX_VAL) || factor > MAX_VAL) {
+		if ((X/factor) <= MAX_VAL) {
+			while (X > MAX_VAL) {
 				X = X >> 1;
 				times_shifted++;
 			}
 
-			while (factor > MAX) {
+			while (factor > MAX_VAL) {
 				factor = factor >> 1;
 				factor_shifted++;
 			}
