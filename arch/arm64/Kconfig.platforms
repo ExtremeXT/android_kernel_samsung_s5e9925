@@ -318,4 +318,44 @@ config ARCH_ZYNQMP
 	help
 	  This enables support for Xilinx ZynqMP Family
 
+config SEC_S5E9925_BOARD
+    bool "Samsung S5E9925 Board"
+    help
+	  Support for Samsung S5E9925 Board
+
+config MACH_R0S_EUR_OPENX
+    default n
+	depends on SEC_S5E9925_BOARD
+    bool "Samsung R0S EUR OPENX"
+    help
+	  Support for Samsung R0S EUR OPENX device.
+
+config MACH_G0S_EUR_OPENX
+    default n
+	depends on SEC_S5E9925_BOARD
+    bool "Samsung G0S EUR OPENX"
+    help
+	  Support for Samsung G0S EUR OPENX device.
+
+config MACH_B0S_EUR_OPENX
+    default n
+	depends on SEC_S5E9925_BOARD
+    bool "Samsung B0S EUR OPENX"
+    help
+	  Support for Samsung B0S EUR OPENX device.
+
+config MACH_R11S_EUR_OPENX
+    default n
+	depends on SEC_S5E9925_BOARD
+    bool "Samsung R11S EUR OPENX"
+    help
+	  Support for Samsung R11S EUR OPENX device.
+
+config MACH_R11S_KOR_SINGLEX
+    default n
+	depends on SEC_S5E9925_BOARD
+    bool "Samsung R11S KOR SINGLEX"
+    help
+	  Support for Samsung R11S KOR SINGLEX device.
+
 endmenu
