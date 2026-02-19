@@ -347,7 +347,7 @@ CONFIG_ARCH_SPRD=y
 CONFIG_BOARD_S5E9925=y
 # CONFIG_MODEL_R0S is not set
 # CONFIG_MODEL_G0S is not set
-CONFIG_MODEL_B0S=y
+# CONFIG_MODEL_B0S is not set
 # end of Platform selection
 
 #
