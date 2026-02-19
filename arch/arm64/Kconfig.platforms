@@ -318,4 +318,24 @@ config ARCH_ZYNQMP
 	help
 	  This enables support for Xilinx ZynqMP Family
 
+config BOARD_S5E9925
+	bool "Samsung S5E9925 Board support"
+	help
+	  Samsung S5E9925 board support config
+
+config MODEL_R0S
+	bool "Samsung Galaxy S22 5G"
+	default n
+	depends on BOARD_S5E9925
+
+config MODEL_G0S
+	bool "Samsung Galaxy S22+ 5G"
+	default n
+	depends on BOARD_S5E9925
+
+config MODEL_B0S
+	bool "Samsung Galaxy S22 Ultra 5G"
+	default n
+	depends on BOARD_S5E9925
+
 endmenu
