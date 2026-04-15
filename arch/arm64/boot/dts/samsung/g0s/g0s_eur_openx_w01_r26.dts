@@ -3335,7 +3335,6 @@
 						samsung,pins = "gpio_s10";
 						samsung,pin-function = <0x01>;
 						samsung,pin-pud = <0x00>;
-						samsung,pin-drv = <0x00>;
 						samsung,pin-con-pdn = <0x03>;
 						samsung,pin-pud-pdn = <0x00>;
 						phandle = <0x69>;
@@ -4160,11 +4159,10 @@
 
 		__overlay__ {
 
-			nfc_i2c_bus {
+			nfc_i2c_pull_none {
 				samsung,pins = "gpm4-0\0gpm4-1";
 				samsung,pin-function = <0x02>;
 				samsung,pin-pud = <0x00>;
-				samsung,pin-drv = <0x00>;
 				samsung,pin-con-pdn = <0x03>;
 				samsung,pin-pud-pdn = <0x00>;
 				phandle = <0x68>;
@@ -4221,7 +4219,6 @@
 			ese_spi_bus_suspend {
 				samsung,pins = "gpp1-0\0gpp1-1";
 				samsung,pin-function = <0x01>;
-				samsung,pin-drv = <0x00>;
 				samsung,pin-pud = <0x03>;
 				samsung,pin-val = <0x01>;
 				samsung,pin-con-pdn = <0x03>;
@@ -4233,7 +4230,6 @@
 				samsung,pins = "gpp1-0\0gpp1-1\0gpp1-2";
 				samsung,pin-function = <0x02>;
 				samsung,pin-pud = <0x00>;
-				samsung,pin-drv = <0x00>;
 				phandle = <0x6c>;
 			};
 
@@ -4241,7 +4237,6 @@
 				samsung,pins = "gpp1-3";
 				samsung,pin-function = <0x02>;
 				samsung,pin-pud = <0x00>;
-				samsung,pin-drv = <0x00>;
 				phandle = <0x6d>;
 			};
 
@@ -4249,7 +4244,6 @@
 				samsung,pins = "gpp1-2";
 				samsung,pin-function = <0x00>;
 				samsung,pin-pud = <0x03>;
-				samsung,pin-drv = <0x00>;
 				samsung,pin-con-pdn = <0x03>;
 				samsung,pin-pud-pdn = <0x03>;
 				phandle = <0x6f>;
@@ -4259,7 +4253,6 @@
 				samsung,pins = "gpp1-3";
 				samsung,pin-function = <0x01>;
 				samsung,pin-pud = <0x03>;
-				samsung,pin-drv = <0x00>;
 				samsung,pin-val = <0x01>;
 				samsung,pin-con-pdn = <0x03>;
 				samsung,pin-pud-pdn = <0x03>;
@@ -4270,7 +4263,6 @@
 				samsung,pins = "gpp1-0\0gpp1-1\0gpp1-2\0gpp1-3";
 				samsung,pin-function = <0x01>;
 				samsung,pin-pud = <0x01>;
-				samsung,pin-drv = <0x00>;
 				samsung,pin-val = <0x00>;
 				phandle = <0x6b>;
 			};
@@ -4560,7 +4552,7 @@
 				iec_data {
 					reg_56 = <0x2e>;
 					reg_57 = <0x1e>;
-					reg_5B = <0x1e>;
+					reg_5B = <0xc8>;
 					reg_84 = <0x5a>;
 					reg_85 = <0x1b>;
 					reg_86 = <0x09>;
@@ -4572,6 +4564,9 @@
 					reg_800 = <0x32>;
 					reg_801 = <0x3c>;
 					reg_802 = <0x82>;
+					reg_803 = <0x3e>;
+					reg_804 = <0x19>;
+					reg_805 = <0x07>;
 				};
 			};
 		};
@@ -9474,6 +9469,18 @@
 							votf = <0x00>;
 						};
 					};
+
+					mode7 {
+						common = <0x780 0x438 0xf0 0x00 0x07 0x03 0x8ff 0x02 0x00 0x04 0x00>;
+						vc0 = <0x00 0x2b 0x780 0x438 0x2b 0x00 0x780 0x438>;
+						vc1 = <0x02 0x00 0x00 0x00 0x00 0x00 0x00 0x00>;
+						vc2 = <0x01 0x22b 0xf0 0x10c 0x22b 0x01 0xf0 0x10c>;
+						vc3 = <0x03 0x00 0x00 0x00 0x00 0x00 0x00 0x00>;
+
+						option {
+							votf = <0x00>;
+						};
+					};
 				};
 
 				power_seq {
@@ -12113,7 +12120,7 @@
 		grip_i2c_scl = "/fragment@37/__overlay__/grip-i2c-scl";
 		grip_int = "/fragment@38/__overlay__/grip-int";
 		isg6320 = "/fragment@39/__overlay__/isg6320@28";
-		nfc_i2c_bus = "/fragment@40/__overlay__/nfc_i2c_bus";
+		nfc_i2c_pull_none = "/fragment@40/__overlay__/nfc_i2c_pull_none";
 		nfc_clk_req = "/fragment@41/__overlay__/nfc_clk_req";
 		nfc = "/fragment@42/__overlay__/pn547@28";
 		ese_spi_bus_suspend = "/fragment@43/__overlay__/ese_spi_bus_suspend";
