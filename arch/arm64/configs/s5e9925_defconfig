@@ -4325,15 +4325,6 @@ CONFIG_VIDEO_IR_I2C=y
 # Graphics support
 #
 
-#
-# ARM GPU Configuration
-#
-# CONFIG_MALI_DDK_NONE is not set
-# CONFIG_MALI_DDK_VALHALL_R26P0 is not set
-CONFIG_MALI_DDK_VALHALL_R32P1=y
-# CONFIG_MALI_MIDGARD is not set
-# end of ARM GPU Configuration
-
 # CONFIG_VGA_ARB is not set
 CONFIG_DRM=y
 CONFIG_DRM_MIPI_DSI=y
