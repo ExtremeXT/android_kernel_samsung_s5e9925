@@ -11,7 +11,7 @@ ifeq ($(KERNEL_BUILD), y)
 	# Need to explicitly define for Kernel-based builds
 	MODNAME := wlan
 ifeq (y,$(CONFIG_SOC_S5E9925))
-	WLAN_ROOT := drivers/net/wireless/qualcomm/r11s/qcacld-3.0
+	WLAN_ROOT := $(srctree)/$(src)
 else
 	WLAN_ROOT := drivers/staging/qcacld-3.0
 endif
