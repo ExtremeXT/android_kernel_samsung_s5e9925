@@ -614,6 +614,15 @@ config ARM64_ERRATUM_1530923
 
 config ARM64_WORKAROUND_REPEAT_TLBI
 	bool
+	default y
+	help
+	  This option adds a workaround for an ARM Klein erratum.
+
+config ARM64_WORKAROUND_DSB_AFTER_TLBI
+	bool "Klein: Under rare conditions, a longer sequence of TLBI instructions might cause a deadlock"
+	default y
+	help
+	  This option adds a workaround for an ARM Klein erratum.
 
 config ARM64_ERRATUM_1286807
 	bool "Cortex-A76: Modification of the translation table for a virtual address might lead to read-after-read ordering violation"
@@ -1187,6 +1196,11 @@ config NR_CPUS
 	int "Maximum number of CPUs (2-4096)"
 	range 2 4096
 	default "256"
+
+config VENDOR_NR_CPUS
+	int "Maximum number of CPUs (2-4096) governed by vendor"
+	range 2 4096
+	default "8"
 
 config HOTPLUG_CPU
 	bool "Support for hot-pluggable CPUs"

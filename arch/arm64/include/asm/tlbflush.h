@@ -30,11 +30,27 @@
  */
 #define __TLBI_0(op, arg) asm (ARM64_ASM_PREAMBLE			       \
 			       "tlbi " #op "\n"				       \
+		   ALTERNATIVE("nop	",				       \
+			       "dsb nsh	",				       \
+			       ARM64_WORKAROUND_DSB_AFTER_TLBI,		       \
+			       CONFIG_ARM64_WORKAROUND_DSB_AFTER_TLBI)	       \
+		   ALTERNATIVE("nop\n			nop",		       \
+			       "dsb ish\n		tlbi " #op,	       \
+			       ARM64_WORKAROUND_REPEAT_TLBI,		       \
+			       CONFIG_ARM64_WORKAROUND_REPEAT_TLBI)	       \
 			    : : )
 
 #define __TLBI_1(op, arg) asm (ARM64_ASM_PREAMBLE			       \
-			       "tlbi " #op ", %x0\n"			       \
-			    : : "rZ" (arg))
+			       "tlbi " #op ", %0\n"			       \
+		   ALTERNATIVE("nop	",				       \
+			       "dsb nsh	",				       \
+			       ARM64_WORKAROUND_DSB_AFTER_TLBI,		       \
+			       CONFIG_ARM64_WORKAROUND_DSB_AFTER_TLBI)	       \
+		   ALTERNATIVE("nop\n			nop",		       \
+			       "dsb ish\n		tlbi " #op ", %0",     \
+			       ARM64_WORKAROUND_REPEAT_TLBI,		       \
+			       CONFIG_ARM64_WORKAROUND_REPEAT_TLBI)	       \
+			    : : "r" (arg))
 
 #define __TLBI_N(op, arg, n, ...) __TLBI_##n(op, arg)
 
