@@ -10,6 +10,7 @@
 #define _KUNIT_TEST_H
 
 #include <kunit/assert.h>
+#include <kunit/kunit-stream.h>
 #include <kunit/try-catch.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -190,6 +191,36 @@ struct kunit_suite {
 	char *log;
 };
 
+struct kunit_post_condition {
+	struct list_head node;
+	void (*validate)(struct kunit_post_condition *condition);
+};
+
+enum mock_type {
+	MOCK_TYPE_NICE,
+	MOCK_TYPE_NAGGY,
+	MOCK_TYPE_STRICT
+};
+
+struct mock {
+	struct kunit_post_condition parent;
+	struct kunit *test;
+	struct list_head methods;
+	enum mock_type type;
+	/* TODO(brendanhiggins@google.com): add locking to do_expect. */
+	const void *(*do_expect)(struct mock *mock,
+			const char *method_name,
+			const void *method_ptr,
+			const char * const *param_types,
+			const void **params,
+			int len);
+};
+
+struct global_mock {
+	struct mock ctrl;
+	bool is_initialized;
+};
+
 /**
  * struct kunit - represents a running instance of a test.
  *
@@ -223,12 +254,12 @@ struct kunit {
 	 * protect it with some type of lock.
 	 */
 	struct list_head resources; /* Protected by lock. */
-};
+	struct list_head post_conditions;
 
-static inline void kunit_set_failure(struct kunit *test)
-{
-	WRITE_ONCE(test->success, false);
-}
+#if !IS_ENABLED(CONFIG_UML)
+	struct global_mock test_global_mock;
+#endif
+};
 
 void kunit_init_test(struct kunit *test, const char *name, char *log);
 
@@ -732,6 +763,8 @@ void kunit_do_assertion(struct kunit *test,
  * correctly and the printed out value usually makes sense without
  * interpretation, but can always be interpreted to figure out the actual
  * value.
+ *
+ * TO DO: remove casting (long long) at __left, __right
  */
 #define KUNIT_BASE_BINARY_ASSERTION(test,				       \
 				    assert_class,			       \
@@ -754,9 +787,9 @@ do {									       \
 					  assert_type,			       \
 					  #op,				       \
 					  #left,			       \
-					  __left,			       \
+					  __left,		       \
 					  #right,			       \
-					  __right),			       \
+					  __right),		       \
 			fmt,						       \
 			##__VA_ARGS__);					       \
 } while (0)
@@ -1742,4 +1775,8 @@ do {									       \
 						fmt,			       \
 						##__VA_ARGS__)
 
+/*
+ * separate wrapper macro and functions to support 4.19 Kunit
+ */
+#include <kunit/test_wrapper.h>
 #endif /* _KUNIT_TEST_H */
