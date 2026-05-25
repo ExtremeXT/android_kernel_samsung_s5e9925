@@ -1531,6 +1531,11 @@ static void busylock_release(spinlock_t *busy)
 		spin_unlock(busy);
 }
 
+#if IS_ENABLED(CONFIG_CPIF_LATENCY_MEASURE)
+int (*udp_queue_rcv_cb)(char *);
+EXPORT_SYMBOL_GPL(udp_queue_rcv_cb);
+#endif
+
 int __udp_enqueue_schedule_skb(struct sock *sk, struct sk_buff *skb)
 {
 	struct sk_buff_head *list = &sk->sk_receive_queue;
@@ -1588,6 +1593,11 @@ int __udp_enqueue_schedule_skb(struct sock *sk, struct sk_buff *skb)
 
 	__skb_queue_tail(list, skb);
 	spin_unlock(&list->lock);
+	
+#if IS_ENABLED(CONFIG_CPIF_LATENCY_MEASURE)
+	if (udp_queue_rcv_cb)
+		udp_queue_rcv_cb(skb->head);
+#endif
 
 	if (!sock_flag(sk, SOCK_DEAD))
 		sk->sk_data_ready(sk);
