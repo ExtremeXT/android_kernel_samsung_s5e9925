@@ -20,6 +20,8 @@
 #include <linux/mfd/cs40l26.h>
 #endif
 
+#include <linux/property.h>
+
 #ifdef CONFIG_CS40L26_SAMSUNG_FEATURE
 static const char * const vibe_state_events[] = {
 	[CS40L26_VIBE_STATE_EVENT_MBOX_PLAYBACK] = "MBOX_PLAYBACK",
