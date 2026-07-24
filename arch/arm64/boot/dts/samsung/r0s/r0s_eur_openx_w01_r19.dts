@@ -498,6 +498,16 @@
 					};
 				};
 
+				sec_vib_inputff {
+					status = "okay";
+					compatible = "sec_vib_inputff";
+					haptic,normal_ratio = <0x64>;
+					haptic,overdrive_ratio = <0x64>;
+					haptic,high_temp_ref = <0x30>;
+					haptic,high_temp_ratio = <0x46>;
+					haptic,f0_cal_way = "AUTO";
+				};
+
 				kq-mesh {
 					compatible = "samsung,kq-mesh";
 					status = "okay";
