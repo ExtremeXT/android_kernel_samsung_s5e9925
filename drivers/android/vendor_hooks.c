@@ -78,6 +78,7 @@
 #include <trace/hooks/pci.h>
 #include <trace/hooks/dmabuf.h>
 #include <trace/hooks/wakeupbypass.h>
+#include <trace/hooks/mz.h>
 #include <trace/hooks/fuse.h>
 
 /*
@@ -550,6 +551,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_blk_mq_all_tag_iter);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_blk_mq_queue_tag_busy_iter);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_blk_mq_free_tags);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_blk_mq_sched_insert_request);
+EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_mz_exit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_shmem_swapin_page);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_do_wp_page);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_do_swap_page);
@@ -561,6 +563,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_clear_rwsem_writer_owned);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_percpu_rwsem_down_read);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_percpu_rwsem_up_write);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_rvh_percpu_rwsem_wait_complete);
+
 /*
  * For type visibility
  */

@@ -189,3 +189,53 @@ obj-$(CONFIG_GNSS)		+= gnss/
 obj-$(CONFIG_INTERCONNECT)	+= interconnect/
 obj-$(CONFIG_COUNTER)		+= counter/
 obj-$(CONFIG_MOST)		+= most/
+
+# Bus Traffic Shaper
+obj-$(CONFIG_EXYNOS_BTS)        += bts/
+
+# vision drivers
+obj-${CONFIG_VISION_SUPPORT}	+= vision/
+
+# SPU signature verify
+obj-$(CONFIG_SPU_VERIFY)        += spu_verify/
+
+include $(srctree)/drivers/Makefile.variant1
+obj-y += sec_panel_notifier_v2/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += regulator/pmic_class/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += battery/charger/max77705_charger/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += vibrator/common/vib_info/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += battery/core/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += misc/drb/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += samsung/debug/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += phy/common/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += sti/abc/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += input/sec_input/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += net/dropdump/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += kq/nad/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += usb/common/vbus_notifier/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += optics/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += input/input_boost/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += vibrator/common/inputff/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += muic/common/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += kq/mesh/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += usb/typec/manager/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += fingerprint/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += gpu/drm/samsung/panel/s6e3fc5/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += gpu/drm/samsung/panel/oled_common/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += gpu/drm/samsung/panel/s6e3fc3/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += gpu/drm/samsung/panel/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += usb/typec/common/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += input/misc/hall/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += battery/charger/pca9482_charger/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += vibrator/awinic/aw8622x/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += phy/ti/tusb2e11/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += mfd/maxim/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += sensorhub/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += mstdrv/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += input/sec_input/stm/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += battery/fuelgauge/max77705_fuelgauge/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += usb/typec/maxim/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += input/sec_input/synaptics/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += battery/common/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += nfc/lsi/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += battery/wireless/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT

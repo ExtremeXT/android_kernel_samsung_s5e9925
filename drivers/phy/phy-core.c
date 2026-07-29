@@ -365,12 +365,14 @@ int phy_set_mode_ext(struct phy *phy, enum phy_mode mode, int submode)
 	if (!phy)
 		return 0;
 
-	mutex_lock(&phy->mutex);
+	if (submode != USB_SET_MODE_MUTEX_SKIP)
+		mutex_lock(&phy->mutex);
 	if (phy->ops->set_mode)
 		ret = phy->ops->set_mode(phy, mode, submode);
 	if (!ret)
 		phy->attrs.mode = mode;
-	mutex_unlock(&phy->mutex);
+	if (submode != USB_SET_MODE_MUTEX_SKIP)
+		mutex_unlock(&phy->mutex);
 
 	return ret;
 }
