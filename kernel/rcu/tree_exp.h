@@ -8,6 +8,7 @@
  */
 
 #include <linux/lockdep.h>
+#include <linux/sec_debug.h>
 
 static void rcu_exp_handler(void *unused);
 static int rcu_print_task_exp_stall(struct rcu_node *rnp);
@@ -623,7 +624,7 @@ static void synchronize_rcu_expedited_wait(void)
 			continue;
 		panic_on_rcu_stall();
 		trace_rcu_stall_warning(rcu_state.name, TPS("ExpeditedStall"));
-		pr_err("INFO: %s detected expedited stalls on CPUs/tasks: {",
+		pr_auto(ASL1, "INFO: %s detected expedited stalls on CPUs/tasks: {",
 		       rcu_state.name);
 		ndetected = 0;
 		rcu_for_each_leaf_node(rnp) {
@@ -670,6 +671,9 @@ static void synchronize_rcu_expedited_wait(void)
 				preempt_enable();
 			}
 		}
+		if (IS_ENABLED(CONFIG_SEC_DEBUG_PANIC_ON_RCU_STALL))
+			panic("RCU Stall\n");
+
 		jiffies_stall = 3 * rcu_jiffies_till_stall_check() + 3;
 	}
 }

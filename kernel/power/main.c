@@ -23,7 +23,7 @@
 
 void lock_system_sleep(void)
 {
-	current->flags |= PF_FREEZER_SKIP;
+	freezer_do_not_count();
 	mutex_lock(&system_transition_mutex);
 }
 EXPORT_SYMBOL_GPL(lock_system_sleep);
@@ -66,7 +66,11 @@ EXPORT_SYMBOL_GPL(ksys_sync_helper);
 
 /* Routines for PM-transition notifications */
 
+#ifdef CONFIG_DEBUG_NOTIFIERS
+BLOCKING_NOTIFIER_HEAD(pm_chain_head);
+#else
 static BLOCKING_NOTIFIER_HEAD(pm_chain_head);
+#endif
 
 int register_pm_notifier(struct notifier_block *nb)
 {
@@ -512,7 +516,7 @@ static ssize_t pm_wakeup_irq_show(struct kobject *kobj,
 
 power_attr_ro(pm_wakeup_irq);
 
-bool pm_debug_messages_on __read_mostly;
+bool pm_debug_messages_on __read_mostly = true;
 
 static ssize_t pm_debug_messages_show(struct kobject *kobj,
 				      struct kobj_attribute *attr, char *buf)

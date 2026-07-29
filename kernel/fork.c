@@ -111,6 +111,11 @@
 
 #undef CREATE_TRACE_POINTS
 #include <trace/hooks/sched.h>
+
+#ifdef CONFIG_PROC_FSLOG
+#include <linux/fslog.h>
+#endif
+
 /*
  * Minimum number of threads to boot the kernel
  */
@@ -990,6 +995,10 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 #ifdef CONFIG_MEMCG
 	tsk->active_memcg = NULL;
 #endif
+#ifdef CONFIG_TASK_HAS_ALLOC_FREE_STAT
+	tsk->alloc_sum = 0;
+	tsk->free_sum = 0;
+#endif
 
 	android_init_vendor_data(tsk, 1);
 	android_init_oem_data(tsk, 1);
@@ -1163,8 +1172,10 @@ void mmput(struct mm_struct *mm)
 	might_sleep();
 
 	if (atomic_dec_and_test(&mm->mm_users)) {
+		RECLAIMER_LOG("UMR: B|last_exit");
 		trace_android_vh_mmput(NULL);
 		__mmput(mm);
+		RECLAIMER_LOG("UMR: E|last_exit");
 	}
 }
 EXPORT_SYMBOL_GPL(mmput);
@@ -1730,6 +1741,22 @@ init_task_pid(struct task_struct *task, enum pid_type type, struct pid *pid)
 		task->signal->pids[type] = pid;
 }
 
+static inline int dup_task_integrity(unsigned long clone_flags,
+						struct task_struct *tsk)
+{
+	return 0;
+}
+
+static inline void task_integrity_cleanup(struct task_struct *tsk)
+{
+}
+
+static inline int task_integrity_apply(unsigned long clone_flags,
+						struct task_struct *tsk)
+{
+	return 0;
+}
+
 static inline void rcu_copy_process(struct task_struct *p)
 {
 #ifdef CONFIG_PREEMPT_RCU
@@ -2235,9 +2262,14 @@ static __latent_entropy struct task_struct *copy_process(
 		goto bad_fork_cleanup_perf;
 	/* copy all the process information */
 	shm_init_task(p);
-	retval = security_task_alloc(p, clone_flags);
+	retval = dup_task_integrity(clone_flags, p);
 	if (retval)
 		goto bad_fork_cleanup_audit;
+	retval = security_task_alloc(p, clone_flags);
+	if (retval) {
+		task_integrity_cleanup(p);
+		goto bad_fork_cleanup_audit;
+	}
 	retval = copy_semundo(clone_flags, p);
 	if (retval)
 		goto bad_fork_cleanup_security;
@@ -2404,6 +2436,10 @@ static __latent_entropy struct task_struct *copy_process(
 		retval = -EINTR;
 		goto bad_fork_cancel_cgroup;
 	}
+
+	retval = task_integrity_apply(clone_flags, p);
+	if (retval)
+		goto bad_fork_cancel_cgroup;
 
 	/* No more failure paths after this point. */
 
