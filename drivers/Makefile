@@ -226,6 +226,7 @@ obj-y += gpu/drm/samsung/panel/s6e3fc3/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SU
 obj-y += gpu/drm/samsung/panel/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += usb/typec/common/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += input/misc/hall/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+obj-y += battery/charger/pca9468_charger/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += battery/charger/pca9482_charger/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += vibrator/awinic/aw8622x/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += phy/ti/tusb2e11/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
