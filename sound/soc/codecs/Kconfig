@@ -1827,4 +1827,7 @@ config SND_SOC_TPA6130A2
 # TFA9878
 source "sound/soc/codecs/tfa9878/Kconfig"
 
+config SND_SOC_CS40L26
+	tristate "Cirrus Logic CS40L26 Stub CODEC"
+
 endmenu
