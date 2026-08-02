@@ -26,11 +26,9 @@
 #include <linux/sched.h>
 #endif
 
-#ifdef CONFIG_SEC_NFC_LOGGER_ADD_ACPM_LOG
 #include <linux/io.h>
 #include <soc/samsung/acpm_ipc_ctrl.h>
 #include <soc/samsung/debug-snapshot.h>
-#endif
 
 #include "nfc_logger.h"
 
@@ -68,10 +66,8 @@ void nfc_logger_get_date_time(char *date_time, int size)
 	len = snprintf(date_time, size, "%02d-%02d %02d:%02d:%02d.%03lu", tm.tm_mon + 1, tm.tm_mday,
 				tm.tm_hour, tm.tm_min, tm.tm_sec, ts.tv_nsec / 1000000);
 
-#ifdef CONFIG_SEC_NFC_LOGGER_ADD_ACPM_LOG
 	snprintf(date_time + len, size - len, ", rtc: %u", date_time,
 			nfc_logger_acpm_get_rtc_time());
-#endif
 }
 
 void nfc_logger_print(char *fmt, ...)
@@ -238,7 +234,6 @@ void nfc_logger_deinit(void)
 	g_entry = NULL;
 }
 
-#ifdef CONFIG_SEC_NFC_LOGGER_ADD_ACPM_LOG
 static int __iomem *g_rtc_reg;
 
 u32 nfc_logger_acpm_get_rtc_time(void)
@@ -268,7 +263,7 @@ void nfc_logger_acpm_log_print(void)
 
 void nfc_logger_acpm_log_init(u32 rtc_addr)
 {
-	u32 rtc_reg_addr = CONFIG_SEC_NFC_LOGGER_RTC_REG_ADDR;
+	u32 rtc_reg_addr = 0x15920090;
 
 	if (rtc_addr)
 		rtc_reg_addr = rtc_addr;
@@ -278,5 +273,3 @@ void nfc_logger_acpm_log_init(u32 rtc_addr)
 		g_rtc_reg = ioremap(rtc_reg_addr, 0x4);
 	}
 }
-#endif
-
