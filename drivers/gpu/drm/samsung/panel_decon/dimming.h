@@ -73,8 +73,6 @@ static u64 do_div64(u64 *num, u32 den)
 #define kfree		free
 #define kmalloc(size, flags)	malloc((size))
 #define kzalloc(size, flags)	kmalloc((size), (flags))
-#define min(a, b)	((a) < (b) ? (a) : (b))
-#define max(a, b)	((a) > (b) ? (a) : (b))
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #else
 #include <linux/types.h>
