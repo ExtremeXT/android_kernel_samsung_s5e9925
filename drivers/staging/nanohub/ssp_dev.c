@@ -578,7 +578,7 @@ static int panel_notifier_callback(struct notifier_block *self, unsigned long ev
 			}
 		}
 	} else if (event == PANEL_EVENT_COPR_STATE_CHANGED) {
-		struct panel_power_state_event_data evt_data = *((struct panel_power_state_event_data *)data);		
+		struct panel_copr_event_data evt_data = *((struct panel_copr_event_data *)data);		
 		pr_info("[SSP] %s PANEL_EVENT_COPR_STATE_CHANGED, event(%d)\n", __func__, evt_data.state);
 		if(evt_data.state != PANEL_EVENT_COPR_ENABLED && evt_data.state != PANEL_EVENT_COPR_DISABLED){
 			pr_info("[SSP] %s PANEL_EVENT_COPR_STATE_CHANGED, event errno(%d)\n", __func__, evt_data.state);
