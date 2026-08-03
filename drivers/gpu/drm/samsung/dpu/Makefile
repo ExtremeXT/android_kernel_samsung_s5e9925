@@ -63,7 +63,11 @@ exynos-drm-$(CONFIG_EXYNOS_GPU_PROFILER)	+= exynos_drm_profiler.o
 
 obj-$(CONFIG_DRM_SAMSUNG_DPU)		+= exynos-drm.o
 ifneq ($(filter y m,$(CONFIG_DRM_PANEL_MCD_COMMON)),)
+ifeq ($(CONFIG_USDM_PANEL),m)
 subdir-ccflags-y += -I$(srctree)/drivers/gpu/drm/samsung/panel
+else
+subdir-ccflags-y += -I$(srctree)/drivers/gpu/drm/samsung/panel_decon
+endif
 obj-$(CONFIG_DRM_PANEL_MCD_COMMON)	+= panel/
 else
 obj-$(CONFIG_DRM_PANEL_SAMSUNG_COMMON)	+= panel/
