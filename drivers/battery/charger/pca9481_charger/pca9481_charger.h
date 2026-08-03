@@ -38,8 +38,6 @@ struct pca9481_platform_data {
 
 #define BITS(_end, _start) ((BIT(_end) - BIT(_start)) + BIT(_end))
 #define MASK2SHIFT(_mask)	__ffs(_mask)
-#define MIN(a, b)	((a < b) ? (a):(b))
-#define MAX(a, b)	((a > b) ? (a):(b))
 
 /************************/
 /* PCA9481 Register Map */
