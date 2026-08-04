@@ -828,7 +828,6 @@ static ssize_t vl53l5_firmware_version_show(struct device *dev,
 {
 	struct vl53l5_k_module_t *p_module = dev_get_drvdata(dev);
 	struct vl53l5_version_t p_version;
-	int status = STATUS_OK;
 	enum vl53l5_k_state_preset prev_state;
 
 	p_version.firmware.ver_major = 0;
@@ -843,7 +842,7 @@ static ssize_t vl53l5_firmware_version_show(struct device *dev,
 		usleep_range(2000, 2100);
 	}
 
-	status = vl53l5_get_version(&p_module->stdev, &p_version);
+	vl53l5_get_version(&p_module->stdev, &p_version);
 
 	if (prev_state <= VL53L5_STATE_LOW_POWER) {
 		vl53l5_ioctl_set_power_mode(p_module, NULL, VL53L5_POWER_STATE_LP_IDLE_COMMS);
@@ -1453,7 +1452,10 @@ static ssize_t vl53l5_test_mode_store(struct device *dev,
 
 	ret = kstrtou8(buf, 10, &val);
 
-	switch(val) {
+	if (ret)
+		return ret;
+
+	switch (val) {
 	case 1:
 		vl53l5_k_log_info("Set 500 mm test mode\n");
 		p_module->test_mode = 1;
@@ -2052,9 +2054,7 @@ int vl53l5_k_spi_probe(struct spi_device *spi)
 	p_module->dump_nb.priority = 1;
 
 	{
-		int ret;
-		ret = sensordump_notifier_register(&p_module->dump_nb);
-		vl53l5_k_log_info("notifier %d", ret);
+		vl53l5_k_log_info("notifier %d", sensordump_notifier_register(&p_module->dump_nb));
 	}
 	//----- for sec dump
 #endif
