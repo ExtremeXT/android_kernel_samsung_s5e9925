@@ -4317,24 +4317,11 @@ int wacom_sec_init(struct wacom_i2c *wac_i2c)
 	int retval = 0;
 	int i = 0;
 
-	retval = sec_cmd_init(&wac_i2c->sec, sec_cmds, ARRAY_SIZE(sec_cmds),
-			SEC_CLASS_DEVT_WACOM);
+	retval = sec_cmd_init(&wac_i2c->sec, NULL, sec_cmds, ARRAY_SIZE(sec_cmds),
+                SEC_CLASS_DEVT_WACOM, &epen_attr_group);
 	if (retval < 0) {
 		input_err(true, &client->dev, "failed to sec_cmd_init\n");
 		return retval;
-	}
-
-	retval = sysfs_create_group(&wac_i2c->sec.fac_dev->kobj, &epen_attr_group);
-	if (retval) {
-		input_err(true, &client->dev, "failed to create sysfs attributes\n");
-		goto err_sysfs_create_group;
-	}
-
-	retval = sysfs_create_link(&wac_i2c->sec.fac_dev->kobj,
-			&wac_i2c->input_dev->dev.kobj, "input");
-	if (retval) {
-		input_err(true, &client->dev, "failed to create sysfs link\n");
-		goto err_create_symlink;
 	}
 
 	for (i = EPEN_ELEC_DATA_MAIN ; i <= EPEN_ELEC_DATA_UNIT ; i++) {
@@ -4343,9 +4330,7 @@ int wacom_sec_init(struct wacom_i2c *wac_i2c)
 
 	return 0;
 
-err_create_symlink:
 	sysfs_remove_group(&wac_i2c->sec.fac_dev->kobj, &epen_attr_group);
-err_sysfs_create_group:
 	sec_cmd_exit(&wac_i2c->sec, SEC_CLASS_DEVT_WACOM);
 
 	return retval;
