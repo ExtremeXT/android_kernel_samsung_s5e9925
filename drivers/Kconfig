@@ -290,6 +290,7 @@ source "drivers/sensorhub/debug/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT S
 source "drivers/sensorhub/sensor/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 source "drivers/sensorhub/sensorhub/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 source "drivers/sensorhub/vendor/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+source "drivers/input/wacom/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 source "drivers/mstdrv/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 source "drivers/input/sec_input/stm/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 source "drivers/sensors_lego/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
