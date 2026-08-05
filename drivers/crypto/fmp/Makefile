@@ -1,8 +1,5 @@
 # Exynos FMP makefile
-ccflags-y += -I$(srctree)/drivers/scsi/ufs/$(TARGET_SOC)
+ccflags-y += -I$(srctree)/drivers/scsi/ufs/s5e9925
 
-ifeq ($(CONFIG_EXYNOS_FMP_INTEGRITY_TEST), y)
-FIPS_PR = fipsed_
-endif
-
+obj-$(CONFIG_EXYNOS_FMP) += fmp-core.o
 fmp-core-y += fmp.o
