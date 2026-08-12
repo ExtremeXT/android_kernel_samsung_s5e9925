@@ -208,7 +208,9 @@ typedef enum dhd_iface_mgmt_policy {
 #define DHD_MSGTRACE_VAL	0x200000
 #define DHD_FWLOG_VAL		0x400000
 #define DHD_DBGIF_VAL		0x800000
+#ifdef DHD_PCIE_NATIVE_RUNTIMEPM
 #define DHD_RPM_VAL		0x1000000
+#endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 #define DHD_PKT_MON_VAL		0x2000000
 #define DHD_PKT_MON_DUMP_VAL	0x4000000
 #define DHD_ERROR_MEM_VAL	0x8000000
@@ -216,9 +218,6 @@ typedef enum dhd_iface_mgmt_policy {
 #define DHD_LPBKDTDUMP_VAL	0x20000000
 #define DHD_PRSRV_MEM_VAL	0x40000000
 #define DHD_IOVAR_MEM_VAL	0x80000000
-
-/* Message levels for Mesh */
-#define MESH_MSG_HDR_VAL        0x00000001u /* Header details */
 
 #ifdef SDTEST
 /* For pktgen iovar */
@@ -247,17 +246,6 @@ typedef struct dhd_pktgen {
 #define DHD_PKTGEN_RECV		4 /* Continuous rx from continuous tx dongle */
 #endif /* SDTEST */
 
-/* For membytes iovar - flags param bit definitions and accessor macros */
-#define DHD_MEMBYTES_FLAGS_MAGIC		0x5DA60900 /* indicates flags presence */
-#define DHD_MEMBYTES_FLAGS_MAGIC_MASK		0xFFFFFF00 /* magic bytes mask */
-#define DHD_MEMBYTES_FLAGS_BAR_MASK		0x00000007 /* bar region mask */
-#define DHD_MEMBYTES_FLAGS_BAR_MIN		0 /* Min valid value for BAR region */
-#define DHD_MEMBYTES_FLAGS_BAR_MAX		5 /* Max valid value for BAR region */
-#define DHD_MEMBYTES_FLAGS_INIT(x)		((x) = ((uint32)DHD_MEMBYTES_FLAGS_MAGIC))
-#define DHD_MEMBYTES_FLAGS_GET_MAGIC(x)		((x) & DHD_MEMBYTES_FLAGS_MAGIC_MASK)
-#define DHD_MEMBYTES_FLAGS_GET_BAR(x)		((x) & DHD_MEMBYTES_FLAGS_BAR_MASK)
-#define DHD_MEMBYTES_FLAGS_SET_BAR(x, b)	((x) |= ((b) & DHD_MEMBYTES_FLAGS_BAR_MASK))
-
 /* Enter idle immediately (no timeout) */
 #define DHD_IDLE_IMMEDIATE	(-1)
 
@@ -272,22 +260,22 @@ enum dhd_maclist_xtlv_type {
 };
 
 typedef struct _dhd_maclist_t {
-	uint16 version;			/* Version */
-	uint16 bytes_len;		/* Total bytes length of lists, XTLV headers and paddings */
-	uint8 plist[BCM_FLEX_ARRAY];	/* Pointer to the first list */
+	uint16 version;		/* Version */
+	uint16 bytes_len;	/* Total bytes length of lists, XTLV headers and paddings */
+	uint8 plist[1];		/* Pointer to the first list */
 } dhd_maclist_t;
 
 typedef struct _dhd_pd11regs_param {
 	uint16 start_idx;
 	uint8 verbose;
 	uint8 pad;
-	uint8 plist[BCM_FLEX_ARRAY];
+	uint8 plist[1];
 } dhd_pd11regs_param;
 
 typedef struct _dhd_pd11regs_buf {
 	uint16 idx;
 	uint8 pad[2];
-	uint8 pbuf[BCM_FLEX_ARRAY];
+	uint8 pbuf[1];
 } dhd_pd11regs_buf;
 
 /* BT logging and memory dump */
@@ -362,26 +350,4 @@ typedef struct dhd_tx_profile_protocol {
 #define DHD_MAX_PROFILES	(1u)	/* ucode only supports 1 profile atm */
 
 #endif /* defined(DHD_TX_PROFILE) */
-
-typedef struct dhd_loglevel_data {
-	uint32 type;
-	uint32 component;
-	uint32 dhd_print_lv;
-	uint32 dhd_log_lv;
-	uint32 wl_print_lv;
-	uint32 wl_log_lv;
-} dhd_loglevel_data_t;
-
-typedef enum dhd_loglevel_type {
-	DHD_LOGLEVEL_TYPE_ALL		= 0,
-	DHD_LOGLEVEL_TYPE_PRINT		= 1,
-	DHD_LOGLEVEL_TYPE_LOG		= 2,
-	DHD_LOGLEVEL_TYPE_INVALID	= 3
-} dhd_loglevel_type_t;
-
-typedef enum dhd_loglevel_comp {
-	DHD_LOGLEVEL_COMP_DHD           = 0,
-	DHD_LOGLEVEL_COMP_WL            = 1,
-	DHD_LOGLEVEL_COMP_INVALID	= 2
-} dhd_loglevel_comp_t;
 #endif /* _dhdioctl_h_ */

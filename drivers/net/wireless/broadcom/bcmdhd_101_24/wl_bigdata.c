@@ -42,8 +42,8 @@
 
 static void dump_ap_stadata(wl_ap_sta_data_t *ap_sta_data);
 static inline void copy_ap_stadata(wl_ap_sta_data_t *dest, wl_ap_sta_data_t *src);
-static void wg_ht_mimo_ant(uint32 *nss, wlcfg_sta_info_t *sta);
-static void wg_vht_mimo_ant(uint32 *nss, wlcfg_sta_info_t *sta);
+static void wg_ht_mimo_ant(uint32 *nss, wl_rateset_args_t *rateset);
+static void wg_vht_mimo_ant(uint32 *nss, wl_rateset_args_t *rateset);
 #if defined(WL11AX)
 static void wg_he_mimo_ant(uint32 *nss, uint16 *mcsset);
 #endif /* WL11AX */
@@ -138,37 +138,32 @@ get_copy_ptr_stadata(struct ether_addr *sta_mac, wl_ap_sta_data_t *sta_data,
 }
 
 static void
-wg_ht_mimo_ant(uint32 *nss, wlcfg_sta_info_t *sta)
+wg_ht_mimo_ant(uint32 *nss, wl_rateset_args_t *rateset)
 {
 	int i;
-	u8 *mcs = NULL;
 
-	mcs = sta->rateset_adv.mcs;
 	*nss = 0;
-
 	for (i = 0; i < MAX_STREAMS_SUPPORTED; i++) {
 		int8 bitmap = DOT11_HT_MCS_RATE_MASK;
 		if (i == MAX_STREAMS_SUPPORTED-1) {
 			bitmap = DOT11_RATE_MASK;
 		}
-		if (mcs[i] & bitmap) {
+		if (rateset->mcs[i] & bitmap) {
 			(*nss)++;
 		}
 	}
 }
 
 static void
-wg_vht_mimo_ant(uint32 *nss, wlcfg_sta_info_t *sta)
+wg_vht_mimo_ant(uint32 *nss, wl_rateset_args_t *rateset)
 {
 	int i;
 	uint32 mcs_code;
-	u16 *vht_mcs;
 
-	vht_mcs = sta->rateset_adv.vht_mcs;
 	*nss = 0;
 
 	for (i = 1; i <= VHT_CAP_MCS_MAP_NSS_MAX; i++) {
-		mcs_code = VHT_MCS_MAP_TO_MCS_CODE(vht_mcs[i - 1]);
+		mcs_code = VHT_MCS_MAP_TO_MCS_CODE(rateset->vht_mcs[i - 1]);
 		if (mcs_code != VHT_CAP_MCS_MAP_NONE) {
 			(*nss)++;
 		}
@@ -195,7 +190,9 @@ static int
 wg_parse_ap_stadata(struct net_device *dev, struct ether_addr *sta_mac,
 		wl_ap_sta_data_t *ap_sta_data)
 {
-	wlcfg_sta_info_t *sta = NULL;
+	sta_info_v4_t *sta_v4 = NULL;
+	sta_info_v5_t *sta_v5 = NULL;
+	wl_rateset_args_t *rateset_adv;
 	int ret = BCME_OK;
 	char* ioctl_buf = NULL;
 #if defined(WL11AX)
@@ -210,43 +207,42 @@ wg_parse_ap_stadata(struct net_device *dev, struct ether_addr *sta_mac,
 
 	ret = wldev_iovar_getbuf(dev, "sta_info", (struct ether_addr *)sta_mac,
 			ETHER_ADDR_LEN, ioctl_buf, WLC_IOCTL_MEDLEN, NULL);
+
 	if (ret < 0) {
 		WL_ERR(("sta_info err value :%d\n", ret));
 		ret = BCME_ERROR;
 		goto done;
 	}
 
-	sta = (wlcfg_sta_info_t *)ioctl_buf;
+	sta_v4 = (sta_info_v4_t *)ioctl_buf;
 	bzero(ap_sta_data, sizeof(wl_ap_sta_data_t));
 	ap_sta_data->mac = *sta_mac;
-	ap_sta_data->chanspec = sta->chanspec;
 
-	WL_AP_BIGDATA_LOG(("sta_info ver %d\n", sta->ver));
+	rateset_adv = &sta_v4->rateset_adv;
+	ap_sta_data->chanspec = sta_v4->chanspec;
 
-	if (!IS_STA_INFO_VER(sta)) {
-		WL_ERR(("sta_info version mismatch (%d != %d)\n",
-			sta->ver, WL_STAINFO_VER));
-		ret = BCME_ERROR;
-		goto done;
+	WL_AP_BIGDATA_LOG(("sta_info ver %d\n", sta_v4->ver));
+
+	if (sta_v4->ver == WL_STA_VER_5) {
+		sta_v5 = (sta_info_v5_t *)ioctl_buf;
+		ap_sta_data->chanspec = sta_v5->chanspec;
+		rateset_adv = &sta_v5->rateset_adv;
 	}
 
-	sta = (wlcfg_sta_info_t *)ioctl_buf;
-	ap_sta_data->chanspec = sta->chanspec;
-
 	ap_sta_data->channel = wf_chspec_ctlchan(ap_sta_data->chanspec);
-	if (sta->rateset.count > 0) {
+	if (sta_v4->rateset.count > 0) {
 		ap_sta_data->rate =
-			(sta->rateset.rates[sta->rateset.count - 1] & DOT11_RATE_MASK) / 2;
+			(sta_v4->rateset.rates[sta_v4->rateset.count - 1] & DOT11_RATE_MASK) / 2;
 	} else {
 		WL_ERR(("get sta rateset failed due to invalid count\n"));
 	}
 	ap_sta_data->mode_80211 = BIGDATA_DOT11_11BGN_BIT;
 
-	if (sta->vht_flags) {
+	if (sta_v4->vht_flags) {
 		ap_sta_data->mode_80211 |= BIGDATA_DOT11_11AC_BIT;
-		wg_vht_mimo_ant(&ap_sta_data->nss, sta);
-	} else if (sta->ht_capabilities) {
-		wg_ht_mimo_ant(&ap_sta_data->nss, sta);
+		wg_vht_mimo_ant(&ap_sta_data->nss, rateset_adv);
+	} else if (sta_v4->ht_capabilities) {
+		wg_ht_mimo_ant(&ap_sta_data->nss, rateset_adv);
 	}
 
 #if defined(WL11AX)
@@ -259,7 +255,10 @@ wg_parse_ap_stadata(struct net_device *dev, struct ether_addr *sta_mac,
 		WL_AP_BIGDATA_LOG(("rateset ver %d\n", rateset_adv_v2->version));
 
 		if (rateset_adv_v2->version == RATESET_ARGS_V2) {
-			rateset_adv_v2 = (wl_rateset_args_v2_t *)&sta->rateset_adv;
+			rateset_adv_v2 = (wl_rateset_args_v2_t *)&sta_v4->rateset_adv;
+			if (sta_v4->ver == WL_STA_VER_5) {
+				rateset_adv_v2 = (wl_rateset_args_v2_t *)&sta_v5->rateset_adv;
+			}
 
 			if (rateset_adv_v2->he_mcs[0]) {
 				WL_AP_BIGDATA_LOG(("there is he mcs rate\n"));

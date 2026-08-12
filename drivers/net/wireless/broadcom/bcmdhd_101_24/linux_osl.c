@@ -51,11 +51,11 @@
 
 #define DUMPBUFSZ 1024
 
-#if defined(CUSTOMER_HW4_DEBUG) || defined(CUSTOMER_HW2_DEBUG)
+#ifdef CUSTOMER_HW4_DEBUG
 uint32 g_assert_type = 1; /* By Default not cause Kernel Panic */
 #else
 uint32 g_assert_type = 0; /* By Default Kernel Panic */
-#endif /* CUSTOMER_HW4_DEBUG || CUSTOMER_HW2_DEBUG */
+#endif /* CUSTOMER_HW4_DEBUG */
 
 module_param(g_assert_type, int, 0);
 
@@ -149,15 +149,12 @@ static int16 linuxbcmerrormap[] =
 	-EINVAL,		/* BCME_DNGL_DEVRESET */
 	-EINVAL,		/* BCME_ROAM */
 	-EOPNOTSUPP,		/* BCME_NO_SIG_FILE */
-	-EOPNOTSUPP,		/* BCME_RESP_PENDING */
-	-EINVAL,		/* BCME_ACTIVE */
-	-EINVAL,		/* BCME_IN_PROGRESS */
 
 /* When an new error code is added to bcmutils.h, add os
  * specific error translation here as well
  */
 /* check if BCME_LAST changed since the last time this function was updated */
-#if BCME_LAST != BCME_IN_PROGRESS
+#if BCME_LAST != BCME_NO_SIG_FILE
 #error "You need to add a OS error translation in the linuxbcmerrormap \
 	for new error code defined in bcmutils.h"
 #endif
@@ -191,16 +188,16 @@ osl_dma_map_dump(osl_t *osh)
 	osl_get_localtime(&ts_sec, &ts_usec);
 
 	if (map_log && unmap_log) {
-		OSL_PRINT(("%s: map_idx=%d unmap_idx=%d "
+		printk("%s: map_idx=%d unmap_idx=%d "
 			"current time=[%5lu.%06lu]\n", __FUNCTION__,
 			map_log->idx, unmap_log->idx, (unsigned long)ts_sec,
-			(unsigned long)ts_usec));
-		OSL_PRINT(("%s: dhd_map_log(pa)=0x%llx size=%d,"
+			(unsigned long)ts_usec);
+		printk("%s: dhd_map_log(pa)=0x%llx size=%d,"
 			" dma_unmap_log(pa)=0x%llx size=%d\n", __FUNCTION__,
 			(uint64)__virt_to_phys((ulong)(map_log->map)),
 			(uint32)(sizeof(dhd_map_item_t) * map_log->items),
 			(uint64)__virt_to_phys((ulong)(unmap_log->map)),
-			(uint32)(sizeof(dhd_map_item_t) * unmap_log->items)));
+			(uint32)(sizeof(dhd_map_item_t) * unmap_log->items));
 	}
 }
 
@@ -244,7 +241,7 @@ osl_dma_map_logging(osl_t *osh, void *handle, dmaaddr_t pa, uint32 len)
 	uint32 idx;
 
 	if (log == NULL) {
-		OSL_PRINT(("%s: log is NULL\n", __FUNCTION__));
+		printk("%s: log is NULL\n", __FUNCTION__);
 		return;
 	}
 
@@ -268,7 +265,6 @@ osl_error(int bcmerror)
 	/* Array bounds covered by ASSERT in osl_attach */
 	return linuxbcmerrormap[-bcmerror];
 }
-
 osl_t *
 osl_attach(void *pdev, uint bustype, bool pkttag)
 {
@@ -333,12 +329,12 @@ osl_attach(void *pdev, uint bustype, bool pkttag)
 #ifdef DHD_MAP_LOGGING
 	osh->dhd_map_log = osl_dma_map_log_init(DHD_MAP_LOG_SIZE);
 	if (osh->dhd_map_log == NULL) {
-		OSL_PRINT(("%s: Failed to alloc dhd_map_log\n", __FUNCTION__));
+		printk("%s: Failed to alloc dhd_map_log\n", __FUNCTION__);
 	}
 
 	osh->dhd_unmap_log = osl_dma_map_log_init(DHD_MAP_LOG_SIZE);
 	if (osh->dhd_unmap_log == NULL) {
-		OSL_PRINT(("%s: Failed to alloc dhd_unmap_log\n", __FUNCTION__));
+		printk("%s: Failed to alloc dhd_unmap_log\n", __FUNCTION__);
 	}
 #endif /* DHD_MAP_LOGGING */
 
@@ -458,7 +454,7 @@ osl_pci_write_config(osl_t *osh, uint offset, uint size, uint val)
 	/* only 4byte access supported */
 	ASSERT(size == 4);
 #ifdef DHD_DEBUG_REG_DUMP
-	OSL_PRINT(("###### W_CFG : 0x%x 0x%x #######\n", offset, val));
+	printk("###### W_CFG : 0x%x 0x%x #######\n", offset, val);
 #endif /* DHD_DEBUG_REG_DUMP */
 	do {
 		pci_write_config_dword(osh->pdev, offset, val);
@@ -553,7 +549,7 @@ osl_malloc(osl_t *osh, uint size)
 			if (i == STATIC_BUF_MAX_NUM)
 			{
 				OSL_STATIC_BUF_UNLOCK(&bcm_static_buf->static_lock, irq_flags);
-				OSL_PRINT(("all static buff in use!\n"));
+				printk("all static buff in use!\n");
 				goto original;
 			}
 
@@ -792,6 +788,7 @@ dmaaddr_t
 BCMFASTPATH(osl_dma_map)(osl_t *osh, void *va, uint size, int direction, void *p,
 	hnddma_seg_map_t *dmah)
 {
+	int dir;
 	dmaaddr_t ret_addr;
 	dma_addr_t map_addr;
 	int ret;
@@ -799,13 +796,14 @@ BCMFASTPATH(osl_dma_map)(osl_t *osh, void *va, uint size, int direction, void *p
 	DMA_LOCK(osh);
 
 	ASSERT((osh && (osh->magic == OS_HANDLE_MAGIC)));
+	dir = (direction == DMA_TX)? PCI_DMA_TODEVICE: PCI_DMA_FROMDEVICE;
 
-	map_addr = pci_map_single(osh->pdev, va, size, direction);
+	map_addr = pci_map_single(osh->pdev, va, size, dir);
 
 	ret = pci_dma_mapping_error(osh->pdev, map_addr);
 
 	if (ret) {
-		OSL_PRINT(("%s: Failed to map memory\n", __FUNCTION__));
+		printk("%s: Failed to map memory\n", __FUNCTION__);
 		PHYSADDRLOSET(ret_addr, 0);
 		PHYSADDRHISET(ret_addr, 0);
 	} else {
@@ -825,6 +823,7 @@ BCMFASTPATH(osl_dma_map)(osl_t *osh, void *va, uint size, int direction, void *p
 void
 BCMFASTPATH(osl_dma_unmap)(osl_t *osh, dmaaddr_t pa, uint size, int direction)
 {
+	int dir;
 #ifdef BCMDMA64OSL
 	dma_addr_t paddr;
 #endif /* BCMDMA64OSL */
@@ -833,15 +832,17 @@ BCMFASTPATH(osl_dma_unmap)(osl_t *osh, dmaaddr_t pa, uint size, int direction)
 
 	DMA_LOCK(osh);
 
+	dir = (direction == DMA_TX)? PCI_DMA_TODEVICE: PCI_DMA_FROMDEVICE;
+
 #ifdef DHD_MAP_LOGGING
 	osl_dma_map_logging(osh, osh->dhd_unmap_log, pa, size);
 #endif /* DHD_MAP_LOGGING */
 
 #ifdef BCMDMA64OSL
 	PHYSADDRTOULONG(pa, paddr);
-	pci_unmap_single(osh->pdev, paddr, size, direction);
+	pci_unmap_single(osh->pdev, paddr, size, dir);
 #else /* BCMDMA64OSL */
-	pci_unmap_single(osh->pdev, (uint32)pa, size, direction);
+	pci_unmap_single(osh->pdev, (uint32)pa, size, dir);
 #endif /* BCMDMA64OSL */
 
 	DMA_UNLOCK(osh);
@@ -929,12 +930,12 @@ osl_sleep(uint ms)
 uint64
 osl_sysuptime_us(void)
 {
-	struct timespec64 ts;
+	struct timeval tv;
 	uint64 usec;
 
-	ktime_get_real_ts64(&ts);
-	/* tv_nsec content is fraction of a second */
-	usec = (uint64)ts.tv_sec * USEC_PER_SEC + (ts.tv_nsec / NSEC_PER_USEC);
+	do_gettimeofday(&tv);
+	/* tv_usec content is fraction of a second */
+	usec = (uint64)tv.tv_sec * 1000000ul + tv.tv_usec;
 	return usec;
 }
 
@@ -972,31 +973,16 @@ osl_get_localtime(uint64 *sec, uint64 *usec)
 uint64
 osl_systztime_us(void)
 {
-	struct timespec64 ts;
+	struct timeval tv;
 	uint64 tzusec;
 
-	ktime_get_real_ts64(&ts);
+	do_gettimeofday(&tv);
 	/* apply timezone */
-	tzusec = (uint64)((ts.tv_sec - (sys_tz.tz_minuteswest * 60u)) * USEC_PER_SEC);
-	tzusec += ts.tv_nsec / NSEC_PER_USEC;
+	tzusec = (uint64)((tv.tv_sec - (sys_tz.tz_minuteswest * 60)) *
+		USEC_PER_SEC);
+	tzusec += tv.tv_usec;
 
 	return tzusec;
-}
-
-char *
-osl_get_rtctime(void)
-{
-	static char timebuf[RTC_TIME_BUF_LEN];
-	struct timespec64 ts;
-	struct rtc_time tm;
-
-	memset_s(timebuf, RTC_TIME_BUF_LEN, 0, RTC_TIME_BUF_LEN);
-	ktime_get_real_ts64(&ts);
-	rtc_time_to_tm(ts.tv_sec - (sys_tz.tz_minuteswest * 60), &tm);
-	scnprintf(timebuf, RTC_TIME_BUF_LEN,
-			"%02d:%02d:%02d.%06lu",
-			tm.tm_hour, tm.tm_min, tm.tm_sec, ts.tv_nsec/NSEC_PER_USEC);
-	return timebuf;
 }
 
 /*
@@ -1016,6 +1002,73 @@ osl_rand(void)
 
 	return rand;
 }
+
+#ifdef DHD_SUPPORT_VFS_CALL
+/* Linux Kernel: File Operations: start */
+void *
+osl_os_open_image(char *filename)
+{
+	struct file *fp;
+
+	fp = filp_open(filename, O_RDONLY, 0);
+	/*
+	 * 2.6.11 (FC4) supports filp_open() but later revs don't?
+	 * Alternative:
+	 * fp = open_namei(AT_FDCWD, filename, O_RD, 0);
+	 * ???
+	 */
+	if (IS_ERR(fp)) {
+		printk("ERROR %ld: Unable to open file %s\n", PTR_ERR(fp), filename);
+		fp = NULL;
+	}
+
+	return fp;
+}
+
+int
+osl_os_get_image_block(char *buf, int len, void *image)
+{
+	struct file *fp = (struct file *)image;
+	int rdlen;
+
+	if (fp == NULL) {
+		return 0;
+	}
+
+	rdlen = kernel_read_compat(fp, fp->f_pos, buf, len);
+	if (rdlen > 0) {
+		fp->f_pos += rdlen;
+	}
+
+	return rdlen;
+}
+
+void
+osl_os_close_image(void *image)
+{
+	struct file *fp = (struct file *)image;
+
+	if (fp != NULL) {
+		filp_close(fp, NULL);
+	}
+}
+
+int
+osl_os_image_size(void *image)
+{
+	int len = 0, curroffset;
+
+	if (image) {
+		/* store the current offset */
+		curroffset = generic_file_llseek(image, 0, 1);
+		/* goto end of file to get length */
+		len = generic_file_llseek(image, 0, 2);
+		/* restore back the offset */
+		generic_file_llseek(image, curroffset, 0);
+	}
+	return len;
+}
+#endif /* DHD_SUPPORT_VFS_CALL */
 
 /* Linux Kernel: File Operations: end */
 
@@ -1074,13 +1127,13 @@ osl_timer_init(osl_t *osh, const char *name, void (*fn)(void *arg), void *arg)
 	osl_timer_t *t;
 	BCM_REFERENCE(fn);
 	if ((t = MALLOCZ(NULL, sizeof(osl_timer_t))) == NULL) {
-		OSL_PRINT(("osl_timer_init: out of memory, malloced %d bytes\n",
-			(int)sizeof(osl_timer_t)));
+		printk(KERN_ERR "osl_timer_init: out of memory, malloced %d bytes\n",
+			(int)sizeof(osl_timer_t));
 		return (NULL);
 	}
 	bzero(t, sizeof(osl_timer_t));
 	if ((t->timer = MALLOCZ(NULL, sizeof(timer_list_compat_t))) == NULL) {
-		OSL_PRINT(("osl_timer_init: malloc failed\n"));
+		printf("osl_timer_init: malloc failed\n");
 		MFREE(NULL, t, sizeof(osl_timer_t));
 		return (NULL);
 	}
@@ -1096,14 +1149,14 @@ void
 osl_timer_add(osl_t *osh, osl_timer_t *t, uint32 ms, bool periodic)
 {
 	if (t == NULL) {
-		OSL_PRINT(("%s: Timer handle is NULL\n", __FUNCTION__));
+		printf("%s: Timer handle is NULL\n", __FUNCTION__);
 		return;
 	}
 	ASSERT(!t->set);
 
 	t->set = TRUE;
 	if (periodic) {
-		OSL_PRINT(("Periodic timers are not supported by Linux timer apis\n"));
+		printf("Periodic timers are not supported by Linux timer apis\n");
 	}
 	timer_expires(t->timer) = jiffies + ms*HZ/1000;
 
@@ -1116,11 +1169,11 @@ void
 osl_timer_update(osl_t *osh, osl_timer_t *t, uint32 ms, bool periodic)
 {
 	if (t == NULL) {
-		OSL_PRINT(("%s: Timer handle is NULL\n", __FUNCTION__));
+		printf("%s: Timer handle is NULL\n", __FUNCTION__);
 		return;
 	}
 	if (periodic) {
-		OSL_PRINT(("Periodic timers are not supported by Linux timer apis\n"));
+		printf("Periodic timers are not supported by Linux timer apis\n");
 	}
 	t->set = TRUE;
 	timer_expires(t->timer) = jiffies + ms*HZ/1000;
@@ -1137,7 +1190,7 @@ bool
 osl_timer_del(osl_t *osh, osl_timer_t *t)
 {
 	if (t == NULL) {
-		OSL_PRINT(("%s: Timer handle is NULL\n", __FUNCTION__));
+		printf("%s: Timer handle is NULL\n", __FUNCTION__);
 		return (FALSE);
 	}
 	if (t->set) {
@@ -1155,7 +1208,11 @@ osl_timer_del(osl_t *osh, osl_timer_t *t)
 int
 kernel_read_compat(struct file *file, loff_t offset, char *addr, unsigned long count)
 {
+#ifdef DHD_SUPPORT_VFS_CALL
+	return (int)kernel_read(file, addr, (size_t)count, &offset);
+#else
 	return 0;
+#endif /* DHD_SUPPORT_VFS_CALL */
 }
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)) */
 
@@ -1171,7 +1228,6 @@ osl_spin_lock_init(osl_t *osh)
 		spin_lock_init(lock);
 	return ((void *)lock);
 }
-
 void
 osl_spin_lock_deinit(osl_t *osh, void *lock)
 {

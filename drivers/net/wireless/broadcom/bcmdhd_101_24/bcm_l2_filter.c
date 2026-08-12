@@ -98,7 +98,6 @@ void deinit_l2_filter_arp_table(osl_t* osh, arp_table_t* ptable)
 {
 	MFREE(osh, ptable, sizeof(arp_table_t));
 }
-
 /* returns 0 if gratuitous ARP or unsolicited neighbour advertisement */
 int
 bcm_l2_filter_gratuitous_arp(osl_t *osh, void *pktbuf)
@@ -164,7 +163,6 @@ bcm_l2_filter_gratuitous_arp(osl_t *osh, void *pktbuf)
 
 	return BCME_ERROR;
 }
-
 int
 get_pkt_ether_type(osl_t *osh, void *pktbuf,
 	uint8 **data_ptr, int *len_ptr, uint16 *et_ptr, bool *snap_ptr)
@@ -334,7 +332,6 @@ int bcm_l2_filter_get_mac_addr_dhcp_pkt(osl_t *osh, void *pktbuf,
 	*mac_addr = dhcp + DHCP_CHADDR_OFFSET;
 	return BCME_OK;
 }
-
 /* modify the mac address for IP, in arp table */
 int
 bcm_l2_filter_parp_modifyentry(arp_table_t* arp_tbl, struct ether_addr *ea,
@@ -589,7 +586,6 @@ bcm_l2_filter_arp_table_update(osl_t *osh, arp_table_t* arp_tbl, bool all, uint8
 		}
 	}
 }
-
 /* create 42 byte ARP packet for ARP response, aligned the Buffer */
 void *
 bcm_l2_filter_proxyarp_alloc_reply(osl_t* osh, uint16 pktlen, struct ether_addr *src_ea,
@@ -622,25 +618,21 @@ bcm_l2_filter_proxyarp_alloc_reply(osl_t* osh, uint16 pktlen, struct ether_addr 
 	*p = (void *)(frame + ETHER_HDR_LEN + (snap ? SNAP_HDR_LEN + ETHER_TYPE_LEN : 0));
 	return pkt;
 }
-
 /* copy the smac entry from parp_table */
 void bcm_l2_filter_parp_get_smac(arp_table_t* ptable, void* smac)
 {
 	bcopy(ptable->parp_smac, smac, ETHER_ADDR_LEN);
 }
-
 /* copy the cmac entry from parp_table */
 void bcm_l2_filter_parp_get_cmac(arp_table_t* ptable, void* cmac)
 {
 	bcopy(ptable->parp_cmac, cmac, ETHER_ADDR_LEN);
 }
-
 /* copy the smac entry to smac entry in parp_table */
 void bcm_l2_filter_parp_set_smac(arp_table_t* ptable, void* smac)
 {
 	bcopy(smac, ptable->parp_smac, ETHER_ADDR_LEN);
 }
-
 /* copy the cmac entry to cmac entry in parp_table */
 void bcm_l2_filter_parp_set_cmac(arp_table_t* ptable, void* cmac)
 {
@@ -693,7 +685,6 @@ calc_checksum(uint8 *src_ipa, uint8 *dst_ipa, uint32 ul_len, uint8 prot, uint8 *
 
 	return answer;
 }
-
 /*
  * The length of the option including
  * the type and length fields in units of 8 octets

@@ -1,4 +1,7 @@
 /*
+ * IE/TLV (de)fragmentation declarations/definitions for
+ * Broadcom 802.11abgn Networking Device Driver
+ *
  * Copyright (C) 2022, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
@@ -16,36 +19,14 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  *
-*/
+ */
 
-#ifndef _epivers_h_
-#define _epivers_h_
+#ifndef __FRAG_H__
+#define __FRAG_H__
 
-#define EPI_MAJOR_VERSION	101
+int bcm_tlv_dot11_frag_tot_len(const void *buf, uint buf_len,
+	uint8 id, bool id_ext, uint *ie_len);
 
-#define EPI_MINOR_VERSION	16
-
-#define EPI_RC_NUMBER		90
-
-#define EPI_INCREMENTAL_NUMBER	0
-
-#define EPI_BUILD_NUMBER	0
-
-#define EPI_VERSION		101, 16, 90, 0
-
-#define EPI_VERSION_NUM		0x65105a00
-
-#define EPI_VERSION_DEV		101.16.90
-
-/* Driver Version String, ASCII, 32 chars max */
-#if defined (WLTEST)
-#define EPI_VERSION_STR		"101.16.90 (wlan=r969326 WLTEST)"
-#elif (defined (BCMDBG_ASSERT) && !defined (BCMDBG_ASSERT_DISABLED))
-#define EPI_VERSION_STR		"101.16.90 (wlan=r969326 ASSRT)"
-#else
-#define EPI_VERSION_STR		"101.16.90 (wlan=r969326)"
-#endif /* BCMINTERNAL */
-
-#endif /* _epivers_h_ */
+#endif /* __FRAG_H__ */

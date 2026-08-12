@@ -2591,29 +2591,6 @@ wf_chspec_primary40_chspec(chanspec_t chspec)
 }
 
 /**
- * Return the chanspec band for a given frequency.
- *
- * @param  freq		frequency in MHz of the channel center
- *
- * @return  Returns chanspec band of frequency (chanspec_band_t)
- */
-chanspec_band_t
-wf_mhz2chanspec_band(uint freq)
-{
-	chanspec_band_t band = INVCHANSPEC;
-
-	if (freq >= 2400u && freq <= 2500u) {
-		band = WL_CHANSPEC_BAND_2G;
-	} else if (freq >= 5000u && freq < 5935u) {
-		band = WL_CHANSPEC_BAND_5G;
-	} else if (freq >= 5935u && freq <= 7205u) {
-		band = WL_CHANSPEC_BAND_6G;
-	}
-
-	return band;
-}
-
-/**
  * Return the channel number for a given frequency and base frequency.
  *
  * @param   freq            frequency in MHz of the channel center

@@ -35,18 +35,13 @@
 #include <linux/init.h>
 #include <linux/fs.h>
 #include <dngl_stats.h>
-#ifdef DHD_LOG_DUMP
-#include <dhd_log_dump.h>
-#endif
 #include <dhd.h>
 #if defined(CONFIG_HAS_EARLYSUSPEND) && defined(DHD_USE_EARLYSUSPEND)
 #include <linux/earlysuspend.h>
 #endif /* defined(CONFIG_HAS_EARLYSUSPEND) && defined(DHD_USE_EARLYSUSPEND) */
-#if defined(CONFIG_WIFI_CONTROL_FUNC) || defined(CUSTOMER_HW4)
+#if defined(CONFIG_WIFI_CONTROL_FUNC)
 #include <linux/wlan_plat.h>
-#else
-#include <dhd_plat.h>
-#endif /* CONFIG_WIFI_CONTROL_FUNC */
+#endif
 
 #ifdef BCMPCIE
 #include <bcmmsgbuf.h>
@@ -67,53 +62,27 @@
 #define MAX_MON_PKT_SIZE       (4096 + MAX_RADIOTAP_SIZE)
 #endif /* WL_MONITOR */
 
-#ifdef DHD_COREDUMP
-#define PC_FOUND_BIT 0x01
-#define LR_FOUND_BIT 0x02
-#define ALL_ADDR_VAL (PC_FOUND_BIT | LR_FOUND_BIT)
-#define READ_NUM_BYTES 1000
-#define DHD_FUNC_STR_LEN 80
-
-#define DHD_COREDUMP_MAGIC 0xDDCEDACF
-#define TLV_TYPE_LENGTH_SIZE	(8u)
-/* coredump is composed as following TLV format.
- * Type(32bit) | Length(32bit) | Value(x bit)
- * e.g) socram type | length | socram dump
- *      sssr core1 type | length | sssr core1 dump
- *      ...
- */
-enum coredump_types {
-	DHD_COREDUMP_TYPE_SSSRDUMP_CORE0_BEFORE = 0,
-	DHD_COREDUMP_TYPE_SSSRDUMP_CORE0_AFTER,
-	DHD_COREDUMP_TYPE_SSSRDUMP_CORE1_BEFORE,
-	DHD_COREDUMP_TYPE_SSSRDUMP_CORE1_AFTER,
-	DHD_COREDUMP_TYPE_SSSRDUMP_CORE2_BEFORE,
-	DHD_COREDUMP_TYPE_SSSRDUMP_CORE2_AFTER,
-	DHD_COREDUMP_TYPE_SSSRDUMP_DIG_BEFORE,
-	DHD_COREDUMP_TYPE_SSSRDUMP_DIG_AFTER,
-	DHD_COREDUMP_TYPE_SOCRAMDUMP
+#if !defined(CONFIG_WIFI_CONTROL_FUNC)
+#define WLAN_PLAT_NODFS_FLAG	0x01
+#define WLAN_PLAT_AP_FLAG	0x02
+struct wifi_platform_data {
+	int (*set_power)(int val);
+	int (*set_reset)(int val);
+	int (*set_carddetect)(int val);
+	void *(*mem_prealloc)(int section, unsigned long size);
+	int (*get_mac_addr)(unsigned char *buf);
+#ifdef BCMSDIO
+	int (*get_wake_irq)(void);
+#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 58)) || defined(CUSTOM_COUNTRY_CODE)
+	void *(*get_country_code)(char *ccode, u32 flags);
+#else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 58)) || defined (CUSTOM_COUNTRY_CODE) */
+	void *(*get_country_code)(char *ccode);
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 58)) */
 };
-
-#ifdef DHD_SSSR_DUMP
-typedef struct dhd_coredump {
-	uint32 type;
-	uint32 length;
-	void *bufptr;
-} dhd_coredump_t;
-#endif /* DHD_SSSR_DUMP */
-#endif /* DHD_COREDUMP */
-
-#ifdef DHD_WAKE_RX_STATUS
-#define ETHER_ICMP6_HEADER	20
-#define ETHER_IPV6_SADDR (ETHER_ICMP6_HEADER + 2)
-#define ETHER_IPV6_DAADR (ETHER_IPV6_SADDR + IPV6_ADDR_LEN)
-#define ETHER_ICMPV6_TYPE (ETHER_IPV6_DAADR + IPV6_ADDR_LEN)
-#endif /* DHD_WAKE_RX_STATUS */
+#endif /* CONFIG_WIFI_CONTROL_FUNC */
 
 #define DHD_REGISTRATION_TIMEOUT  12000  /* msec : allowed time to finished dhd registration */
-
-/* FW initialised value for ocl_rssi_threshold */
-#define FW_OCL_RSSI_THRESH_INITVAL -75
 
 #if defined(DHD_TRACE_WAKE_LOCK)
 typedef enum dhd_wklock_type {
@@ -157,7 +126,7 @@ struct wk_trace_record {
 		} else { \
 			wklock_info = kzalloc(sizeof(*wklock_info), GFP_ATOMIC); \
 			if (!wklock_info) {\
-				DHD_ERROR(("Can't allocate wk_trace_record \n")); \
+				printk("Can't allocate wk_trace_record \n"); \
 			} else { \
 				wklock_info->addr = func_addr; \
 				wklock_info->lock_type = wklock_type; \
@@ -187,9 +156,7 @@ struct wk_trace_record {
 #define AOE_IP_ALIAS_SUPPORT 1
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) && defined(DHD_TCP_LIMIT_OUTPUT)
-#ifndef DHD_TCP_LIMIT_OUTPUT_BYTES
 #define DHD_TCP_LIMIT_OUTPUT_BYTES (4 * 1024 * 1024)
-#endif /* DHD_TCP_LIMIT_OUTPUT_BYTES */
 #ifndef TCP_DEFAULT_LIMIT_OUTPUT
 #define TCP_DEFAULT_LIMIT_OUTPUT (256 * 1024)
 #endif /* TSQ_DEFAULT_LIMIT_OUTPUT */
@@ -227,7 +194,6 @@ typedef struct dhd_sta {
 	struct list_head list;  /* link into dhd_if::sta_list */
 	int idx;                /* index of self in dhd_pub::sta_pool[] */
 	int ifidx;              /* index of interface in dhd */
-	chanspec_t chanspec;	/* sta chanspec info */
 } dhd_sta_t;
 typedef dhd_sta_t dhd_sta_pool_t;
 
@@ -341,6 +307,64 @@ extern uint32 sec_save_softap_info(void);
 extern uint32 report_hang_privcmd_err;
 #endif /* DHD_SEND_HANG_PRIVCMD_ERRORS */
 
+#ifdef DHD_LOG_DUMP
+/* 0: DLD_BUF_TYPE_GENERAL, 1: DLD_BUF_TYPE_PRESERVE
+* 2: DLD_BUF_TYPE_SPECIAL
+*/
+#define DLD_BUFFER_NUM 3
+
+#ifndef CUSTOM_LOG_DUMP_BUFSIZE_MB
+#define CUSTOM_LOG_DUMP_BUFSIZE_MB	4 /* DHD_LOG_DUMP_BUF_SIZE 4 MB static memory in kernel */
+#endif /* CUSTOM_LOG_DUMP_BUFSIZE_MB */
+
+#define LOG_DUMP_TOTAL_BUFSIZE (1024 * 1024 * CUSTOM_LOG_DUMP_BUFSIZE_MB)
+
+/*
+ * Below are different sections that use the prealloced buffer
+ * and sum of the sizes of these should not cross LOG_DUMP_TOTAL_BUFSIZE
+ */
+#ifdef EWP_BCM_TRACE
+#define LOG_DUMP_GENERAL_MAX_BUFSIZE (192 * 1024 * CUSTOM_LOG_DUMP_BUFSIZE_MB)
+#define LOG_DUMP_BCM_TRACE_MAX_BUFSIZE (64 * 1024 * CUSTOM_LOG_DUMP_BUFSIZE_MB)
+#else
+#define LOG_DUMP_GENERAL_MAX_BUFSIZE (256 * 1024 * CUSTOM_LOG_DUMP_BUFSIZE_MB)
+#define LOG_DUMP_BCM_TRACE_MAX_BUFSIZE 0
+#endif /* EWP_BCM_TRACE */
+#define LOG_DUMP_PRESERVE_MAX_BUFSIZE (128 * 1024 * CUSTOM_LOG_DUMP_BUFSIZE_MB)
+#define LOG_DUMP_ECNTRS_MAX_BUFSIZE (256 * 1024 * CUSTOM_LOG_DUMP_BUFSIZE_MB)
+#define LOG_DUMP_RTT_MAX_BUFSIZE (256 * 1024 * CUSTOM_LOG_DUMP_BUFSIZE_MB)
+#define LOG_DUMP_FILTER_MAX_BUFSIZE (128 * 1024 * CUSTOM_LOG_DUMP_BUFSIZE_MB)
+
+#if LOG_DUMP_TOTAL_BUFSIZE < (LOG_DUMP_GENERAL_MAX_BUFSIZE + \
+	LOG_DUMP_PRESERVE_MAX_BUFSIZE + LOG_DUMP_ECNTRS_MAX_BUFSIZE + LOG_DUMP_RTT_MAX_BUFSIZE \
+	+ LOG_DUMP_BCM_TRACE_MAX_BUFSIZE + LOG_DUMP_FILTER_MAX_BUFSIZE)
+#error "LOG_DUMP_TOTAL_BUFSIZE is lesser than sum of all rings"
+#endif
+
+/* Special buffer is allocated as separately in prealloc */
+#define LOG_DUMP_SPECIAL_MAX_BUFSIZE (8 * 1024)
+
+#define LOG_DUMP_MAX_FILESIZE (8 *1024 * 1024) /* 8 MB default */
+
+#ifdef CONFIG_LOG_BUF_SHIFT
+/* 15% of kernel log buf size, if for example klog buf size is 512KB
+* 15% of 512KB ~= 80KB
+*/
+#define LOG_DUMP_KERNEL_TAIL_FLUSH_SIZE \
+	(15 * ((1 << CONFIG_LOG_BUF_SHIFT)/100))
+#endif /* CONFIG_LOG_BUF_SHIFT */
+
+#define LOG_DUMP_COOKIE_BUFSIZE	1024u
+typedef struct {
+	char *hdr_str;
+	log_dump_section_type_t sec_type;
+} dld_hdr_t;
+
+#define DHD_PRINT_BUF_NAME_LEN 30
+void dhd_get_debug_dump_len(void *handle, struct sk_buff *skb, void *event_info, u8 event);
+void cfgvendor_log_dump_len(dhd_pub_t *dhdp, log_dump_type_t *type, struct sk_buff *skb);
+#endif /* DHD_LOG_DUMP */
+
 typedef struct dhd_if_event {
 	struct list_head	list;
 	wl_event_data_if_t	event;
@@ -436,24 +460,20 @@ struct dhd_rx_tx_work {
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 
 #ifdef FILTER_IE
-#ifdef DHD_LINUX_STD_FW_API
-#define FILTER_IE_PATH "filter_ie"
-#else
 #define FILTER_IE_PATH "/vendor/etc/wifi/filter_ie"
-#endif /* DHD_LINUX_STD_FW_API */
 #define FILTER_IE_BUFSZ 1024 /* ioc buffsize for FILTER_IE */
 #define FILE_BLOCK_READ_SIZE 256
 #define WL_FILTER_IE_IOV_HDR_SIZE OFFSETOF(wl_filter_ie_iov_v1_t, tlvs)
 #endif /* FILTER_IE */
 
 #define NULL_CHECK(p, s, err)  \
-do { \
-	if (!(p)) { \
-		DHD_ERROR(("NULL POINTER (%s) : %s\n", __FUNCTION__, (s))); \
-		err = BCME_ERROR; \
-		return err; \
-	} \
-} while (0)
+			do { \
+				if (!(p)) { \
+					printk("NULL POINTER (%s) : %s\n", __FUNCTION__, (s)); \
+					err = BCME_ERROR; \
+					return err; \
+				} \
+			} while (0)
 
 int dhd_wifi_platform_register_drv(void);
 void dhd_wifi_platform_unregister_drv(void);
@@ -463,10 +483,6 @@ int wifi_platform_set_power(wifi_adapter_info_t *adapter, bool on, unsigned long
 int wifi_platform_bus_enumerate(wifi_adapter_info_t *adapter, bool device_present);
 int wifi_platform_get_irq_number(wifi_adapter_info_t *adapter, unsigned long *irq_flags_ptr);
 int wifi_platform_get_mac_addr(wifi_adapter_info_t *adapter, unsigned char *buf);
-#ifdef DHD_COREDUMP
-int wifi_platform_set_coredump(wifi_adapter_info_t *adapter, const char *buf, int buf_len,
-	const char *info);
-#endif /* DHD_COREDUMP */
 #ifdef CUSTOM_COUNTRY_CODE
 void *wifi_platform_get_country_code(wifi_adapter_info_t *adapter, char *ccode,
 	u32 flags);
@@ -493,17 +509,13 @@ int dhd_enable_adps(dhd_pub_t *dhd, uint8 on);
 extern void dhd_reset_tcpsync_info_by_ifp(dhd_if_t *ifp);
 extern void dhd_reset_tcpsync_info_by_dev(struct net_device *dev);
 #endif /* DHDTCPSYNC_FLOOD_BLK */
-extern void dhd_set_del_in_progress(dhd_pub_t * dhd, struct net_device * ndev);
-extern void dhd_clear_del_in_progress(dhd_pub_t * dhd, struct net_device * ndev);
 #ifdef PCIE_FULL_DONGLE
 extern void dhd_net_del_flowrings_sta(dhd_pub_t * dhd, struct net_device * ndev);
 #endif /* PCIE_FULL_DONGLE */
 int dhd_get_fw_capabilities(dhd_pub_t * dhd);
-void dhd_event_logtrace_enqueue(dhd_pub_t *dhdp, int ifidx, void *pktbuf);
-#if defined(SUPPORT_MULTIPLE_NVRAM) || defined(SUPPORT_MULTIPLE_CLMBLOB)
-int dhd_get_platform_naming_for_nvram_clmblob_file(download_type_t component, char* file_name);
-#ifdef USE_CID_CHECK
-void dhd_set_platform_ext_name_for_chip_version(char* chip_version);
-#endif /* USE_CID_CHECK */
-#endif /* SUPPORT_MULTIPLE_NVRAM || SUPPORT_MULTIPLE_CLMBLOB */
+#ifdef DHD_PERIODIC_CNTRS
+#define DHD_ECNT_INTERVAL 3000
+extern void dhd_dbg_periodic_cntrs_start(dhd_pub_t * dhdp);
+extern void dhd_dbg_periodic_cntrs_stop(dhd_pub_t * dhdp);
+#endif /* DHD_PERIODIC_CNTRS */
 #endif /* __DHD_LINUX_H__ */

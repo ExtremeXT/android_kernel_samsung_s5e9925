@@ -168,6 +168,9 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 #ifdef WLBSSLOAD_REPORT
 	BCMEVENT_NAME(WLC_E_BSS_LOAD),
 #endif
+#if defined(BT_WIFI_HANDOVER) || defined(WL_TBOW)
+	BCMEVENT_NAME(WLC_E_BT_WIFI_HANDOVER_REQ),
+#endif
 #ifdef WLFBT
 	BCMEVENT_NAME(WLC_E_FBT),
 #endif /* WLFBT */
@@ -213,12 +216,6 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 #ifdef WL_TWT
 	BCMEVENT_NAME(WLC_E_TWT),
 #endif /* WL_TWT */
-
-	BCMEVENT_NAME(WLC_E_MSCS),
-#ifdef WL_SCHED_SCAN
-	BCMEVENT_NAME(WLC_E_PFN_PARTIAL_RESULT),
-#endif /* WL_SCHED_SCAN */
-	BCMEVENT_NAME(WLC_E_MLO_LINK_INFO),
 };
 
 const char *bcmevent_get_name(uint event_type)

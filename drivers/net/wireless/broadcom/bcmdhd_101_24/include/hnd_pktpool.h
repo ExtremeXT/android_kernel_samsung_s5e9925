@@ -59,13 +59,6 @@ extern "C" {
 #define FREE_ALL_PKTS		0
 #define FREE_ALL_FRAG_PKTS	1
 
-/* PKTPOOL_ALLOC ISSUES */
-#define PKT_ALLOC_SUCCESS		0
-#define PKT_ALLOC_FAIL_GENERIC		-1
-#define PKT_ALLOC_FAIL_NOPKT		-2
-#define PKT_ALLOC_FAIL_NOCMPLID		-3
-#define PKT_ALLOC_FAIL_NOHOSTADDR	-4
-
 /* forward declaration */
 struct pktpool;
 
@@ -75,12 +68,6 @@ typedef struct {
 	void *arg;
 	uint8 refcnt;
 } pktpool_cbinfo_t;
-
-typedef void (*pktpool_rxurb_cb_t)(struct pktpool *pool, void *arg, uint8 *addr, uint16 len);
-typedef struct {
-	pktpool_rxurb_cb_t cb;
-	void *arg;
-} pktpool_rxurb_cbinfo_t;
 
 /** PCIe SPLITRX related: call back fn extension to populate host address in pool pkt */
 typedef int (*pktpool_cb_extn_t)(struct pktpool *pool, void *arg1, void* pkt, int arg2,
@@ -149,15 +136,6 @@ typedef struct pktpool {
 	bool is_heap_pool;	/* Whether this pool can be used as heap */
 	bool release_active;
 	uint8 mem_handle;
-
-	struct resv_info *resv_info; /* Resv frag pool info */
-	uint resv_pool_idx;
-	pktpool_cbextn_info_t cb_haddr;	/**< PCIe SPLITRX related */
-	pktpool_rxurb_cbinfo_t dmarxurb;	/**< dma rx urb related */
-
-	uint32 pktpool_flags; /* different packet pool flags */
-	void *freelist_tail; /* free list tail, used only in specific rxlfrag pools */
-
 #ifdef BCMDBG_POOL
 	uint8 dbg_cbcnt;
 	pktpool_cbinfo_t dbg_cbs[PKTPOOL_CB_MAX];
@@ -165,8 +143,6 @@ typedef struct pktpool {
 	pktpool_dbg_t dbg_q[PKTPOOL_LEN_MAX + 1];
 #endif
 } pktpool_t;
-
-#define PKTPOOL_RXLFRAG_SORTED_INSERT	0x00000001u
 
 pktpool_t *get_pktpools_registry(int id);
 #define pktpool_get(pktp)	(pktpool_get_ext((pktp), (pktp)->type, NULL))
@@ -196,11 +172,9 @@ extern int pktpool_setmaxlen_strict(osl_t *osh, pktpool_t *pktp, uint16 max_pkts
 extern void pktpool_emptycb_disable(pktpool_t *pktp, bool disable);
 extern bool pktpool_emptycb_disabled(pktpool_t *pktp);
 extern int pktpool_hostaddr_fill_register(pktpool_t *pktp, pktpool_cb_extn_t cb, void *arg1);
-extern int pktpool_hostaddr_ext_fill_register(pktpool_t *pktp, pktpool_cb_extn_t cb, void *arg1);
 extern int pktpool_rxcplid_fill_register(pktpool_t *pktp, pktpool_cb_extn_t cb, void *arg);
 extern void pktpool_invoke_dmarxfill(pktpool_t *pktp);
 extern int pkpool_haddr_avail_register_cb(pktpool_t *pktp, pktpool_cb_t cb, void *arg);
-extern int pkpool_rxurb_register_cb(pktpool_t *pktp, pktpool_rxurb_cb_t cb, void *arg);
 extern int pktpool_avail(pktpool_t *pktpool);
 
 #define POOLPTR(pp)         ((pktpool_t *)(pp))
@@ -233,19 +207,11 @@ extern int pktpool_avail(pktpool_t *pktpool);
 #define PKTPOOL_ID2PTR(id)          (get_pktpools_registry(id))
 #define PKTPOOL_PTR2ID(pp)          (POOLID(pp))
 
-/* Registry size is one larger than max pools, as slot #0 is reserved */
-#define PKTPOOLREG_RSVD_ID				(0U)
-#define PKTPOOLREG_RSVD_PTR				(POOLPTR(0xdeaddead))
-#define PKTPOOLREG_FREE_PTR				(POOLPTR(NULL))
-
 #ifndef PKTID_POOL
 /* max pktids reserved for pktpool is updated properly in Makeconf */
 #define PKTID_POOL		    (PKT_MAXIMUM_ID - 32u)
 #endif /* PKTID_POOL */
 extern uint32 total_pool_pktid_count;
-
-extern int pktpool_get_last_err(pktpool_t *pktp);
-#define PKTPOOL_ERR_TYPE_SPLIT_SUPPORTED
 
 #ifdef BCMDBG_POOL
 extern int pktpool_dbg_register(pktpool_t *pktp, pktpool_cb_t cb, void *arg);
@@ -272,15 +238,7 @@ extern pktpool_t *pktpool_shared_alfrag_data;
 #endif
 
 #ifdef BCMRESVFRAGPOOL
-#ifdef APP
-#define RESV_FRAG_POOL		(NULL)
-#define RESV_ALFRAG_POOL	(pktpool_resv_alfrag)
-#define RESV_ALFRAG_DATA_POOL	(pktpool_resv_alfrag_data)
-#else
 #define RESV_FRAG_POOL		(pktpool_resv_lfrag)
-#define RESV_ALFRAG_POOL	(NULL)
-#define RESV_ALFRAG_DATA_POOL	(NULL)
-#endif /* APP */
 #define RESV_POOL_INFO		(resv_pool_info)
 #else
 #define RESV_FRAG_POOL		((struct pktpool *)NULL)
@@ -300,12 +258,7 @@ int hnd_pktpool_fill(pktpool_t *pktpool, bool minimal);
 void hnd_pktpool_refill(bool minimal);
 
 #ifdef BCMRESVFRAGPOOL
-#ifdef APP
-extern pktpool_t *pktpool_resv_alfrag;
-extern pktpool_t *pktpool_resv_alfrag_data;
-#else
 extern pktpool_t *pktpool_resv_lfrag;
-#endif /* APP */
 extern struct resv_info *resv_pool_info;
 #endif /* BCMRESVFRAGPOOL */
 

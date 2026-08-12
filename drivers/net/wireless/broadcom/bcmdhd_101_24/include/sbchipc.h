@@ -1166,7 +1166,6 @@ typedef volatile struct {
 #define GCI_CC16_CB_CLOCK_SEL_80	1u
 #define GCI_CC16_CB_CLOCK_SEL_SHIFT	0u
 #define GCI_CC16_CB_CLOCK_SEL_MASK	(0x1u << GCI_CC16_CB_CLOCK_SEL_SHIFT)
-#define GCI_CHIPCTRL_16_PRISEL_ANT_MASK_PSM_OVR	(1 << 8)
 
 /* WL Channel Info to BT via GCI - bits 40 - 47 */
 #define GCI_WL_CHN_INFO_MASK	(0xFF00)
@@ -1183,7 +1182,7 @@ typedef volatile struct {
 /* Indicate to BT that WL is scheduling ACL based ble scan grant */
 #define GCI_WL2BT_ACL_BSD_BLE_SCAN_GRNT_MASK 0x8000000
 /* WLAN is awake Indicate to BT */
-#define GCI_WL2BT_2G_AWAKE_MASK	  (1u << 28u)
+#define GCI_WL2BT_2G_AWAKE_MASK	  (1u << 27u)
 
 /* WL inidcation of Aux Core 2G hibernate status - bit 50 */
 #define GCI_WL2BT_2G_HIB_STATE_MASK	(0x0040000u)
@@ -3037,7 +3036,6 @@ typedef volatile struct {
 #define CC4387_FNSEL_FUART		(3u)
 #define CC4387_FNSEL_DBG_UART		(6u)
 #define CC4387_FNSEL_SPI		(7u)
-#define CC4387_FNSEL_SFLASH		(8u)
 
 /* Indices of PMU voltage regulator registers */
 #define PMU_VREG_0	(0u)
@@ -3449,7 +3447,7 @@ typedef volatile struct {
 #define CST4378_CHIPMODE_BTOP(cs)	(((cs) & (1 << 6)) == 0)
 #define CST4378_SPROM_PRESENT		0x00000010
 
-#define CST_SFLASH_PRESENT		0x00000010U
+#define CST4387_SFLASH_PRESENT		0x00000010U
 
 #define CST4387_CHIPMODE_BTOU(cs)	(((cs) & (1 << 6)) != 0)
 #define CST4387_CHIPMODE_BTOP(cs)	(((cs) & (1 << 6)) == 0)
@@ -4108,11 +4106,6 @@ typedef volatile struct {
 #define PMU_4362_MACCORE_0_RES_REQ_MASK		(0x3FCBF7FFu)
 #define PMU_4362_MACCORE_1_RES_REQ_MASK		(0x7FFB3647u)
 
-/* 4381 related */
-#define CST4381_CHIPMODE_PCIE(cs)               (((cs) & (1 << 7)) != 0)        /* PCIE */
-#define CST4381_CHIPMODE_SDIO(cs)               (((cs) & (1 << 31)) != 0)       /* SDIO */
-#define CST4381_CHIPMODE_USB(cs)               (((cs) & (1 << 20)) != 0)        /* USB */
-
 #define PMU_MACCORE_0_RES_REQ_TIMER		0x1d000000
 #define PMU_MACCORE_0_RES_REQ_MASK		0x5FF2364F
 
@@ -4149,7 +4142,6 @@ typedef volatile struct {
 #define CR4_43752_RAM_BASE                   (0x170000)
 #define CR4_4376_RAM_BASE                    (0x352000)
 #define CR4_4378_RAM_BASE                    (0x352000)
-#define CR4_4381_RAM_BASE                    (0x740000)
 #define CR4_4387_RAM_BASE                    (0x740000)
 #define CR4_4385_RAM_BASE                    (0x740000)
 #define CA7_4388_RAM_BASE                    (0x200000)

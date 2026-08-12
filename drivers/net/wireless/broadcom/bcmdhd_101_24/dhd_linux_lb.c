@@ -207,24 +207,24 @@ void dhd_select_cpu_candidacy(dhd_info_t *dhd)
 		} else if (tx_cpu == 0) {
 			tx_cpu = cpumask_first(dhd->cpumask_secondary_new);
 		}
+
+		/* If no CPU was available for tx processing, choose CPU 0 */
+		if (tx_cpu >= nr_cpu_ids)
+			tx_cpu = 0;
 	}
 
 	if ((primary_available_cpus == 0) &&
 		(secondary_available_cpus == 0)) {
 		/* No CPUs available from primary or secondary mask */
-		tx_cpu = napi_cpu = nr_cpu_ids - 1;
+		napi_cpu = 1;
+		tx_cpu = 2;
 	}
 
-	/* If no CPU was available for napi processing, choose CPU 0 */
-	if (napi_cpu >= nr_cpu_ids)
-		napi_cpu = 0;
+	DHD_INFO(("%s After secondary CPU check napi_cpu %d tx_cpu %d\n",
+		__FUNCTION__, napi_cpu, tx_cpu));
 
-	/* If no CPU was available for tx processing, choose CPU 0 */
-	if (tx_cpu >= nr_cpu_ids)
-		tx_cpu = 0;
-
-	DHD_INFO(("%s After secondary CPU check napi_cpu %d tx_cpu %d nr cpu ids %d\n",
-		__FUNCTION__, napi_cpu, tx_cpu, nr_cpu_ids));
+	ASSERT(napi_cpu < nr_cpu_ids);
+	ASSERT(tx_cpu < nr_cpu_ids);
 
 	if (!cpu_online(napi_cpu)) {
 		napi_cpu = 0;
@@ -251,12 +251,6 @@ int dhd_cpu_startup_callback(unsigned int cpu)
 {
 	dhd_info_t *dhd = g_dhd_pub->info;
 
-	if (!dhd || !(dhd->dhd_state & DHD_ATTACH_STATE_LB_ATTACH_DONE)) {
-		DHD_ERROR(("%s(): LB data is not initialized yet.\n",
-			__FUNCTION__));
-		return 0;
-	}
-
 	DHD_INFO(("%s(): \r\n cpu:%d", __FUNCTION__, cpu));
 	DHD_LB_STATS_INCR(dhd->cpu_online_cnt[cpu]);
 	cpumask_set_cpu(cpu, dhd->cpumask_curr_avail);
@@ -268,12 +262,6 @@ int dhd_cpu_startup_callback(unsigned int cpu)
 int dhd_cpu_teardown_callback(unsigned int cpu)
 {
 	dhd_info_t *dhd = g_dhd_pub->info;
-
-	if (!dhd || !(dhd->dhd_state & DHD_ATTACH_STATE_LB_ATTACH_DONE)) {
-		DHD_ERROR(("%s(): LB data is not initialized yet.\n",
-			__FUNCTION__));
-		return 0;
-	}
 
 	DHD_INFO(("%s(): \r\n cpu:%d", __FUNCTION__, cpu));
 	DHD_LB_STATS_INCR(dhd->cpu_offline_cnt[cpu]);
@@ -673,7 +661,7 @@ void dhd_lb_stats_dump_cpu_array(struct bcmstrbuf *strbuf, uint32 *p)
 uint64 dhd_lb_mem_usage(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 {
 	dhd_info_t *dhd;
-	uint16 rxbufpost_alloc_sz;
+	uint16 rxbufpost_sz;
 	uint16 rx_post_active = 0;
 	uint16 rx_cmpl_active = 0;
 	uint64 rx_path_memory_usage = 0;
@@ -689,30 +677,28 @@ uint64 dhd_lb_mem_usage(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 		DHD_ERROR(("%s(): DHD pointer is NULL \n", __FUNCTION__));
 		return 0;
 	}
-	rxbufpost_alloc_sz = dhd_prot_get_rxbufpost_alloc_sz(dhdp);
-	if (rxbufpost_alloc_sz == 0) {
-		rxbufpost_alloc_sz = DHD_FLOWRING_RX_BUFPOST_PKTSZ;
+	rxbufpost_sz = dhd_prot_get_rxbufpost_sz(dhdp);
+	if (rxbufpost_sz == 0) {
+		rxbufpost_sz = DHD_FLOWRING_RX_BUFPOST_PKTSZ;
 	}
-	rx_path_memory_usage = rxbufpost_alloc_sz * (skb_queue_len(&dhd->rx_emerge_queue) +
-		skb_queue_len(&dhd->rx_pend_queue) +
+	rx_path_memory_usage = rxbufpost_sz * (skb_queue_len(&dhd->rx_pend_queue) +
 		skb_queue_len(&dhd->rx_napi_queue) +
 		skb_queue_len(&dhd->rx_process_queue));
 	rx_post_active = dhd_prot_get_h2d_rx_post_active(dhdp);
 	if (rx_post_active != 0) {
-		rx_path_memory_usage += (rxbufpost_alloc_sz * rx_post_active);
+		rx_path_memory_usage += (rxbufpost_sz * rx_post_active);
 	}
 
 	rx_cmpl_active = dhd_prot_get_d2h_rx_cpln_active(dhdp);
 	if (rx_cmpl_active != 0) {
-		rx_path_memory_usage += (rxbufpost_alloc_sz * rx_cmpl_active);
+		rx_path_memory_usage += (rxbufpost_sz * rx_cmpl_active);
 	}
 
 	dhdp->rxpath_mem = rx_path_memory_usage;
-	bcm_bprintf(strbuf, "\n rxbufpost_alloc_sz: %d rx_post_active: %d rx_cmpl_active: %d "
-		"emerge_queue_len: %d pend_queue_len: %d napi_queue_len: %d"
-		" process_queue_len: %d\n",
-		rxbufpost_alloc_sz, rx_post_active, rx_cmpl_active,
-		skb_queue_len(&dhd->rx_emerge_queue), skb_queue_len(&dhd->rx_pend_queue),
+	bcm_bprintf(strbuf, "\nrxbufpost_sz: %d rx_post_active: %d rx_cmpl_active: %d "
+		"pend_queue_len: %d napi_queue_len: %d process_queue_len: %d\n",
+		rxbufpost_sz, rx_post_active, rx_cmpl_active,
+		skb_queue_len(&dhd->rx_pend_queue),
 		skb_queue_len(&dhd->rx_napi_queue), skb_queue_len(&dhd->rx_process_queue));
 	bcm_bprintf(strbuf, "DHD rx-path memory_usage: %llubytes %lluKB \n",
 		rx_path_memory_usage, (rx_path_memory_usage/ 1024));
@@ -768,6 +754,20 @@ void dhd_lb_stats_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 	bcm_bprintf(strbuf, "\ntx_start_percpu_run_cnt:\n");
 	dhd_lb_stats_dump_cpu_array(strbuf, dhd->tx_start_percpu_run_cnt);
 #endif /* DHD_LB_TXP */
+}
+
+/* Given a number 'n' returns 'm' that is next larger power of 2 after n */
+static inline uint32 next_larger_power2(uint32 num)
+{
+	if (num) {
+		num--;
+		num |= (num >> 1);
+		num |= (num >> 2);
+		num |= (num >> 4);
+		num |= (num >> 8);
+		num |= (num >> 16);
+	}
+	return (num + 1);
 }
 
 void dhd_lb_stats_update_napi_latency(uint64 *bin, uint32 latency)
@@ -1104,11 +1104,6 @@ dhd_napi_schedule(void *info)
 	DHD_INFO(("%s rx_napi_struct<%p> on cpu<%d>\n",
 		__FUNCTION__, &dhd->rx_napi_struct, atomic_read(&dhd->rx_napi_cpu)));
 
-	/* On Android platform, napi prevention during suspend in progress causes
-	 * rx performance drop of ~5Mbs(SWWLAN-349763).
-	 * So, excludes this prevention for Android platform.
-	 */
-
 	/* add napi_struct to softnet data poll list and raise NET_RX_SOFTIRQ */
 	if (napi_schedule_prep(&dhd->rx_napi_struct)) {
 
@@ -1275,26 +1270,6 @@ dhd_lb_rx_napi_dispatch(dhd_pub_t *dhdp)
 	DHD_LB_STATS_INCR(dhd->napi_sched_cnt);
 
 	put_cpu();
-}
-
-/**
- * dhd_rx_emerge_enqueue - Enqueue the packet into the ememrgency queue for repost
- */
-void
-dhd_rx_emerge_enqueue(dhd_pub_t *dhdp, void *pkt)
-{
-	dhd_info_t *dhd = dhdp->info;
-	skb_queue_tail(&dhd->rx_emerge_queue, pkt);
-}
-
-/**
- * dhd_rx_emerge_dequeue - Deueue the packet from the emergency queue for repost
- */
-void *
-dhd_rx_emerge_dequeue(dhd_pub_t *dhdp)
-{
-	dhd_info_t *dhd = dhdp->info;
-	return skb_dequeue(&dhd->rx_emerge_queue);
 }
 
 /**

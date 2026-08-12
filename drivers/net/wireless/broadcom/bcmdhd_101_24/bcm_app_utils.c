@@ -40,7 +40,7 @@
 #endif /* BCMDRIVER */
 #include <bcmwifi_channels.h>
 
-#if defined(WIN32) && (defined(BCMDLL) || defined(WLMDLL) || defined(_CONSOLE))
+#if defined(WIN32) && (defined(BCMDLL) || defined(WLMDLL))
 #include <bcmstdlib.h>	/* For wlexe/Makefile.wlm_dll */
 #endif
 
@@ -109,7 +109,33 @@ cca_info(uint8 *bitmap, int num_bits, int *left, int *bit_pos)
 static uint8
 spec_to_chan(chanspec_t chspec)
 {
-	return wf_chspec_primary20_chan(chspec);
+	uint8 center_ch, edge, primary, sb;
+
+	center_ch = CHSPEC_CHANNEL(chspec);
+
+	if (CHSPEC_IS20(chspec)) {
+		return center_ch;
+	} else {
+		/* the lower edge of the wide channel is half the bw from
+		 * the center channel.
+		 */
+		if (CHSPEC_IS40(chspec)) {
+			edge = center_ch - CH_20MHZ_APART;
+		} else {
+			/* must be 80MHz (until we support more) */
+			ASSERT(CHSPEC_IS80(chspec));
+			edge = center_ch - CH_40MHZ_APART;
+		}
+
+		/* find the channel number of the lowest 20MHz primary channel */
+		primary = edge + CH_10MHZ_APART;
+
+		/* select the actual subband */
+		sb = (chspec & WL_CHANSPEC_CTL_SB_MASK) >> WL_CHANSPEC_CTL_SB_SHIFT;
+		primary = primary + sb * CH_20MHZ_APART;
+
+		return primary;
+	}
 }
 
 /*
@@ -135,7 +161,7 @@ cca_analyze(cca_congest_channel_req_t *input[], int num_chans, uint flags, chans
 		return BCME_NOMEM;
 	}
 
-	bzero(bitmap, bitmap_sz);
+	memset(bitmap, 0, bitmap_sz);
 	/* Initially, all channels are up for consideration */
 	for (i = 0; i < num_chans; i++) {
 		if (input[i]->chanspec)
@@ -1225,7 +1251,7 @@ wl_cntbuf_to_xtlv_format(void *ctx, void *cntbuf, int buflen, uint32 corerev)
 	xtlv_desc[2].len = 0;
 	xtlv_desc[2].ptr = NULL;
 
-	bzero(cntbuf, buflen);
+	memset(cntbuf, 0, buflen);
 
 	res = bcm_pack_xtlv_buf_from_mem(&xtlvbuf_p, &xtlvbuflen,
 		xtlv_desc, BCM_XTLV_OPTION_ALIGN32);

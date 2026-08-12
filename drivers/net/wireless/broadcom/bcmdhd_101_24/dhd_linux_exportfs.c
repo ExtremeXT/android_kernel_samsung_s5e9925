@@ -30,12 +30,9 @@
 #include <dhd.h>
 #include <dhd_dbg.h>
 #include <dhd_linux_priv.h>
-#if defined(WL_BAM)
+#if defined(DHD_ADPS_BAM_EXPORT) && defined(WL_BAM)
 #include <wl_bam.h>
-#endif	/* WL_BAM */
-#ifdef PWRSTATS_SYSFS
-#include <wldev_common.h>
-#endif /* PWRSTATS_SYSFS */
+#endif	/* DHD_ADPS_BAM_EXPORT && WL_BAM */
 #ifdef WL_CFG80211
 #include <wl_cfg80211.h>
 #endif /* WL_CFG80211 */
@@ -45,19 +42,11 @@ extern dhd_pub_t* g_dhd_pub;
 static int dhd_ring_proc_open(struct inode *inode, struct file *file);
 ssize_t dhd_ring_proc_read(struct file *file, char *buffer, size_t tt, loff_t *loff);
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 6, 0))
-static const struct file_operations dhd_ring_proc_ops = {
+static const struct file_operations dhd_ring_proc_fops = {
 	.open = dhd_ring_proc_open,
 	.read = dhd_ring_proc_read,
 	.release = single_release,
 };
-#else
-static const struct proc_ops dhd_ring_proc_ops = {
-	.proc_open = dhd_ring_proc_open,
-	.proc_read = dhd_ring_proc_read,
-	.proc_release = single_release,
-};
-#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 6, 0) */
 
 static int
 dhd_ring_proc_open(struct inode *inode, struct file *file)
@@ -120,11 +109,11 @@ dhd_dbg_ring_proc_create(dhd_pub_t *dhdp)
 
 	dbg_verbose_ring = dhd_dbg_get_ring_from_ring_id(dhdp, FW_VERBOSE_RING_ID);
 	if (dbg_verbose_ring) {
-		if (!proc_create_data("dhd_trace", S_IRUSR, NULL, &dhd_ring_proc_ops,
+		if (!proc_create_data("dhd_trace", S_IRUSR, NULL, &dhd_ring_proc_fops,
 			dbg_verbose_ring)) {
 			DHD_ERROR(("Failed to create /proc/dhd_trace procfs interface\n"));
 		} else {
-			DHD_INFO(("Created /proc/dhd_trace procfs interface\n"));
+			DHD_ERROR(("Created /proc/dhd_trace procfs interface\n"));
 		}
 	} else {
 		DHD_ERROR(("dbg_verbose_ring is NULL, /proc/dhd_trace not created\n"));
@@ -132,20 +121,20 @@ dhd_dbg_ring_proc_create(dhd_pub_t *dhdp)
 #endif /* DEBUGABILITY */
 
 #ifdef EWP_ECNTRS_LOGGING
-	if (!proc_create_data("dhd_ecounters", S_IRUSR, NULL, &dhd_ring_proc_ops,
+	if (!proc_create_data("dhd_ecounters", S_IRUSR, NULL, &dhd_ring_proc_fops,
 		dhdp->ecntr_dbg_ring)) {
 		DHD_ERROR(("Failed to create /proc/dhd_ecounters procfs interface\n"));
 	} else {
-		DHD_INFO(("Created /proc/dhd_ecounters procfs interface\n"));
+		DHD_ERROR(("Created /proc/dhd_ecounters procfs interface\n"));
 	}
 #endif /* EWP_ECNTRS_LOGGING */
 
 #ifdef EWP_RTT_LOGGING
-	if (!proc_create_data("dhd_rtt", S_IRUSR, NULL, &dhd_ring_proc_ops,
+	if (!proc_create_data("dhd_rtt", S_IRUSR, NULL, &dhd_ring_proc_fops,
 		dhdp->rtt_dbg_ring)) {
 		DHD_ERROR(("Failed to create /proc/dhd_rtt procfs interface\n"));
 	} else {
-		DHD_INFO(("Created /proc/dhd_rtt procfs interface\n"));
+		DHD_ERROR(("Created /proc/dhd_rtt procfs interface\n"));
 	}
 #endif /* EWP_RTT_LOGGING */
 }
@@ -214,9 +203,9 @@ wklock_trace_onoff(struct dhd_info *dev, const char *buf, size_t count)
 
 	atomic_set(&trace_wklock_onoff, onoff);
 	if (atomic_read(&trace_wklock_onoff)) {
-		DHD_ERROR(("ENABLE WAKLOCK TRACE\n"));
+		printk("ENABLE WAKLOCK TRACE\n");
 	} else {
-		DHD_ERROR(("DISABLE WAKELOCK TRACE\n"));
+		printk("DISABLE WAKELOCK TRACE\n");
 	}
 
 	return (ssize_t)(onoff+1);
@@ -441,371 +430,6 @@ store_nvram_path(struct dhd_info *dev, const char *buf, size_t count)
 	return count;
 }
 
-extern char signature_path[];
-
-static ssize_t
-show_signature_path(struct dhd_info *dev, char *buf)
-{
-	ssize_t ret = 0;
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%s\n", signature_path);
-
-	return ret;
-}
-
-static ssize_t
-store_signature_path(struct dhd_info *dev, const char *buf, size_t count)
-{
-	char fmt_spec[FMT_BUFSZ] = "";
-
-	if ((int)strlen(buf) >= MOD_PARAM_PATHLEN) {
-		return -EINVAL;
-	}
-
-	snprintf(fmt_spec, FMT_BUFSZ, "%%%ds", MOD_PARAM_PATHLEN - 1);
-	sscanf(buf, fmt_spec, signature_path);
-
-	return count;
-}
-
-#ifdef PWRSTATS_SYSFS
-typedef struct wl_pwrstats_sysfs {
-	uint64	current_ts;
-	uint64	pm_cnt;
-	uint64	pm_dur;
-	uint64	pm_last_entry_us;
-	uint64	awake_cnt;
-	uint64	awake_dur;
-	uint64	awake_last_entry_us;
-	uint64	l0_cnt;
-	uint64	l0_dur_us;
-	uint64	l1_cnt;
-	uint64	l1_dur_us;
-	uint64	l1_1_cnt;
-	uint64	l1_1_dur_us;
-	uint64	l1_2_cnt;
-	uint64	l1_2_dur_us;
-	uint64	l2_cnt;
-	uint64	l2_dur_us;
-} wl_pwrstats_sysfs_t;
-
-uint64 last_delta = 0;
-wl_pwrstats_sysfs_t accumstats = {0, };
-wl_pwrstats_sysfs_t laststats = {0, };
-static const char pwrstr_cnt[] = "count:";
-static const char pwrstr_dur[] = "duration_usec:";
-static const char pwrstr_ts[] = "last_entry_timestamp_usec:";
-
-ssize_t print_pwrstats_cum(char *buf)
-{
-	ssize_t ret = 0;
-
-	ret += scnprintf(buf, PAGE_SIZE, "WIFI\n");
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "AWAKE:\n");
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_cnt,
-		accumstats.awake_cnt);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_dur,
-		accumstats.awake_dur);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_ts,
-		laststats.awake_last_entry_us);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "ASLEEP:\n");
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_cnt,
-		accumstats.pm_cnt);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_dur,
-		accumstats.pm_dur);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_ts,
-		laststats.pm_last_entry_us);
-
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "\nWIFI-PCIE\n");
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "L0:\n");
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_cnt,
-		accumstats.l0_cnt);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_dur,
-		accumstats.l0_dur_us);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "L1:\n");
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_cnt,
-		accumstats.l1_cnt);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_dur,
-		accumstats.l1_dur_us);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "L1_1:\n");
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_cnt,
-		accumstats.l1_1_cnt);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_dur,
-		accumstats.l1_1_dur_us);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "L1_2:\n");
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_cnt,
-		accumstats.l1_2_cnt);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_dur,
-		accumstats.l1_2_dur_us);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "L2:\n");
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_cnt,
-		accumstats.l2_cnt);
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s 0x%0llx\n", pwrstr_dur,
-		accumstats.l2_dur_us);
-
-	return ret;
-}
-
-void update_pwrstats_cum(uint64 *accum, uint64 *last, uint64 *now, bool force)
-{
-	if (accum) { /* accumulation case, ex; counts, duration */
-		if (*now < *last) {
-			if (force) {
-				/* force update for pm_cnt/awake_cnt and PCIE stats */
-				*accum += *now;
-				*last = *now;
-			}
-		} else {
-			*accum += (*now - *last);
-			*last = *now;
-		}
-	} else if (*now != 0) { /* last entry timestamp case */
-		*last = *now + last_delta;
-	}
-}
-
-static const uint16 pwrstats_req_type[] = {
-	WL_PWRSTATS_TYPE_PCIE,
-	WL_PWRSTATS_TYPE_PM_ACCUMUL
-};
-#define PWRSTATS_REQ_TYPE_NUM	sizeof(pwrstats_req_type) / sizeof(uint16)
-#define PWRSTATS_IOV_BUF_LEN	OFFSETOF(wl_pwrstats_t, data) \
-	+ sizeof(uint32) * PWRSTATS_REQ_TYPE_NUM \
-	+ sizeof(wl_pwr_pcie_stats_t) \
-	+ sizeof(wl_pwr_pm_accum_stats_v1_t) \
-	+ (uint)strlen("pwrstats") + 1
-
-extern uint64 dhdpcie_get_last_suspend_time(dhd_pub_t *dhdp);
-
-static ssize_t
-show_pwrstats_path(struct dhd_info *dev, char *buf)
-{
-	int err = 0;
-	void *p_data = NULL;
-	ssize_t ret = 0;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-	struct net_device *ndev = dhd_linux_get_primary_netdev(&dhd->pub);
-	char *iovar_buf = NULL;
-	wl_pwrstats_query_t *p_query = NULL;
-	wl_pwrstats_sysfs_t pwrstats_sysfs = {0, };
-	wl_pwrstats_t *pwrstats;
-	uint len, taglen, i;
-	uint16 type;
-	uint64 ts_sec, ts_usec, time_delta;
-
-	ASSERT(g_dhd_pub);
-
-	/* Even if dongle is in D3 state,
-	 * ASLEEP duration should be updated with estimated value.
-	 */
-	if (!dhd_os_check_if_up(&dhd->pub)) {
-		if (dhd->pub.busstate == DHD_BUS_SUSPEND) {
-			static uint64 last_suspend_end_time = 0;
-			uint64 curr_time = 0, estimated_pm_dur = 0;
-
-			if (last_suspend_end_time <
-					dhdpcie_get_last_suspend_time(&dhd->pub)) {
-				last_suspend_end_time = dhdpcie_get_last_suspend_time(&dhd->pub);
-			}
-
-			curr_time = OSL_LOCALTIME_NS();
-			if (curr_time >= last_suspend_end_time) {
-				estimated_pm_dur =
-					(curr_time - last_suspend_end_time) / NSEC_PER_USEC;
-				estimated_pm_dur += laststats.pm_dur;
-
-				update_pwrstats_cum(&accumstats.pm_dur, &laststats.pm_dur,
-					&estimated_pm_dur, FALSE);
-				last_suspend_end_time = curr_time;
-			}
-		}
-		ret = print_pwrstats_cum(buf);
-		goto done; /* Not ready yet */
-	}
-
-	len = PWRSTATS_IOV_BUF_LEN;
-	iovar_buf = (char *)MALLOCZ(g_dhd_pub->osh, len);
-	if (iovar_buf == NULL) {
-		DHD_ERROR(("%s Fail to malloc buffer\n", __FUNCTION__));
-		goto done;
-	}
-
-	/* Alloc req buffer */
-	len = OFFSETOF(wl_pwrstats_query_t, type) +
-		PWRSTATS_REQ_TYPE_NUM * sizeof(uint16);
-	p_query = (wl_pwrstats_query_t *)MALLOCZ(g_dhd_pub->osh, len);
-	if (p_query == NULL) {
-		DHD_ERROR(("%s Fail to malloc buffer\n", __FUNCTION__));
-		goto done;
-	}
-
-	/* Build a list of types */
-	p_query->length = PWRSTATS_REQ_TYPE_NUM;
-	for (i = 0; i < PWRSTATS_REQ_TYPE_NUM; i++) {
-		p_query->type[i] = pwrstats_req_type[i];
-	}
-
-	/* Query with desired type list */
-	err = wldev_iovar_getbuf(ndev, "pwrstats", p_query, len,
-		iovar_buf, PWRSTATS_IOV_BUF_LEN, NULL);
-	if (err != BCME_OK) {
-		DHD_ERROR(("error (%d) - size = %zu\n", err, sizeof(wl_pwrstats_t)));
-		ret = print_pwrstats_cum(buf);
-		goto done;
-	}
-
-	/* Check version */
-	pwrstats = (wl_pwrstats_t *) iovar_buf;
-	if (dtoh16(pwrstats->version) != WL_PWRSTATS_VERSION) {
-		DHD_ERROR(("PWRSTATS Version mismatch\n"));
-		goto done;
-	}
-
-	/* Parse TLVs */
-	len = dtoh16(pwrstats->length) - WL_PWR_STATS_HDRLEN;
-	p_data = pwrstats->data;
-	do {
-		type = dtoh16(((uint16*)p_data)[0]);
-		taglen = dtoh16(((uint16*)p_data)[1]);
-
-		if ((taglen < BCM_XTLV_HDR_SIZE) || (taglen > len)) {
-			DHD_ERROR(("Bad len %d for tag %d, remaining len %d\n",
-					taglen, type, len));
-			goto done;
-		}
-
-		if (taglen & 0xF000) {
-			DHD_ERROR(("Resrved bits in len %d for tag %d, remaining len %d\n",
-					taglen, type, len));
-			goto done;
-		}
-
-		switch (type) {
-		case WL_PWRSTATS_TYPE_PCIE:
-		{
-			wl_pwr_pcie_stats_t *stats =
-				(wl_pwr_pcie_stats_t *)p_data;
-
-			if (taglen < sizeof(wl_pwr_pcie_stats_t)) {
-				DHD_ERROR(("Short len for %d: %d < %d\n",
-					type, taglen, (int)sizeof(wl_pwr_pcie_stats_t)));
-				goto done;
-			}
-
-			if (dtoh32(stats->pcie.l0_cnt) == 0) {
-				DHD_ERROR(("link stats are not supported for this pcie core\n"));
-			}
-
-			pwrstats_sysfs.l0_cnt = dtoh32(stats->pcie.l0_cnt);
-			pwrstats_sysfs.l0_dur_us = dtoh32(stats->pcie.l0_usecs);
-			pwrstats_sysfs.l1_cnt = dtoh32(stats->pcie.l1_cnt);
-			pwrstats_sysfs.l1_dur_us = dtoh32(stats->pcie.l1_usecs);
-			pwrstats_sysfs.l1_1_cnt = dtoh32(stats->pcie.l1_1_cnt);
-			pwrstats_sysfs.l1_1_dur_us = dtoh32(stats->pcie.l1_1_usecs);
-			pwrstats_sysfs.l1_2_cnt = dtoh32(stats->pcie.l1_2_cnt);
-			pwrstats_sysfs.l1_2_dur_us = dtoh32(stats->pcie.l1_2_usecs);
-			pwrstats_sysfs.l2_cnt = dtoh32(stats->pcie.l2_cnt);
-			pwrstats_sysfs.l2_dur_us = dtoh32(stats->pcie.l2_usecs);
-		}
-		break;
-
-		case WL_PWRSTATS_TYPE_PM_ACCUMUL:
-		{
-			wl_pwr_pm_accum_stats_v1_t *stats =
-				(wl_pwr_pm_accum_stats_v1_t *)p_data;
-
-			if (taglen < sizeof(wl_pwr_pm_accum_stats_v1_t)) {
-				DHD_ERROR(("Short len for %d: %d < %d\n", type,
-					taglen, (int)sizeof(wl_pwr_pm_accum_stats_v1_t)));
-				goto done;
-			}
-
-			pwrstats_sysfs.current_ts =
-				dtoh64(stats->accum_data.current_ts);
-			pwrstats_sysfs.pm_cnt =
-				dtoh64(stats->accum_data.pm_cnt);
-			pwrstats_sysfs.pm_dur =
-				dtoh64(stats->accum_data.pm_dur);
-			pwrstats_sysfs.pm_last_entry_us =
-				dtoh64(stats->accum_data.pm_last_entry_us);
-			pwrstats_sysfs.awake_cnt =
-				dtoh64(stats->accum_data.awake_cnt);
-			pwrstats_sysfs.awake_dur =
-				dtoh64(stats->accum_data.awake_dur);
-			pwrstats_sysfs.awake_last_entry_us =
-				dtoh64(stats->accum_data.awake_last_entry_us);
-		}
-		break;
-
-		default:
-			DHD_ERROR(("Skipping uknown %d-byte tag %d\n", taglen, type));
-			break;
-		}
-
-		/* Adjust length to account for padding, but don't exceed total len */
-		taglen = (ROUNDUP(taglen, 4) > len) ? len : ROUNDUP(taglen, 4);
-		len -= taglen;
-		*(uint8**)&p_data += taglen;
-	} while (len >= BCM_XTLV_HDR_SIZE);
-
-	/* [awake|pm]_last_entry_us are provided based on host timestamp.
-	 * These are calculated by dongle timestamp + (delta time of host & dongle)
-	 * If the newly calculated delta time is more than 1 second gap from
-	 * the existing delta time, it is updated to compensate more accurately.
-	 */
-	OSL_GET_LOCALTIME(&ts_sec, &ts_usec);
-	time_delta = ts_sec * USEC_PER_SEC + ts_usec - pwrstats_sysfs.current_ts;
-	if ((time_delta > last_delta) &&
-			((time_delta - last_delta) > USEC_PER_SEC)) {
-		last_delta = time_delta;
-	}
-
-	update_pwrstats_cum(&accumstats.awake_cnt, &laststats.awake_cnt,
-			&pwrstats_sysfs.awake_cnt, TRUE);
-	update_pwrstats_cum(&accumstats.awake_dur, &laststats.awake_dur,
-			&pwrstats_sysfs.awake_dur, FALSE);
-	update_pwrstats_cum(&accumstats.pm_cnt, &laststats.pm_cnt, &pwrstats_sysfs.pm_cnt,
-			TRUE);
-	update_pwrstats_cum(&accumstats.pm_dur, &laststats.pm_dur, &pwrstats_sysfs.pm_dur,
-			FALSE);
-	update_pwrstats_cum(NULL, &laststats.awake_last_entry_us,
-			&pwrstats_sysfs.awake_last_entry_us, FALSE);
-	update_pwrstats_cum(NULL, &laststats.pm_last_entry_us,
-			&pwrstats_sysfs.pm_last_entry_us, FALSE);
-
-	update_pwrstats_cum(&accumstats.l0_cnt, &laststats.l0_cnt, &pwrstats_sysfs.l0_cnt,
-			TRUE);
-	update_pwrstats_cum(&accumstats.l0_dur_us, &laststats.l0_dur_us,
-			&pwrstats_sysfs.l0_dur_us, TRUE);
-	update_pwrstats_cum(&accumstats.l1_cnt, &laststats.l1_cnt, &pwrstats_sysfs.l1_cnt,
-			TRUE);
-	update_pwrstats_cum(&accumstats.l1_dur_us, &laststats.l1_dur_us,
-			&pwrstats_sysfs.l1_dur_us, TRUE);
-	update_pwrstats_cum(&accumstats.l1_1_cnt, &laststats.l1_1_cnt,
-			&pwrstats_sysfs.l1_1_cnt, TRUE);
-	update_pwrstats_cum(&accumstats.l1_1_dur_us, &laststats.l1_1_dur_us,
-			&pwrstats_sysfs.l1_1_dur_us, TRUE);
-	update_pwrstats_cum(&accumstats.l1_2_cnt, &laststats.l1_2_cnt,
-			&pwrstats_sysfs.l1_2_cnt, TRUE);
-	update_pwrstats_cum(&accumstats.l1_2_dur_us, &laststats.l1_2_dur_us,
-			&pwrstats_sysfs.l1_2_dur_us, TRUE);
-	update_pwrstats_cum(&accumstats.l2_cnt, &laststats.l2_cnt, &pwrstats_sysfs.l2_cnt,
-			TRUE);
-	update_pwrstats_cum(&accumstats.l2_dur_us, &laststats.l2_dur_us,
-			&pwrstats_sysfs.l2_dur_us, TRUE);
-
-	ret = print_pwrstats_cum(buf);
-done:
-	if (p_query) {
-		MFREE(g_dhd_pub->osh, p_query, len);
-	}
-	if (iovar_buf) {
-		MFREE(g_dhd_pub->osh, iovar_buf, PWRSTATS_IOV_BUF_LEN);
-	}
-
-	return ret;
-}
-#endif /* PWRSTATS_SYSFS */
-
 /*
  * Generic Attribute Structure for DHD.
  * If we have to add a new sysfs entry under /sys/bcm-dhd/, we have
@@ -851,14 +475,6 @@ static struct dhd_attr dhd_attr_firmware_path =
 static struct dhd_attr dhd_attr_nvram_path =
 	__ATTR(nvram_path, 0660, show_nvram_path, store_nvram_path);
 
-static struct dhd_attr dhd_attr_sig_path =
-	__ATTR(signature_path, 0660, show_signature_path, store_signature_path);
-
-#ifdef PWRSTATS_SYSFS
-static struct dhd_attr dhd_attr_pwrstats_path =
-	__ATTR(power_stats, 0664, show_pwrstats_path, NULL);
-#endif /* PWRSTATS_SYSFS */
-
 #define to_dhd(k) container_of(k, struct dhd_info, dhd_kobj)
 #define to_attr(a) container_of(a, struct dhd_attr, attr)
 
@@ -902,13 +518,17 @@ static struct dhd_attr dhd_attr_macaddr =
  * New platforms can add their ifdefs accordingly below.
  */
 
-#ifdef CONFIG_X86
-#define MEMDUMPINFO_LIVE PLATFORM_PATH".memdump.info"
+#ifdef CUSTOMER_HW4_DEBUG
+#define MEMDUMPINFO PLATFORM_PATH".memdump.info"
+#elif defined(BOARD_HIKEY)
+#define MEMDUMPINFO PLATFORM_PATH".memdump.info"
+#elif defined(__ARM_ARCH_7A__)
+#define MEMDUMPINFO "/data/misc/wifi/.memdump.info"
+#else
+#define MEMDUMPINFO_LIVE "/installmedia/.memdump.info"
 #define MEMDUMPINFO_INST "/data/.memdump.info"
 #define MEMDUMPINFO MEMDUMPINFO_LIVE
-#else /* For non x86 platforms */
-#define MEMDUMPINFO PLATFORM_PATH".memdump.info"
-#endif /* CONFIG_X86 */
+#endif /* CUSTOMER_HW4_DEBUG */
 
 uint32
 get_mem_val_from_file(void)
@@ -1038,8 +658,13 @@ static struct dhd_attr dhd_attr_memdump =
  * XXX The filename to store assert type is defined for each platform.
  * New platforms can add their ifdefs accordingly below.
  */
+#ifdef CUSTOMER_HW4_DEBUG
 #define ASSERTINFO PLATFORM_PATH".assert.info"
-
+#elif defined(BOARD_HIKEY)
+#define ASSERTINFO "/data/misc/wifi/.assert.info"
+#else
+#define ASSERTINFO "/installmedia/.assert.info"
+#endif /* CUSTOMER_HW4_DEBUG */
 int
 get_assert_val_from_file(void)
 {
@@ -1198,21 +823,6 @@ set_cid_info(struct dhd_info *dev, const char *buf, size_t count)
 static struct dhd_attr dhd_attr_cidinfo =
 	__ATTR(cid, 0660, show_cid_info, set_cid_info);
 #endif /* USE_CID_CHECK || USE_DIRECT_VID_TAG */
-
-#if defined(CONFIG_WIFI_BROADCOM_COB) && defined(BCM4389_CHIP_DEF)
-int otpinfo_val = -1;
-
-static ssize_t
-show_otp_info(struct dhd_info *dev, char *buf)
-{
-	ssize_t ret = 0;
-	ret = snprintf(buf, PAGE_SIZE-1, "%d\n", otpinfo_val);
-	return ret;
-}
-
-static struct dhd_attr dhd_attr_otpinfo =
-	__ATTR(otp, 0660, show_otp_info, NULL);
-#endif /* CONFIG_WIFI_BROADCOM_COB && BCM4389_CHIP_DEF */
 
 #if defined(GEN_SOFTAP_INFO_FILE)
 char softapinfostr[SOFTAP_INFO_BUF_SZ];
@@ -1541,8 +1151,8 @@ set_proptx(struct dhd_info *dev, const char *buf, size_t count)
 	}
 
 	proptx = onoff;
-	DHD_ERROR(("[WIFI_SEC] %s: FRAMEBURST On/Off from sysfs = %u\n",
-		__FUNCTION__, txbf));
+	DHD_ERROR(("[WIFI_SEC] %s: proptx from sysfs = %u\n",
+		__FUNCTION__, proptx));
 	return count;
 }
 
@@ -1553,7 +1163,7 @@ static struct dhd_attr dhd_attr_proptx =
 #endif /* USE_WFA_CERT_CONF */
 #endif /* DHD_EXPORT_CNTL_FILE */
 
-#if defined(WL_BAM)
+#if defined(DHD_ADPS_BAM_EXPORT) && defined(WL_BAM)
 #define BAD_AP_MAC_ADDR_ELEMENT_NUM	6
 #define MACF_READ	"%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx"
 wl_bad_ap_mngr_t *g_bad_ap_mngr = NULL;
@@ -1632,7 +1242,7 @@ store_adps_bam_list(struct dhd_info *dev, const char *buf, size_t count)
 
 static struct dhd_attr dhd_attr_adps_bam =
 	__ATTR(bad_ap_list, 0660, show_adps_bam_list, store_adps_bam_list);
-#endif	/* WL_BAM */
+#endif	/* DHD_ADPS_BAM_EXPORT && WL_BAM */
 
 #ifdef DHD_SEND_HANG_PRIVCMD_ERRORS
 uint32 report_hang_privcmd_err = 1;
@@ -1730,95 +1340,6 @@ static struct dhd_attr dhd_attr_max_rx_pkt_pool=
 __ATTR(dhd_max_rx_pkt_pool, 0660, show_max_rx_pkt_pool, set_max_rx_pkt_pool);
 #endif /* RX_PKT_POOL */
 
-#ifdef PCIE_FULL_DONGLE
-static ssize_t
-dhd_set_aspm_enab(struct dhd_info *dhd, const char *buf, size_t count)
-{
-	unsigned long aspm_enab;
-	dhd_pub_t *dhdp = &dhd->pub;
-
-	aspm_enab = bcm_strtoul(buf, NULL, 10);
-
-	sscanf(buf, "%lu", &aspm_enab);
-	if (aspm_enab != 0 && aspm_enab != 1) {
-		return -EINVAL;
-	}
-#ifdef DHD_PCIE_RUNTIMEPM
-	dhdpcie_runtime_bus_wake(dhdp, TRUE, __builtin_return_address(0));
-#endif /* DHD_PCIE_RUNTIMEPM */
-	dhd_bus_aspm_enable_rc_ep(dhdp->bus, aspm_enab);
-
-	return count;
-}
-
-static ssize_t
-show_aspm_enab(struct dhd_info *dhd, char *buf)
-{
-	ssize_t ret = 0;
-	bool aspm_enab;
-	dhd_pub_t *dhdp = &dhd->pub;
-	if (!dhd) {
-		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
-		return ret;
-	}
-
-#ifdef DHD_PCIE_RUNTIMEPM
-	dhdpcie_runtime_bus_wake(dhdp, TRUE, __builtin_return_address(0));
-#endif /* DHD_PCIE_RUNTIMEPM */
-
-	aspm_enab = dhd_bus_is_aspm_enab_rc_ep(dhdp->bus);
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%d\n", aspm_enab);
-
-	return ret;
-}
-
-static struct dhd_attr dhd_attr_aspm_enab =
-__ATTR(aspm_enab, 0660, show_aspm_enab, dhd_set_aspm_enab);
-
-static ssize_t
-dhd_set_l1ss_enab(struct dhd_info *dhd, const char *buf, size_t count)
-{
-	unsigned long l1ss_enab;
-	dhd_pub_t *dhdp = &dhd->pub;
-
-	l1ss_enab = bcm_strtoul(buf, NULL, 10);
-
-	sscanf(buf, "%lu", &l1ss_enab);
-	if (l1ss_enab != 0 && l1ss_enab != 1) {
-		return -EINVAL;
-	}
-#ifdef DHD_PCIE_RUNTIMEPM
-	dhdpcie_runtime_bus_wake(dhdp, TRUE, __builtin_return_address(0));
-#endif /* DHD_PCIE_RUNTIMEPM */
-	dhd_bus_l1ss_enable_rc_ep(dhdp->bus, l1ss_enab);
-	return count;
-}
-
-static ssize_t
-show_l1ss_enab(struct dhd_info *dhd, char *buf)
-{
-	ssize_t ret = 0;
-	bool l1ss_enab;
-	dhd_pub_t *dhdp = &dhd->pub;
-	if (!dhd) {
-		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
-		return ret;
-	}
-
-#ifdef DHD_PCIE_RUNTIMEPM
-	dhdpcie_runtime_bus_wake(dhdp, TRUE, __builtin_return_address(0));
-#endif /* DHD_PCIE_RUNTIMEPM */
-
-	l1ss_enab = dhd_bus_is_l1ss_enab_rc_ep(dhdp->bus);
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%d\n", l1ss_enab);
-
-	return ret;
-}
-
-static struct dhd_attr dhd_attr_l1ss_enab =
-__ATTR(l1ss_enab, 0660, show_l1ss_enab, dhd_set_l1ss_enab);
-#endif /* PCIE_FULL_DONGLE */
-
 #if defined(CUSTOM_CONTROL_HE_ENAB)
 static ssize_t
 show_control_he_enab(struct dhd_info *dev, char *buf)
@@ -1880,111 +1401,6 @@ static struct dhd_attr dhd_attr_wl_accel_force_reg_on=
 __ATTR(wl_accel_force_reg_on, 0660, show_wl_accel_force_reg_on, set_wl_accel_force_reg_on);
 #endif /* WLAN_ACCEL_BOOT */
 
-#if defined(AGG_H2D_DB)
-extern bool agg_h2d_db_enab;
-extern uint32 agg_h2d_db_timeout;
-extern uint32 agg_h2d_db_inflight_thresh;
-
-static ssize_t
-show_agg_h2d_db_enab(struct dhd_info *dhd, char *buf)
-{
-	ssize_t ret = 0;
-	if (!dhd) {
-		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
-		return ret;
-	}
-
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%d\n", agg_h2d_db_enab);
-	return ret;
-}
-
-static ssize_t
-set_agg_h2d_db_enab(struct dhd_info *dhd, const char *buf, size_t count)
-{
-	uint32 val;
-
-	if (!dhd) {
-		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
-		return count;
-	}
-
-	val = bcm_atoi(buf);
-
-	agg_h2d_db_enab = val ? TRUE : FALSE;
-	DHD_ERROR(("%s: agg_h2d_db_timeout: %d\n", __FUNCTION__, agg_h2d_db_enab));
-	return count;
-}
-
-static struct dhd_attr dhd_attr_agg_h2d_db_enab =
-__ATTR(agg_h2d_db_enab, 0660, show_agg_h2d_db_enab, set_agg_h2d_db_enab);
-
-static ssize_t
-show_agg_h2d_db_inflight_thresh(struct dhd_info *dhd, char *buf)
-{
-	ssize_t ret = 0;
-	if (!dhd) {
-		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
-		return ret;
-	}
-
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%d\n", agg_h2d_db_inflight_thresh);
-	return ret;
-}
-
-static ssize_t
-set_agg_h2d_db_inflight_thresh(struct dhd_info *dhd, const char *buf, size_t count)
-{
-	uint32 val;
-
-	if (!dhd) {
-		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
-		return count;
-	}
-
-	val = bcm_atoi(buf);
-
-	agg_h2d_db_inflight_thresh = val;
-	DHD_ERROR(("%s: agg_h2d_db_timeout: %d\n", __FUNCTION__, agg_h2d_db_inflight_thresh));
-	return count;
-}
-
-static struct dhd_attr dhd_attr_agg_h2d_db_inflight_thresh =
-__ATTR(agg_h2d_db_inflight_thresh, 0660, show_agg_h2d_db_inflight_thresh,
-	set_agg_h2d_db_inflight_thresh);
-
-static ssize_t
-show_agg_h2d_db_timeout(struct dhd_info *dhd, char *buf)
-{
-	ssize_t ret = 0;
-	if (!dhd) {
-		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
-		return ret;
-	}
-
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%d\n", agg_h2d_db_timeout);
-	return ret;
-}
-
-static ssize_t
-set_agg_h2d_db_timeout(struct dhd_info *dhd, const char *buf, size_t count)
-{
-	uint32 val;
-
-	if (!dhd) {
-		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
-		return count;
-	}
-
-	val = bcm_atoi(buf);
-
-	agg_h2d_db_timeout = val;
-	DHD_ERROR(("%s: agg_h2d_db_timeout: %d\n", __FUNCTION__, agg_h2d_db_timeout));
-	return count;
-}
-
-static struct dhd_attr dhd_attr_agg_h2d_db_timeout =
-__ATTR(agg_h2d_db_timeout, 0660, show_agg_h2d_db_timeout, set_agg_h2d_db_timeout);
-#endif /* WLAN_ACCEL_BOOT */
 /*
  * Dumps the lock and other state information useful for debug
  *
@@ -2095,17 +1511,12 @@ set_wl_debug_level(struct dhd_info *dhd, const char *buf, size_t count)
 				for (i = 0; i < ARRAYSIZE(sublogname_map); i++) {
 					if (!strncmp(sublog, sublogname_map[i].sublogname,
 						strlen(sublogname_map[i].sublogname))) {
-						if (log_on) {
+						if (log_on)
 							wl_dbg_level |=
 							(sublogname_map[i].log_level);
-							wl_log_level |=
-							(sublogname_map[i].log_level);
-						} else {
+						else
 							wl_dbg_level &=
 							~(sublogname_map[i].log_level);
-							wl_log_level &=
-							~(sublogname_map[i].log_level);
-						}
 					}
 				}
 		} else
@@ -2120,9 +1531,8 @@ set_wl_debug_level(struct dhd_info *dhd, const char *buf, size_t count)
 
 static struct dhd_attr dhd_attr_wl_dbg_level =
 __ATTR(wl_dbg_level, 0660, show_wl_debug_level, set_wl_debug_level);
-#endif /* WL_CFG80211 */
 
-#if defined(DHD_FILE_DUMP_EVENT) && defined(DHD_FW_COREDUMP)
+#ifdef DHD_FILE_DUMP_EVENT
 #define DUMP_TRIGGER	1
 
 static ssize_t
@@ -2176,37 +1586,8 @@ exit:
 
 static struct dhd_attr dhd_attr_dump_in_progress =
 __ATTR(dump_in_progress, 0660, show_dhd_dump_in_progress, set_dhd_dump_in_progress);
-#endif /* DHD_FILE_DUMP_EVENT && DHD_FW_COREDUMP */
-
-#ifdef DHD_DUMP_START_COMMAND
-static ssize_t
-trigger_dhd_dump_start_command(struct dhd_info *dhd, char *buf)
-{
-	ssize_t ret = 0;
-	dhd_pub_t *dhdp;
-	unsigned long flags = 0;
-
-	dhdp = &dhd->pub;
-
-	DHD_ERROR(("%s: dump_start command delivered.\n", __FUNCTION__));
-	DHD_GENERAL_LOCK(dhdp, flags);
-	DHD_BUS_BUSY_SET_IN_DUMP_DONGLE_MEM(&dhd->pub);
-	DHD_GENERAL_UNLOCK(dhdp, flags);
-
-	dhd_log_dump_trigger(dhdp, CMD_DEFAULT);
-
-	DHD_GENERAL_LOCK(dhdp, flags);
-	DHD_BUS_BUSY_CLEAR_IN_DUMP_DONGLE_MEM(&dhd->pub);
-	dhd_os_busbusy_wake(dhdp);
-	DHD_GENERAL_UNLOCK(dhdp, flags);
-
-	ret = scnprintf(buf, PAGE_SIZE -1, "%u\n", 0);
-	return ret;
-}
-
-static struct dhd_attr dhd_attr_dump_start_command =
-	__ATTR(dump_start, 0664, trigger_dhd_dump_start_command, NULL);
-#endif /* DHD_DUMP_START_COMMAND */
+#endif /* DHD_FILE_DUMP_EVENT */
+#endif /* WL_CFG80211 */
 
 /* Attribute object that gets registered with "wifi" kobject tree */
 static struct attribute *default_file_attrs[] = {
@@ -2254,9 +1635,9 @@ static struct attribute *default_file_attrs[] = {
 #endif /* PROP_TXSTATUS */
 #endif /* USE_WFA_CERT_CONF */
 #endif /* DHD_EXPORT_CNTL_FILE */
-#if defined(WL_BAM)
+#if defined(DHD_ADPS_BAM_EXPORT) && defined(WL_BAM)
 	&dhd_attr_adps_bam.attr,
-#endif	/* WL_BAM */
+#endif	/* DHD_ADPS_BAM_EXPORT && WL_BAM */
 #ifdef DHD_SEND_HANG_PRIVCMD_ERRORS
 	&dhd_attr_hang_privcmd_err.attr,
 #endif /* DHD_SEND_HANG_PRIVCMD_ERRORS */
@@ -2283,35 +1664,16 @@ static struct attribute *default_file_attrs[] = {
 #if defined(WLAN_ACCEL_BOOT)
 	&dhd_attr_wl_accel_force_reg_on.attr,
 #endif /* WLAN_ACCEL_BOOT */
-#ifdef PWRSTATS_SYSFS
-	&dhd_attr_pwrstats_path.attr,
-#endif /* PWRSTATS_SYSFS */
 #if defined(WL_CFG80211)
 	&dhd_attr_wl_dbg_level.attr,
-#endif /* WL_CFG80211 */
-#if defined(DHD_FILE_DUMP_EVENT) && defined(DHD_FW_COREDUMP)
+#if defined(DHD_FILE_DUMP_EVENT)
 	&dhd_attr_dump_in_progress.attr,
-#endif /* DHD_FILE_DUMP_EVENT && DHD_FW_COREDUMP */
-#ifdef DHD_DUMP_START_COMMAND
-	&dhd_attr_dump_start_command.attr,
-#endif /* DHD_DUMP_START_COMMAND */
+#endif /* DHD_FILE_DUMP_EVENT */
+#endif /* WL_CFG80211 */
 	&dhd_attr_dhd_debug_data.attr,
-#if defined(AGG_H2D_DB)
-	&dhd_attr_agg_h2d_db_enab.attr,
-	&dhd_attr_agg_h2d_db_inflight_thresh.attr,
-	&dhd_attr_agg_h2d_db_timeout.attr,
-#endif /* AGG_H2D_DB */
 #if defined(RX_PKT_POOL)
 	&dhd_attr_max_rx_pkt_pool.attr,
 #endif /* RX_PKT_POOL */
-#ifdef PCIE_FULL_DONGLE
-	&dhd_attr_aspm_enab.attr,
-	&dhd_attr_l1ss_enab.attr,
-#endif /* PCIE_FULL_DONGLE */
-#if defined(CONFIG_WIFI_BROADCOM_COB) && defined(BCM4389_CHIP_DEF)
-	&dhd_attr_otpinfo.attr,
-#endif /* CONFIG_WIFI_BROADCOM_COB && BCM4389_CHIP_DEF */
-	&dhd_attr_sig_path.attr,
 	NULL
 };
 
@@ -2887,3 +2249,39 @@ void dhd_sysfs_exit(dhd_info_t *dhd)
 	/* Releae the kobject */
 	kobject_put(&dhd->dhd_kobj);
 }
+
+#ifdef DHD_SUPPORT_HDM
+static ssize_t
+hdm_load_module(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	int val = bcm_atoi(buf);
+
+	if (val == 1) {
+		DHD_ERROR(("%s : Load module from the hdm %d\n", __FUNCTION__, val));
+		dhd_module_init_hdm();
+	} else {
+		DHD_ERROR(("Module load triggered with invalid value : %d\n", val));
+	}
+
+	return count;
+}
+
+static struct kobj_attribute hdm_wlan_attr =
+	__ATTR(hdm_wlan_loader, 0660, NULL, hdm_load_module);
+
+void
+dhd_hdm_wlan_sysfs_init(void)
+{
+	DHD_ERROR(("export hdm_wlan_loader\n"));
+	if (sysfs_create_file(kernel_kobj, &hdm_wlan_attr.attr)) {
+		DHD_ERROR(("export hdm_load failed\n"));
+	}
+}
+
+void
+dhd_hdm_wlan_sysfs_deinit(struct work_struct *work)
+{
+	sysfs_remove_file(kernel_kobj,  &hdm_wlan_attr.attr);
+
+}
+#endif /* DHD_SUPPORT_HDM */

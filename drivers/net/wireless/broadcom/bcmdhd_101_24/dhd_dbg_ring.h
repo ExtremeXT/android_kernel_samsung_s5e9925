@@ -91,9 +91,7 @@ typedef struct dhd_dbg_ring {
 	bool pull_inactive;	/* pull contents from ring even if it is inactive */
 } dhd_dbg_ring_t;
 
-#define DBGRING_FLUSH_THRESHOLD(ring)		\
-	(ring->id != PACKET_LOG_RING_ID) ?		\
-	(ring->ring_size / 3u) : (ring->ring_size / 4u)
+#define DBGRING_FLUSH_THRESHOLD(ring)		(ring->ring_size / 3)
 #define RING_STAT_TO_STATUS(ring, status) \
 	do { \
 		/* status.name/ring->name are the same length so no need to check return value */ \
@@ -131,10 +129,6 @@ void dhd_dbg_ring_dealloc_deinit(void **dbgring, dhd_pub_t *dhd);
 int dhd_dbg_ring_init(dhd_pub_t *dhdp, dhd_dbg_ring_t *ring, uint16 id, uint8 *name,
 		uint32 ring_sz, void *allocd_buf, bool pull_inactive);
 void dhd_dbg_ring_deinit(dhd_pub_t *dhdp, dhd_dbg_ring_t *ring);
-int dhd_dbg_ring_set_buf(dhd_pub_t *dhdp, dhd_dbg_ring_t *ring, void *buf);
-#ifdef DHD_PKT_LOGGING_DBGRING
-int dhd_dbg_ring_update(void *dbg_ring, uint32 w_len);
-#endif /* DHD_PKT_LOGGING_DBGRING */
 int dhd_dbg_ring_push(dhd_dbg_ring_t *ring, dhd_dbg_ring_entry_t *hdr, void *data);
 int dhd_dbg_ring_pull(dhd_dbg_ring_t *ring, void *data, uint32 buf_len,
 		bool strip_hdr);

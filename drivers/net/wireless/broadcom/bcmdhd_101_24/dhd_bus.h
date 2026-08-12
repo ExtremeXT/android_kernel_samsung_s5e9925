@@ -67,7 +67,6 @@ extern int dhd_bus_txdata(struct dhd_bus *bus, void *txp);
 
 #ifdef BCMPCIE
 extern uint16 dhd_prot_get_rxbufpost_sz(dhd_pub_t *dhd);
-extern uint16 dhd_prot_get_rxbufpost_alloc_sz(dhd_pub_t *dhd);
 extern uint16 dhd_prot_get_h2d_rx_post_active(dhd_pub_t *dhd);
 extern uint16 dhd_prot_get_d2h_rx_cpln_active(dhd_pub_t *dhd);
 extern void dhdpcie_cto_recovery_handler(dhd_pub_t *dhd);
@@ -188,7 +187,6 @@ enum {
 	HOST_API_VERSION,
 	DNGL_TO_HOST_TRAP_ADDR,
 	HOST_SCB_ADDR,		/* update host scb base address to dongle */
-	HOST_CAP2,		/* Host capability 2 flags */
 };
 
 typedef void (*dhd_mb_ring_t) (struct dhd_bus *, uint32);
@@ -304,15 +302,10 @@ void dhdpcie_get_etd_preserve_logs(dhd_pub_t *dhd, uint8 *ext_trap_data,
 #endif
 
 extern uint16 dhd_get_chipid(struct dhd_bus *bus);
-extern uint16 dhd_get_chiprev(struct dhd_bus *bus);
 
 #ifdef DHD_WAKE_STATUS
 extern wake_counts_t* dhd_bus_get_wakecount(dhd_pub_t *dhd);
 extern int dhd_bus_get_bus_wake(dhd_pub_t * dhd);
-extern int dhd_bus_set_get_bus_wake(dhd_pub_t * dhd, int set);
-#if defined(BCMPCIE)
-extern int dhd_bus_set_get_bus_wake_pkt_dump(dhd_pub_t *dhd, int wake_pkt_dump);
-#endif /* BCMPCIE */
 #endif /* DHD_WAKE_STATUS */
 
 #ifdef BT_OVER_SDIO
@@ -331,9 +324,7 @@ int dhd_bus_perform_flr(struct dhd_bus *bus, bool force_fail);
 extern bool dhd_bus_get_flr_force_fail(struct dhd_bus *bus);
 
 extern bool dhd_bus_aspm_enable_rc_ep(struct dhd_bus *bus, bool enable);
-extern bool dhd_bus_is_aspm_enab_rc_ep(struct dhd_bus *bus);
 extern void dhd_bus_l1ss_enable_rc_ep(struct dhd_bus *bus, bool enable);
-extern bool dhd_bus_is_l1ss_enab_rc_ep(struct dhd_bus *bus);
 
 bool dhd_bus_is_multibp_capable(struct dhd_bus *bus);
 
@@ -341,7 +332,6 @@ bool dhd_bus_is_multibp_capable(struct dhd_bus *bus);
 extern void dhdpcie_advertise_bus_cleanup(dhd_pub_t  *dhdp);
 extern void dhd_msgbuf_iovar_timeout_dump(dhd_pub_t *dhd);
 extern void dhdpcie_induce_cbp_hang(dhd_pub_t *dhd);
-extern void dhdpcie_busbusy_wait(dhd_pub_t *dhdp);
 #endif /* BCMPCIE */
 
 extern bool dhd_bus_force_bt_quiesce_enabled(struct dhd_bus *bus);
@@ -376,11 +366,4 @@ extern int dhdpcie_get_max_eventbufpost(struct dhd_bus *bus);
 extern void dhd_bus_flow_ring_status_isr_trace(dhd_pub_t *dhd);
 extern void dhd_bus_flow_ring_status_dpc_trace(dhd_pub_t *dhd);
 #endif /* DHD_FLOW_RING_STATUS_TRACE */
-
-extern bool dhd_bus_init_done(struct dhd_bus *bus);
-
-extern void dhdpcie_db7_trap(struct dhd_bus *bus);
-
-void dhd_bus_set_signature_path(struct dhd_bus *bus, char *sig_path);
-
 #endif /* _dhd_bus_h_ */

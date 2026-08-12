@@ -165,9 +165,6 @@
 #define NAN_NMI_RAND_PVT_CMD_VENDOR		(1 << 31)
 #define NAN_NMI_RAND_CLUSTER_MERGE_ENAB		(1 << 30)
 #define NAN_NMI_RAND_AUTODAM_LWT_MODE_ENAB	(1 << 29)
-#define NAN_NMI_RAND_INTVL_MASK			~(NAN_NMI_RAND_PVT_CMD_VENDOR | \
-						NAN_NMI_RAND_CLUSTER_MERGE_ENAB | \
-						NAN_NMI_RAND_AUTODAM_LWT_MODE_ENAB)
 
 #ifdef WL_NAN_DEBUG
 #define NAN_MUTEX_LOCK() {WL_DBG(("Mutex Lock: Enter: %s\n", __FUNCTION__)); \
@@ -208,8 +205,6 @@
 #define	NAN_ATTR_OUI_CONFIG			(1<<27)
 #define	NAN_ATTR_SUB_SID_BEACON_CONFIG		(1<<28)
 #define NAN_ATTR_DISC_BEACON_INTERVAL		(1<<29)
-#define NAN_ATTR_INSTANT_MODE_CONFIG		(1<<30)
-
 #define NAN_IOVAR_NAME_SIZE	4u
 #define NAN_XTLV_ID_LEN_SIZE OFFSETOF(bcm_xtlv_t, data)
 #define NAN_RANGING_INDICATE_CONTINUOUS_MASK   0x01
@@ -222,7 +217,6 @@
 
 #define NAN_RNG_GEOFENCE_MAX_RETRY_CNT	3u
 
-#define NAN_MAX_CHANNEL_INFO_SUPPORTED	4u
 /*
 * Discovery Beacon Interval config,
 * Default value is 128 msec in 2G DW and 176 msec in 2G/5G DW.
@@ -311,17 +305,17 @@ typedef struct nan_ranging_inst {
 	bool role_concurrency_status;
 } nan_ranging_inst_t;
 
-#define DUMP_NAN_RTT_INST(inst) { WL_CONS_ONLY(("svc instance ID %d", (inst)->svc_inst_id)); \
-	WL_CONS_ONLY(("Range ID %d", (inst)->range_id)); \
-	WL_CONS_ONLY(("range_status %d", (inst)->range_status)); \
-	WL_CONS_ONLY(("Range Type %d", (inst)->range_type)); \
-	WL_CONS_ONLY(("Peer MAC "MACDBG"\n", MAC2STRDBG((inst)->peer_addr.octet))); \
+#define DUMP_NAN_RTT_INST(inst) { printf("svc instance ID %d", (inst)->svc_inst_id); \
+	printf("Range ID %d", (inst)->range_id); \
+	printf("range_status %d", (inst)->range_status); \
+	printf("Range Type %d", (inst)->range_type); \
+	printf("Peer MAC "MACDBG"\n", MAC2STRDBG((inst)->peer_addr.octet)); \
 	}
 
-#define DUMP_NAN_RTT_RPT(rpt) { WL_CONS_ONLY("Range ID %d", (rpt)->rng_id); \
-	WL_CONS_ONLY(("Distance in MM %d", (rpt)->dist_mm)); \
-	WL_CONS_ONLY(("range_indication %d", (rpt)->indication)); \
-	WL_CONS_ONLY(("Peer MAC "MACDBG"\n", MAC2STRDBG((rpt)->peer_m_addr.octet))); \
+#define DUMP_NAN_RTT_RPT(rpt) { printf("Range ID %d", (rpt)->rng_id); \
+	printf("Distance in MM %d", (rpt)->dist_mm); \
+	printf("range_indication %d", (rpt)->indication); \
+	printf("Peer MAC "MACDBG"\n", MAC2STRDBG((rpt)->peer_m_addr.octet)); \
 	}
 /*
  * Data request Initiator/Responder
@@ -389,17 +383,6 @@ typedef struct nan_mac_list {
 	uint32 num_mac_addr;
 	uint8 *list;
 } nan_mac_list_t;
-
-typedef struct nan_channel_info {
-	uint32 channel;
-	uint32 bandwidth;
-	uint32 nss;
-} nan_channel_info_t;
-
-typedef struct nan_ndl_sched_info {
-	uint32 num_channels;
-	nan_channel_info_t channel_info[NAN_MAX_CHANNEL_INFO_SUPPORTED];
-} nan_ndl_sched_info_t;
 
 typedef struct wl_nan_sid_beacon_tune {
 	uint8 sid_enable;	/* flag for sending service id in beacon */
@@ -538,8 +521,6 @@ typedef struct nan_config_cmd_data {
 	uint16 cluster_high;
 	wl_nan_disc_bcn_interval_t disc_bcn_interval;
 	uint32 dw_early_termination;
-	uint32 instant_mode_en;
-	uint32 instant_chan;
 } nan_config_cmd_data_t;
 
 typedef struct nan_event_hdr {
@@ -584,7 +565,6 @@ typedef struct nan_event_data {
 	uint32 range_measurement_cm;
 	uint32 ranging_ind;
 	uint8 rng_id;
-	nan_ndl_sched_info_t ndl_sched_info;
 } nan_event_data_t;
 
 /*
@@ -651,7 +631,6 @@ typedef struct nan_hal_capabilities {
 	uint32 max_sdea_service_specific_info_len;
 	uint32 max_subscribe_address;
 	uint32 ndpe_attr_supported;
-	bool is_instant_mode_supported;
 } nan_hal_capabilities_t;
 
 typedef struct _nan_hal_resp {
@@ -752,12 +731,7 @@ typedef struct wl_nancfg
 	uint8 max_ndi_supported;
 	wl_ndi_data_t *ndi;
 	bool ranging_enable;
-	struct delayed_work nan_nmi_rand; /* WQ for periodic nmi randomization */
-	uint32 nmi_rand_intvl; /* nmi randomization interval */
 } wl_nancfg_t;
-
-#define NAN_RTT_ENABLED(cfg) (wl_cfgnan_is_enabled(cfg) && \
-		(cfg->nancfg->ranging_enable == TRUE))
 
 bool wl_cfgnan_is_enabled(struct bcm_cfg80211 *cfg);
 int wl_cfgnan_check_nan_disable_pending(struct bcm_cfg80211 *cfg,
@@ -806,7 +780,6 @@ int wl_cfgnan_sec_info_handler(struct bcm_cfg80211 *cfg,
 /* ranging quest and response iovar handler */
 #endif /* WL_NAN_DISC_CACHE */
 bool wl_cfgnan_is_dp_active(struct net_device *ndev);
-bool wl_cfgnan_is_nan_active(struct net_device *ndev);
 bool wl_cfgnan_data_dp_exists_with_peer(struct bcm_cfg80211 *cfg,
 	struct ether_addr *peer_addr);
 s32 wl_cfgnan_delete_ndp(struct bcm_cfg80211 *cfg, struct net_device *nan_ndev);
@@ -845,8 +818,6 @@ bool wl_cfgnan_check_role_concurrency(struct bcm_cfg80211 *cfg,
 bool wl_cfgnan_update_geofence_target_idx(struct bcm_cfg80211 *cfg);
 bool wl_cfgnan_ranging_is_in_prog_for_peer(struct bcm_cfg80211 *cfg,
 	struct ether_addr *peer_addr);
-#else
-static INLINE bool wl_cfgnan_ranging_allowed(struct bcm_cfg80211 *cfg) { return FALSE; }
 #endif /* RTT_SUPPORT */
 
 typedef enum {
@@ -982,11 +953,7 @@ typedef enum {
 	NAN_ATTRIBUTE_NSS				= 225,
 	NAN_ATTRIBUTE_ENABLE_RANGING			= 226,
 	NAN_ATTRIBUTE_DW_EARLY_TERM			= 227,
-	NAN_ATTRIBUTE_CHANNEL_INFO			= 228,
-	NAN_ATTRIBUTE_NUM_CHANNELS			= 229,
-	NAN_ATTRIBUTE_INSTANT_MODE_ENABLE		= 230,
-	NAN_ATTRIBUTE_INSTANT_COMM_CHAN			= 231,
-	NAN_ATTRIBUTE_MAX				= 232
+	NAN_ATTRIBUTE_MAX				= 228
 } NAN_ATTRIBUTE;
 
 enum geofence_suspend_reason {

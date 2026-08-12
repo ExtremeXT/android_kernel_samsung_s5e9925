@@ -154,15 +154,9 @@ typedef struct {
 #define PCIE_SHARED2_TXPOST_EXT		0x00400000u	/* extended txpost work item support */
 
 #define PCIE_SHARED2_PTM		0x01000000u	/* PCIe PTM */
-#define PCIE_SHARED2_LLW2		0x02000000u	/* GCR based LLW2 */
-#define PCIE_SHARED2_RX_CMPL_PRIO_VALID	0x04000000u	/* Prio is valid in Rx Cmpl */
-#define PCIE_SHARED2_LPM_SUPPORT	0x08000000u	/* LPM mode support */
-#define PCIE_SHARED2_METADATA_RING	0x10000000u	/* Metadata Ring support */
 
 #define PCIE_SHARED2_D2H_D11_TX_STATUS	0x40000000
 #define PCIE_SHARED2_H2D_D11_TX_STATUS	0x80000000
-
-#define PCIE_SHARED3_CFG_TRAP_SUPPORT   0x00000001 /* special trap sig supported in config space */
 
 #define PCIE_SHARED_D2H_MAGIC		0xFEDCBA09
 #define PCIE_SHARED_H2D_MAGIC		0x12345678
@@ -205,10 +199,9 @@ typedef uint16			pcie_hwa_db_index_t;	/* 16 bit HWA index (IPC Rev 7) */
 #define BCMPCIE_D2H_RING_TYPE_AC_RX_COMPLETE		0x5
 #define BCMPCIE_D2H_RING_TYPE_BTLOG_CPL			0x6
 #define BCMPCIE_D2H_RING_TYPE_EDL                       0x7
-#define BCMPCIE_D2H_RING_TYPE_HPP_TX_CPL                0x8
-#define BCMPCIE_D2H_RING_TYPE_HPP_RX_CPL                0x9
-#define BCMPCIE_D2H_RING_TYPE_MESH_RX_CPL               0xA
-#define BCMPCIE_D2H_RING_TYPE_MDATA_CPL                 0xB
+#define BCMPCIE_D2H_RING_TYPE_HPP_TX_CPL		0x8
+#define BCMPCIE_D2H_RING_TYPE_HPP_RX_CPL		0x9
+#define BCMPCIE_D2H_RING_TYPE_MESH_RX_CPL		0xA
 
 /**
  * H2D and D2H, WR and RD index, are maintained in the following arrays:
@@ -339,19 +332,6 @@ typedef struct ring_info {
 } ring_info_t;
 
 /**
- * A structure to share information about aggregated work item between host and dongle
- */
-typedef struct {
-	uint8	flags;		/* dongle supported aggregated work items */
-	uint8	hostcap;	/* host supported aggregated work items */
-	uint8	txpost_max;	/* max aggregated work items in txpost, filled by host */
-	uint8	rxpost_max;	/* max aggregated work items in rxpost, filled by host */
-	uint8	txcpl_max;	/* max aggregated work items in txcpl, filled by dongle */
-	uint8	rxcpl_max;	/* max aggregated work items in rxcpl, filled by dongle */
-	uint16	resvd;		/* reserved */
-} pcie_aggr_sh_t;
-
-/**
  * A structure located in TCM that is shared between host and device, primarily used during
  * initialization.
  */
@@ -425,11 +405,6 @@ typedef struct {
 	/* Device advertises the txpost extended tag capabilities */
 	uint32		device_txpost_ext_tags_bitmask;
 
-	/* Pointer to ewp_info_t data structure [ipc v9] */
-	uint32		PHYS_ADDR_N(ewp_info_addr);
-
-	/* aggregated work item shared information [ipc v9] */
-	pcie_aggr_sh_t	aggr_sh_info;
 } pciedev_shared_t;
 
 /* Device F/W provides the following access function:
@@ -555,7 +530,6 @@ typedef struct {
 #define CHECK_NOWRITE_SPACE(r, w, d) \
 	(((uint32)(r) == (uint32)((w) + 1)) || (((r) == 0) && ((w) == ((d) - 1))))
 
-#ifndef PRIV_PCIE_RING_MACROS
 /* These should be moved into pciedev.h --- */
 #define WRT_PEND(x)	((x)->wr_pending)
 #define DNGL_RING_WPTR(msgbuf)		(*((msgbuf)->tcm_rs_w_ptr)) /**< advanced by producer */
@@ -575,9 +549,6 @@ typedef struct {
 #define	 HOST_RING_END(x)	((uint8 *)HOST_RING_BASE((x)) + \
 					((RING_MAX_ITEM((x))-1)*RING_LEN_ITEMS((x))))
 
-#define RING_MESH(x)	(((x)->txpost_ext_cap_flags) & PCIE_SHARED2_DEV_TXPOST_EXT_TAG_CAP_MESH)
-#endif /* PRIV_PCIE_RING_MACROS */
-
 /* Trap types copied in the pciedev_shared.trap_addr */
 #define	FW_INITIATED_TRAP_TYPE	(0x1 << 7)
 #define	HEALTHCHECK_NODS_TRAP_TYPE	(0x1 << 6)
@@ -587,9 +558,6 @@ typedef struct {
 #define PCIE_SHARED2_DEV_TXPOST_EXT_TAG_CAP_CSO		(1u << 1u) /* CSO */
 #define PCIE_SHARED2_DEV_TXPOST_EXT_TAG_CAP_MESH	(1u << 2u) /* MESH */
 
-/* Aggregated Work Item definitions */
-#define PCIE_AGGR_WI_TXPOST		(1u << 0u)
-#define PCIE_AGGR_WI_RXPOST		(1u << 1u)
-#define PCIE_AGGR_WI_TXCPL		(1u << 2u)
-#define PCIE_AGGR_WI_RXCPL		(1u << 3u)
+#define RING_MESH(x)	(((x)->txpost_ext_cap_flags) & PCIE_SHARED2_DEV_TXPOST_EXT_TAG_CAP_MESH)
+
 #endif	/* _bcmpcie_h_ */

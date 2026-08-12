@@ -66,10 +66,6 @@
 #ifdef CONFIG_WIFI_BROADCOM_COB
 #undef USE_CID_CHECK
 #define READ_MACADDR
-#ifdef CONFIG_BCMDHD_PCIE
-/* Added multiple chips definition for not to return error while FW DL */
-#define SUPPORT_MULTIPLE_CHIPS
-#endif /* CONFIG_BCMDHD_PCIE */
 #endif  /* CONFIG_WIFI_BROADCOM_COB */
 
 #if defined(CONFIG_MACH_UNIVERSAL7420) || defined(CONFIG_ARCH_MSM8994) || \
@@ -117,18 +113,18 @@
 
 #if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820) || \
 	defined(CONFIG_SOC_EXYNOS9830) || defined(CONFIG_SOC_EXYNOS2100) || \
-	defined(CONFIG_SOC_EXYNOS1000) || defined(CONFIG_SOC_S5E9925)
+	defined(CONFIG_SOC_EXYNOS1000)
 #define PCIE_IRQ_CPU_CORE 5
 #endif /* CONFIG_SOC_EXYNOS9810 || CONFIG_SOC_EXYNOS9820 || defined(CONFIG_SOC_EXYNOS9830 */
 
 #if defined(DHD_LB)
 #if defined(CONFIG_ARCH_SM8150) || defined(CONFIG_ARCH_KONA) || \
-	defined(CONFIG_ARCH_LAHAINA) || defined(CONFIG_ARCH_WAIPIO)
+	defined(CONFIG_ARCH_LAHAINA)
 #define DHD_LB_PRIMARY_CPUS     (0x70)
 #define DHD_LB_SECONDARY_CPUS   (0x0E)
 #elif defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820) || \
 	defined(CONFIG_SOC_EXYNOS9830) || defined(CONFIG_SOC_EXYNOS2100) || \
-	defined(CONFIG_SOC_EXYNOS1000) || defined(CONFIG_SOC_S5E9925)
+	defined(CONFIG_SOC_EXYNOS1000)
 #define DHD_LB_PRIMARY_CPUS     (0x70)
 #define DHD_LB_SECONDARY_CPUS   (0x0E)
 #elif defined(CONFIG_SOC_EXYNOS8890)
@@ -157,29 +153,66 @@
 #define ARGOS_DPC_TASKLET_CTL
 #endif /* !DHD_LB */
 
-#if defined(CONFIG_SOC_EXYNOS8895) || defined(CONFIG_SOC_EXYNOS9810) || \
-	defined(CONFIG_SOC_EXYNOS9820)
+#if defined(CONFIG_ARCH_MSM) || defined(CONFIG_SOC_EXYNOS8895) || \
+	defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 #if defined(CONFIG_BCMDHD_PCIE)
 #define BCMPCIE_DISABLE_ASYNC_SUSPEND
 #endif /* CONFIG_BCMDHD_PCIE */
-#endif /* under EXYNOS9830 platforms */
+#endif /* CONFIG_ARCH_MSM && under EXYNOS9830 platforms */
 /* PROJECTS END */
 
 /* REGION CODE START */
 
-/*
- * remove flags related to region
- * #define GAN_LITE_NAT_KEEPALIVE_FILTER : not used for EUR
- * #define SUPPORT_MULTIPLE_BOARD_REV_FROM_HW : temp used for 43454
- * #undef WRITE_MACADDR: only for Tizen(43013) or SLP
- * #undef USE_INITIAL_2G_SCAN : only for Tizen(43013) or SLP
- * #define DISABLE_HE_ENAB : Beyond P OS for JPN
- */
+#ifndef CONFIG_WLAN_REGION_CODE
+#define CONFIG_WLAN_REGION_CODE 100
+#endif /* CONFIG_WLAN_REGION_CODE */
+
+#if (CONFIG_WLAN_REGION_CODE >= 100) && (CONFIG_WLAN_REGION_CODE < 200) /* EUR */
+#if (CONFIG_WLAN_REGION_CODE == 101) /* EUR ORG */
+/* GAN LITE NAT KEEPALIVE FILTER */
+#define GAN_LITE_NAT_KEEPALIVE_FILTER
+#endif /* CONFIG_WLAN_REGION_CODE == 101 */
+#if (CONFIG_WLAN_REGION_CODE == 150) /* EUR FD(DualSIM) */
+#define SUPPORT_MULTIPLE_BOARD_REV_FROM_HW
+#endif /* CONFIG_WLAN_REGION_CODE == 150 */
+#endif /* CONFIG_WLAN_REGION_CODE >= 100 && CONFIG_WLAN_REGION_CODE < 200 */
+
 #if (CONFIG_WLAN_REGION_CODE >= 200) && (CONFIG_WLAN_REGION_CODE < 300) /* KOR */
+#undef USE_INITIAL_2G_SCAN
+#ifndef ROAM_ENABLE
+#define ROAM_ENABLE
+#endif /* ROAM_ENABLE */
+#ifndef ROAM_API
+#define ROAM_API
+#endif /* ROAM_API */
+#ifndef ROAM_CHANNEL_CACHE
+#define ROAM_CHANNEL_CACHE
+#endif /* ROAM_CHANNEL_CACHE */
+#ifndef OKC_SUPPORT
+#define OKC_SUPPORT
+#endif /* OKC_SUPPORT */
+
+#ifndef ROAM_AP_ENV_DETECTION
+#define ROAM_AP_ENV_DETECTION
+#endif /* ROAM_AP_ENV_DETECTION */
+
+#undef WRITE_MACADDR
 #ifndef READ_MACADDR
 #define READ_MACADDR
 #endif /* READ_MACADDR */
 #endif /* CONFIG_WLAN_REGION_CODE >= 200 && CONFIG_WLAN_REGION_CODE < 300 */
+
+#if (CONFIG_WLAN_REGION_CODE >= 300) && (CONFIG_WLAN_REGION_CODE < 400) /* CHN */
+#define BCMWAPI_WPI
+#define BCMWAPI_WAI
+#endif /* CONFIG_WLAN_REGION_CODE >= 300 && CONFIG_WLAN_REGION_CODE < 400 */
+
+#if (CONFIG_WLAN_REGION_CODE == 500) /* JP */
+#if defined(BCM4375_CHIP)
+#define DISABLE_HE_ENAB
+#endif /* BCM4375_CHIP */
+#endif /* CONFIG_WLAN_REGION_CODE == 500 */
+
 /* REGION CODE END */
 
 #if !defined(READ_MACADDR) && !defined(WRITE_MACADDR)

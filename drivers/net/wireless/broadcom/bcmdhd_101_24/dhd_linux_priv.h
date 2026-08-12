@@ -76,7 +76,6 @@ typedef struct dhd_info {
 	void *adapter;			/* adapter information, interrupt, fw path etc. */
 	char fw_path[PATH_MAX];		/* path to firmware image */
 	char nv_path[PATH_MAX];		/* path to nvram vars file */
-	char sig_path[PATH_MAX];	/* path to rtecdc.sig file */
 #ifdef DHD_UCODE_DOWNLOAD
 	char uc_path[PATH_MAX];	/* path to ucode image */
 #endif /* DHD_UCODE_DOWNLOAD */
@@ -235,11 +234,6 @@ typedef struct dhd_info {
 	struct work_struct    tx_dispatcher_work;
 	struct work_struct    rx_compl_dispatcher_work;
 
-	/* Emergency queue to hold pkts when flow control is enabled and
-	 * same pkts will be posted back to the dongle till flow control is disabled.
-	*/
-	struct sk_buff_head   rx_emerge_queue	____cacheline_aligned;
-
 	/* Number of times DPC Tasklet ran */
 	uint32	dhd_dpc_cnt;
 	/* Number of times NAPI processing got scheduled */
@@ -395,17 +389,24 @@ typedef struct dhd_info {
 	/* indicates mem_dump was scheduled as work queue or called directly */
 	bool scheduled_memdump;
 	struct work_struct dhd_hang_process_work;
-#ifdef WL_CFGVENDOR_SEND_ALERT_EVENT
-	struct work_struct dhd_alert_process_work;
-#endif /* WL_CFGVENDOR_SEND_ALERT_EVENT */
+#if !defined(PCIE_FULL_DONGLE) && defined(P2P_IF_STATE_EVENT_CTRL)
+	struct work_struct p2p_interface_event_ctrl_work;
+	bool p2p_if_event_close;
+	uint32 last_tx_time;
+#endif /* !PCIE_FULL_DONGLE & P2P_IF_STATE_EVENT_CTRL */
 #ifdef RX_PKT_POOL
 	pkt_pool_t rx_pkt_pool;
 	tsk_ctl_t rx_pktpool_thread;
-#endif
-#if defined(DHD_FILE_DUMP_EVENT) && defined(DHD_FW_COREDUMP)
+#endif /* RX_PKT_POOL */
+#ifdef DHD_PERIODIC_CNTRS
+	timer_list_compat_t dhd_periodic_cntrs_timer;
+	bool dhd_periodic_cntrs_tmr_valid;
+	tsk_ctl_t thr_periodic_cntrs_ctl;
+#endif /* DHD_PERIODIC_CNTRS */
+#ifdef DHD_FILE_DUMP_EVENT
 	osl_atomic_t dump_status;
 	struct work_struct dhd_dump_proc_work;
-#endif /* DHD_FILE_DUMP_EVENT && DHD_FW_COREDUMP */
+#endif /* DHD_FILE_DUMP_EVENT */
 } dhd_info_t;
 
 /** priv_link is the link between netdev and the dhdif and dhd_info structs. */
@@ -478,8 +479,6 @@ void dhd_rx_pktpool_deinit(dhd_info_t *dhd);
 void dhd_irq_set_affinity(dhd_pub_t *dhdp, const struct cpumask *cpumask);
 #endif /* SET_PCIE_IRQ_CPU_CORE ||  DHD_CONTROL_PCIE_CPUCORE_WIFI_TURNON */
 
-void dhd_flush_logtrace_process(dhd_info_t *dhd);
-
 #ifdef DHD_SSSR_DUMP
 extern uint sssr_enab;
 extern uint fis_enab;
@@ -491,12 +490,7 @@ extern uint fis_enab;
  * Added defines for these platforms
  * 4.19.81 -> 4.19.110, 4.14.78 -> 4.14.170
  */
-#if (defined(BOARD_HIKEY) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 96))) || \
-	(defined(CONFIG_ARCH_MSM) && (((LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 170)) && \
-	(LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))) || (LINUX_VERSION_CODE >= \
-	KERNEL_VERSION(4, 19, 110))))
 #define WAKELOCK_BACKPORT
-#endif /* WAKELOCK_BACKPORT */
 
 #ifdef CONFIG_HAS_WAKELOCK
 #if ((LINUX_VERSION_CODE  >= KERNEL_VERSION(5, 4, 0)) || defined(WAKELOCK_BACKPORT))

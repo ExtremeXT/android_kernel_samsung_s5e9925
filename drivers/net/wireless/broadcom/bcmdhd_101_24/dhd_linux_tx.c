@@ -113,6 +113,12 @@
 #include <linux/compat.h>
 #endif
 
+#if defined(CONFIG_ARCH_EXYNOS) && !defined(CONFIG_SOC_S5E5515)
+#ifndef SUPPORT_EXYNOS7420
+#include <linux/exynos-pci-ctrl.h>
+#endif /* SUPPORT_EXYNOS7420 */
+#endif /* defined(CONFIG_ARCH_EXYNOS) && !defined(CONFIG_SOC_S5E5515) */
+
 #ifdef DHD_L2_FILTER
 #include <bcmicmp.h>
 #include <bcm_l2_filter.h>
@@ -183,19 +189,10 @@ BCMFASTPATH(__dhd_sendpkt)(dhd_pub_t *dhdp, int ifidx, void *pktbuf)
 	dhd_info_t *dhd = (dhd_info_t *)(dhdp->info);
 	struct ether_header *eh = NULL;
 	uint8 pkt_flow_prio;
-	dhd_if_t *ifp;
-	unsigned long flags;
 
-	DHD_GENERAL_LOCK(dhdp, flags);
-	ifp = dhd_get_ifp(dhdp, ifidx);
-	if (!ifp || ifp->del_in_progress) {
-		DHD_ERROR(("%s: ifp:%p del_in_progress:%d\n",
-			__FUNCTION__, ifp, ifp ? ifp->del_in_progress : 0));
-		DHD_GENERAL_UNLOCK(dhdp, flags);
-		PKTCFREE(dhdp->osh, pktbuf, TRUE);
-		return -ENODEV;
-	}
-	DHD_GENERAL_UNLOCK(dhdp, flags);
+#if defined(DHD_L2_FILTER)
+	dhd_if_t *ifp = dhd_get_ifp(dhdp, ifidx);
+#endif
 
 	/* Reject if down */
 	if (!dhdp->up || (dhdp->busstate == DHD_BUS_DOWN)) {
@@ -291,12 +288,12 @@ BCMFASTPATH(__dhd_sendpkt)(dhd_pub_t *dhdp, int ifidx, void *pktbuf)
 		if (PKTPRIO(pktbuf) == 0)
 #endif /* !PKTPRIO_OVERRIDE */
 		{
-#if (defined(QOS_MAP_SET) || defined(WL_CUSTOM_MAPPING_OF_DSCP))
+#if defined(QOS_MAP_SET)
 			pktsetprio_qms(pktbuf, wl_get_up_table(dhdp, ifidx), FALSE);
 #else
 			/* For LLR, pkt prio will be changed to 7(NC) here */
 			pktsetprio(pktbuf, FALSE);
-#endif /* QOS_MAP_SET || WL_CUSTOM_MAPPING_OF_DSCP */
+#endif /* QOS_MAP_SET */
 		}
 #ifndef PKTPRIO_OVERRIDE
 		else {
@@ -462,11 +459,11 @@ exit:
 
 #ifdef DHD_MQ
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
-static uint16
+uint16
 BCMFASTPATH(dhd_select_queue)(struct net_device *net, struct sk_buff *skb,
        void *accel_priv, select_queue_fallback_t fallback)
 #else
-static uint16
+uint16
 BCMFASTPATH(dhd_select_queue)(struct net_device *net, struct sk_buff *skb)
 #endif /* LINUX_VERSION_CODE */
 {
@@ -617,14 +614,7 @@ BCMFASTPATH(dhd_start_xmit)(struct sk_buff *skb, struct net_device *net)
 		DHD_OS_WAKE_UNLOCK(&dhd->pub);
 		return NETDEV_TX_BUSY;
 	}
-#ifdef RPM_FAST_TRIGGER
-	/* Xmit is running reset RPM fast trigger */
-	if (dhd->pub.rpm_fast_trigger) {
-		DHD_ERROR(("%s: Reset RPM fast trigger\n", __FUNCTION__));
-		dhd->pub.rpm_fast_trigger = FALSE;
-	}
-	dhd->pub.last_tx_rx = jiffies;
-#endif /* RPM_FAST_TRIGGER */
+
 	DHD_GENERAL_UNLOCK(&dhd->pub, flags);
 
 	/* If tput test is in progress */
@@ -736,6 +726,10 @@ BCMFASTPATH(dhd_start_xmit)(struct sk_buff *skb, struct net_device *net)
 	}
 #endif /* DHDTCPACK_SUPPRESS */
 
+#if !defined(PCIE_FULL_DONGLE) && defined(P2P_IF_STATE_EVENT_CTRL)
+	dhd_throttle_p2p_interface_event(dhd, false);
+#endif /* !PCIE_FULL_DONGLE & P2P_IF_STATE_EVENT_CTRL */
+
 	/*
 	 * If Load Balance is enabled queue the packet
 	 * else send directly from here.
@@ -787,7 +781,7 @@ __dhd_txflowcontrol(dhd_pub_t *dhdp, struct net_device *net, bool state)
 
 	if (state == ON) {
 		if (!netif_queue_stopped(net)) {
-			DHD_TXFLOWCTL(("%s: Stop Netif Queue\n", __FUNCTION__));
+			DHD_ERROR(("%s: Stop Netif Queue\n", __FUNCTION__));
 			netif_stop_queue(net);
 		} else {
 			DHD_LOG_MEM(("%s: Netif Queue already stopped\n", __FUNCTION__));
@@ -796,7 +790,7 @@ __dhd_txflowcontrol(dhd_pub_t *dhdp, struct net_device *net, bool state)
 
 	if (state == OFF) {
 		if (netif_queue_stopped(net)) {
-			DHD_TXFLOWCTL(("%s: Start Netif Queue\n", __FUNCTION__));
+			DHD_ERROR(("%s: Start Netif Queue\n", __FUNCTION__));
 			netif_wake_queue(net);
 		} else {
 			DHD_LOG_MEM(("%s: Netif Queue already started\n", __FUNCTION__));
@@ -972,157 +966,3 @@ dhd_eap_txcomplete(dhd_pub_t *dhdp, void *txp, bool success, int ifidx)
 	}
 }
 #endif /* DHD_4WAYM4_FAIL_DISCONNECT */
-
-#ifdef DHD_PKT_LOGGING_DBGRING
-extern void dhd_os_dbg_urgent_pullreq(void *os_priv, int ring_id);
-#endif /* DHD_PKT_LOGGING_DBGRING */
-void
-dhd_handle_pktdata(dhd_pub_t *dhdp, int ifidx, void *pkt, uint8 *pktdata, uint32 pktid,
-	uint32 pktlen, uint16 *pktfate, uint8 *dhd_udr, uint8 *dhd_igmp,
-	bool tx, int pkt_wake, bool pkt_log)
-{
-	struct ether_header *eh;
-	uint16 ether_type;
-	uint32 pkthash;
-	uint8 pkt_type = PKT_TYPE_DATA;
-#ifdef DHD_PKT_LOGGING_DBGRING
-	bool verbose_logging = FALSE;
-	dhd_dbg_ring_t *ring;
-	ring = &dhdp->dbg->dbg_rings[PACKET_LOG_RING_ID];
-#endif /* DHD_PKT_LOGGING_DBGRING */
-
-	if (!pktdata || pktlen < ETHER_HDR_LEN) {
-		return;
-	}
-
-	eh = (struct ether_header *)pktdata;
-	ether_type = ntoh16(eh->ether_type);
-
-	/* Check packet type */
-	if (dhd_check_ip_prot(pktdata, ether_type)) {
-		if (dhd_check_dhcp(pktdata)) {
-			pkt_type = PKT_TYPE_DHCP;
-		} else if (dhd_check_icmp(pktdata)) {
-			pkt_type = PKT_TYPE_ICMP;
-		} else if (dhd_check_dns(pktdata)) {
-			pkt_type = PKT_TYPE_DNS;
-		}
-#ifdef IGMP_OFFLOAD_SUPPORT
-		else if (dhdp->igmpo_enable && dhd_check_igmp(pktdata)) {
-			pkt_type = PKT_TYPE_IGMP;
-		}
-#endif /* IGMP_OFFLOAD_SUPPORT */
-	}
-	else if (ether_type == ETHER_TYPE_IPV6) {
-		if (dhd_check_icmpv6(pktdata, pktlen)) {
-			pkt_type = PKT_TYPE_ICMPV6;
-		}
-	}
-	else if (dhd_check_arp(pktdata, ether_type)) {
-		pkt_type = PKT_TYPE_ARP;
-	}
-	else if (ether_type == ETHER_TYPE_802_1X) {
-		pkt_type = PKT_TYPE_EAP;
-	}
-#ifdef DHD_PKT_LOGGING_DBGRING
-	do {
-		if (!OSL_ATOMIC_READ(dhdp->osh, &dhdp->pktlog->enable)) {
-			struct dhd_pktlog_ring *pktlog_ring;
-
-			pktlog_ring = dhdp->pktlog->pktlog_ring;
-			if (pktlog_ring->pktcount <= DHD_PACKET_LOG_RING_RESUME_THRESHOLD) {
-				dhd_pktlog_resume(dhdp);
-			} else {
-				/* If pktlog disabled(suspeneded), only allowed TXS update */
-				if (tx && pktfate) {
-					DHD_PKTLOG_TXS(dhdp, pkt, pktdata, pktid, *pktfate);
-					pkthash = __dhd_dbg_pkt_hash((uintptr_t)pkt, pktid);
-				}
-				dhd_os_dbg_urgent_pullreq(dhdp->dbg->private,
-					PACKET_LOG_RING_ID);
-				break;
-			}
-		}
-
-		/* Allow logging for all packets without pktlog filter */
-		if (ring->log_level == RING_LOG_LEVEL_EXCESSIVE) {
-			verbose_logging = TRUE;
-			pkt_log = TRUE;
-		/* Not allow logging for any packets */
-		} else if (ring->log_level == RING_LOG_LEVEL_NONE) {
-			verbose_logging = FALSE;
-			pkt_log = FALSE;
-		}
-#endif /* DHD_PKT_LOGGING_DBGRING */
-#ifdef DHD_SBN
-		/* Set UDR based on packet type */
-		if (dhd_udr && (pkt_type == PKT_TYPE_DHCP ||
-			pkt_type == PKT_TYPE_DNS ||
-			pkt_type == PKT_TYPE_ARP)) {
-			*dhd_udr = TRUE;
-		}
-#endif /* DHD_SBN */
-
-#ifdef IGMP_OFFLOAD_SUPPORT
-		if (dhd_igmp && (pkt_type == PKT_TYPE_IGMP)) {
-			*dhd_igmp = TRUE;
-		}
-#endif /* IGMP_OFFLOAD_SUPPORT */
-
-#ifdef DHD_PKT_LOGGING
-#ifdef DHD_SKIP_PKTLOGGING_FOR_DATA_PKTS
-		if (pkt_type != PKT_TYPE_DATA)
-#else
-#ifdef DHD_PKT_LOGGING_DBGRING
-		if ((verbose_logging == TRUE) || (pkt_type != PKT_TYPE_DATA))
-#endif /* DHD_PKT_LOGGING_DBGRING */
-#endif /* DHD_PKT_LOGGING */
-		{
-			if (pkt_log) {
-				if (tx) {
-					if (pktfate) {
-						/* Tx status */
-						DHD_PKTLOG_TXS(dhdp, pkt, pktdata, pktid, *pktfate);
-					} else {
-						/* Tx packet */
-						DHD_PKTLOG_TX(dhdp, pkt, pktdata, pktid);
-					}
-					pkthash = __dhd_dbg_pkt_hash((uintptr_t)pkt, pktid);
-				} else {
-					struct sk_buff *skb = (struct sk_buff *)pkt;
-					if (pkt_wake) {
-						DHD_PKTLOG_WAKERX(dhdp, skb, pktdata);
-					} else {
-						DHD_PKTLOG_RX(dhdp, skb, pktdata);
-					}
-				}
-			}
-		}
-#endif /* DHD_PKT_LOGGING */
-#ifdef DHD_PKT_LOGGING_DBGRING
-	} while (FALSE);
-#endif /* DHD_PKT_LOGGING_DBGRING */
-
-	/* Dump packet data */
-	switch (pkt_type) {
-		case PKT_TYPE_DHCP:
-			dhd_dhcp_dump(dhdp, ifidx, pktdata, tx, &pkthash, pktfate);
-			dhd_send_supp_dhcp(dhdp, ifidx, pktdata, tx, pktfate);
-			break;
-		case PKT_TYPE_ICMP:
-			dhd_icmp_dump(dhdp, ifidx, pktdata, tx, &pkthash, pktfate);
-			break;
-		case PKT_TYPE_DNS:
-			dhd_dns_dump(dhdp, ifidx, pktdata, tx, &pkthash, pktfate);
-			break;
-		case PKT_TYPE_ARP:
-			dhd_arp_dump(dhdp, ifidx, pktdata, tx, &pkthash, pktfate);
-			break;
-		case PKT_TYPE_EAP:
-			dhd_dump_eapol_message(dhdp, ifidx, pktdata, pktlen, tx, &pkthash, pktfate);
-			dhd_send_supp_eap(dhdp, ifidx, pktdata, pktlen, tx, pktfate);
-			break;
-		default:
-			break;
-	}
-}

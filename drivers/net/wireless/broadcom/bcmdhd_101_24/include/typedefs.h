@@ -72,10 +72,6 @@ typedef unsigned long long int uintptr;
 #endif
 #endif /* TYPEDEF_UINTPTR */
 
-#if defined(COEX_CPU_BUILD)
-#define _NEED_SIZE_T_
-#endif
-
 /* float_t types conflict with the same typedefs from the standard ANSI-C
 ** math.h header file. Don't re-typedef them here.
 */
@@ -120,13 +116,13 @@ typedef long unsigned int size_t;
 #endif	/* __KERNEL__ */
 #endif
 
-#if !defined(__linux__) && !defined(__DJGPP__) && !defined(COEX_CPU_BUILD)
+#if !defined(__linux__) && !defined(__DJGPP__)
 #define TYPEDEF_UINT
 #define TYPEDEF_USHORT
 #endif
 
 /* Do not support the (u)int64 types with strict ansi for GNU C */
-#if defined(__GNUC__) && defined(__STRICT_ANSI__) && (__STDC_VERSION__ < 199901L)
+#if defined(__GNUC__) && defined(__STRICT_ANSI__)
 #define TYPEDEF_INT64
 #define TYPEDEF_UINT64
 #endif /* defined(__GNUC__) && defined(__STRICT_ANSI__) */
@@ -138,13 +134,13 @@ typedef long unsigned int size_t;
 
 #define TYPEDEF_INT64
 
-#if defined(__STDC__) && (__STDC_VERSION__ < 199901L)
+#if defined(__STDC__)
 #define TYPEDEF_UINT64
 #endif
 
 #endif /* __ICL */
 
-#if !defined(COEX_CPU_BUILD) && !defined(__DJGPP__)
+#if !defined(__DJGPP__)
 
 /* pick up ushort & uint from standard types.h */
 #if defined(__linux__) && defined(__KERNEL__)
@@ -309,13 +305,6 @@ typedef float64 float_t;
 #endif
 #endif /* INLINE */
 
-/* Force inlining. */
-#if defined(BWL_COMPILER_GNU)
-#define INLINE_ALWAYS	inline  __attribute__ ((always_inline))
-#else
-#define INLINE_ALWAYS	INLINE
-#endif
-
 #undef TYPEDEF_BOOL
 #undef TYPEDEF_UCHAR
 #undef TYPEDEF_USHORT
@@ -369,7 +358,6 @@ typedef UINTN         uintptr;
 #define UNUSED_PARAMETER(x) (void)(x)
 #define DISCARD_QUAL(ptr, type) ((type *)(uintptr)(ptr))
 #define INLINE
-#define INLINE_ALWAYS	INLINE
 #define	AUTO	(-1) /* Auto = -1 */
 #define	ON	1  /* ON = 1 */
 #define	OFF	0

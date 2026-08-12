@@ -80,9 +80,6 @@
 #ifdef RTT_SUPPORT
 #include "dhd_rtt.h"
 #endif /* RTT_SUPPORT */
-#ifdef WL_CELLULAR_CHAN_AVOID
-#include <wl_cfg_cellavoid.h>
-#endif /* WL_CELLULAR_CHAN_AVOID */
 
 #define ACTIVE_SCAN 1
 #define PASSIVE_SCAN 0
@@ -132,6 +129,14 @@ static s32 wl_notify_escan_complete(struct bcm_cfg80211 *cfg,
 	struct net_device *ndev, bool aborted);
 static void wl_cfgscan_scan_abort(struct bcm_cfg80211 *cfg);
 static void _wl_cfgscan_cancel_scan(struct bcm_cfg80211 *cfg);
+
+#ifdef ESCAN_CHANNEL_CACHE
+void reset_roam_cache(struct bcm_cfg80211 *cfg);
+void add_roam_cache(struct bcm_cfg80211 *cfg, wl_bss_info_t *bi);
+int get_roam_channel_list(struct bcm_cfg80211 *cfg, chanspec_t target_chan, chanspec_t *channels,
+	int n_channels, const wlc_ssid_t *ssid, int ioctl_ver);
+void set_roam_band(int band);
+#endif /* ESCAN_CHANNEL_CACHE */
 
 #ifdef WL_SCHED_SCAN
 void wl_cfg80211_stop_pno(struct bcm_cfg80211 *cfg, struct net_device *dev);
@@ -398,13 +403,13 @@ s32 wl_inform_single_bss(struct bcm_cfg80211 *cfg, wl_bss_info_t *bi, bool updat
 	signal = notif_bss_info->rssi * 100;
 	if (!mgmt->u.probe_resp.timestamp) {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39))
-		struct timespec64 ts;
-		ts = ktime_to_timespec64(ktime_get_boottime());
-		mgmt->u.probe_resp.timestamp = ((u64)ts.tv_sec*USEC_PER_SEC)
-				+ (ts.tv_nsec / NSEC_PER_USEC);
+		struct timespec ts;
+		get_monotonic_boottime(&ts);
+		mgmt->u.probe_resp.timestamp = ((u64)ts.tv_sec*1000000)
+				+ ts.tv_nsec / 1000;
 #else
 		struct timeval tv;
-		ktime_get_real_ts64(&tv);
+		do_gettimeofday(&tv);
 		mgmt->u.probe_resp.timestamp = ((u64)tv.tv_sec*1000000)
 				+ tv.tv_usec;
 #endif
@@ -568,6 +573,7 @@ wl_cfg80211_add_iw_ie(struct bcm_cfg80211 *cfg, struct net_device *ndev, s32 bss
 
 	buf_len = sizeof(ie_setbuf_t) + data_len - 1;
 
+	(void)memset_s(&ie_getbufp, sizeof(ie_getbufp), 0, sizeof(ie_getbufp));
 	ie_getbufp.id = DOT11_MNG_INTERWORKING_ID;
 	if (wldev_iovar_getbuf_bsscfg(ndev, "ie", (void *)&ie_getbufp,
 			sizeof(ie_getbufp), getbuf, WLC_IOCTL_SMLEN, bssidx, &cfg->ioctl_buf_sync)
@@ -626,7 +632,7 @@ wl_bcnrecv_result_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	s32 err = BCME_OK;
 	struct wiphy *wiphy = NULL;
 	wl_bcnrecv_result_t *bcn_recv = NULL;
-	struct timespec64 ts;
+	struct timespec ts;
 	if (!bi) {
 		WL_ERR(("%s: bi is NULL\n", __func__));
 		err = BCME_NORESOURCE;
@@ -659,9 +665,9 @@ wl_bcnrecv_result_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 		bcn_recv->beacon_interval = bi->beacon_period;
 
 		/* kernal timestamp */
-		ts = ktime_to_timespec64(ktime_get_boottime());
-		bcn_recv->system_time = ((u64)ts.tv_sec*USEC_PER_SEC)
-				+ ts.tv_nsec / NSEC_PER_USEC;
+		get_monotonic_boottime(&ts);
+		bcn_recv->system_time = ((u64)ts.tv_sec*1000000)
+				+ ts.tv_nsec / 1000;
 		bcn_recv->timestamp[0] = bi->timestamp[0];
 		bcn_recv->timestamp[1] = bi->timestamp[1];
 		if ((err = wl_android_bcnrecv_event(cfgdev_to_wlc_ndev(cfgdev, cfg),
@@ -683,21 +689,13 @@ exit:
 
 #ifdef ESCAN_BUF_OVERFLOW_MGMT
 #ifndef WL_DRV_AVOID_SCANCACHE
-#ifdef WL_6G_BAND
-#define WL_6G_CMP	30	/* (dBm) 6G Band RSSI compensation */
-#define BSSRSSI(b)	\
-	(CHSPEC_IS6G((b)->chanspec) ? (((b)->RSSI) + (WL_6G_CMP)) : ((b)->RSSI))
-#else
-#define BSSRSSI(b)	((b)->RSSI)
-#endif /* WL_6G_BAND */
-
 static void
 wl_cfg80211_find_removal_candidate(wl_bss_info_t *bss, removal_element_t *candidate)
 {
 	int idx;
 	for (idx = 0; idx < BUF_OVERFLOW_MGMT_COUNT; idx++) {
 		int len = BUF_OVERFLOW_MGMT_COUNT - idx - 1;
-		if (BSSRSSI(bss) < candidate[idx].RSSI) {
+		if (bss->RSSI < candidate[idx].RSSI) {
 			if (len) {
 				/* In the below memcpy operation the candidate array always has the
 				* buffer space available to max 'len' calculated in the for loop.
@@ -706,7 +704,7 @@ wl_cfg80211_find_removal_candidate(wl_bss_info_t *bss, removal_element_t *candid
 					(sizeof(removal_element_t) * len),
 					&candidate[idx], sizeof(removal_element_t) * len);
 			}
-			candidate[idx].RSSI = BSSRSSI(bss);
+			candidate[idx].RSSI = bss->RSSI;
 			candidate[idx].length = bss->length;
 			(void)memcpy_s(&candidate[idx].BSSID, ETHER_ADDR_LEN,
 				&bss->BSSID, ETHER_ADDR_LEN);
@@ -724,7 +722,7 @@ wl_cfg80211_remove_lowRSSI_info(wl_scan_results_t *list, removal_element_t *cand
 	for (idx1 = 0; idx1 < BUF_OVERFLOW_MGMT_COUNT; idx1++) {
 		int cur_len = WL_SCAN_RESULTS_FIXED_SIZE;
 		wl_bss_info_t *bss = NULL;
-		if (candidate[idx1].RSSI >= BSSRSSI(bi))
+		if (candidate[idx1].RSSI >= bi->RSSI)
 			continue;
 		for (idx2 = 0; idx2 < list->count; idx2++) {
 			bss = bss ? (wl_bss_info_t *)((uintptr)bss + dtoh32(bss->length)) :
@@ -733,7 +731,7 @@ wl_cfg80211_remove_lowRSSI_info(wl_scan_results_t *list, removal_element_t *cand
 				continue;
 			}
 			if (!bcmp(&candidate[idx1].BSSID, &bss->BSSID, ETHER_ADDR_LEN) &&
-				candidate[idx1].RSSI == BSSRSSI(bss) &&
+				candidate[idx1].RSSI == bss->RSSI &&
 				candidate[idx1].length == dtoh32(bss->length)) {
 				u32 delete_len = dtoh32(bss->length);
 				WL_DBG(("delete scan info of " MACDBG " to add new AP\n",
@@ -1131,12 +1129,6 @@ wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 		} else if ((likely(cfg->scan_request)) || (cfg->sched_scan_running)) {
 			WL_INFORM_MEM(("ESCAN ABORTED\n"));
 
-			if (cfg->escan_info.ndev != ndev) {
-				/* Ignore events coming for older scan reqs */
-				WL_INFORM_MEM(("abort event doesn't match on going scan req\n"));
-				err = BCME_ERROR;
-				goto exit;
-			}
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
 			if (p2p_scan(cfg) && cfg->scan_request &&
 				(cfg->scan_request->flags & NL80211_SCAN_FLAG_FLUSH)) {
@@ -1213,115 +1205,6 @@ exit:
 	mutex_unlock(&cfg->scan_sync);
 	return err;
 }
-
-#ifdef WL_SCHED_SCAN
-s32 wl_cfgscan_pfn_handler(struct bcm_cfg80211 *cfg, wl_pfn_scanresult_v3_1_t *pfn_scanresult)
-{
-	s32 err = BCME_OK;
-	wl_bss_info_t *bi = NULL;
-
-	bi = (wl_bss_info_t *)pfn_scanresult->bss_info;
-	if (!bi) {
-		WL_ERR(("Invalid pfn bss info (NULL pointer)"
-			"or invalid bss_info length\n"));
-		goto exit;
-	}
-	preempt_disable();
-#ifdef ESCAN_CHANNEL_CACHE
-	add_roam_cache(cfg, bi);
-#endif /* ESCAN_CHANNEL_CACHE */
-	err = wl_inform_single_bss(cfg, bi, false);
-	if (unlikely(err)) {
-		WL_ERR(("bss inform failed\n"));
-	}
-	preempt_enable();
-	WL_MEM(("cfg80211 scan cache updated\n"));
-exit:
-	return err;
-}
-
-s32
-wl_cfgscan_pfn_scanresult_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
-	const wl_event_msg_t *e, void *data)
-{
-	s32 err = BCME_OK;
-	wl_pfn_scanresult_v3_1_t *pfn_scanresult;
-
-	WL_DBG_MEM(("event type : %d, status : %d \n",
-		ntoh32(e->event_type), ntoh32(e->status)));
-
-	mutex_lock(&cfg->scan_sync);
-
-	pfn_scanresult = (wl_pfn_scanresult_v3_1_t *)data;
-	if (!pfn_scanresult) {
-		WL_ERR(("Invalid pfn scan result (NULL data)\n"));
-		goto exit;
-	}
-
-	if (cfg->sched_scan_req) {
-		err = wl_cfgscan_pfn_handler(cfg, pfn_scanresult);
-	}
-exit:
-	mutex_unlock(&cfg->scan_sync);
-	return err;
-}
-#endif /* WL_SCHED_SCAN */
-
-#if defined(GSCAN_SUPPORT) || defined(WL_SCHED_SCAN)
-/* sched scan done and stop pno upon receiving the pfn scan complete event */
-s32
-wl_cfgscan_notify_pfn_complete(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
-        const wl_event_msg_t *e, void *data)
-{
-	s32 err = BCME_OK;
-	struct net_device *dev;
-	s32 status = ntoh32(e->status);
-	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
-	struct wiphy *wiphy = NULL;
-
-	dev = cfgdev_to_wlc_ndev(cfgdev, cfg);
-	WL_DBG_MEM(("Enter \n"));
-	BCM_REFERENCE(dhdp);
-
-#ifdef GSCAN_SUPPORT
-	err = wl_notify_gscan_event(cfg, cfgdev, e, data);
-	return err;
-#endif
-	mutex_lock(&cfg->scan_sync);
-
-	if (!cfg->sched_scan_req) {
-		WL_INFORM_MEM(("No sched scan req is in progress.\n"));
-		goto exit;
-	}
-
-	wiphy = cfg->sched_scan_req->wiphy;
-	/* If new sched scan triggered, wiphy set as NULL.
-	* In this case, drop this event to avoid kernel state schew up
-	*/
-	if (!wiphy) {
-		WL_INFORM_MEM(("wiphy of sched_scan_req is NULL.\n"));
-		goto exit;
-	}
-
-	if (status == WLC_E_STATUS_SUCCESS) {
-		WL_INFORM_MEM(("[%s] Report sched scan done.\n", dev->name));
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0))
-		cfg80211_sched_scan_results(wiphy,
-				cfg->sched_scan_req->reqid);
-#else
-		cfg80211_sched_scan_results(wiphy);
-#endif /* LINUX_VER > 4.11 */
-	} else if (status != WLC_E_STATUS_SUCCESS) {
-		WL_INFORM_MEM(("bss list empty. report sched_scan_stop\n"));
-		wl_cfg80211_stop_pno(cfg,  bcmcfg_to_prmry_ndev(cfg));
-		/* schedule the work to indicate sched scan stop to cfg layer */
-		schedule_delayed_work(&cfg->sched_scan_stop_work, 0);
-	}
-exit:
-	mutex_unlock(&cfg->scan_sync);
-	return err;
-}
-#endif /* GSCAN_SUPPORT || WL_SCHED_SCAN */
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && \
 	defined(SUPPORT_RANDOM_MAC_SCAN)
@@ -1449,13 +1332,6 @@ wl_cfgscan_map_nl80211_scan_type(struct bcm_cfg80211 *cfg, struct cfg80211_scan_
 		return scan_flags;
 	}
 
-	if (cfg->latency_mode &&
-		wl_is_sta_connected(cfg)) {
-		WL_DBG_MEM(("latency mode on. force LP scan\n"));
-		scan_flags |= WL_SCANFLAGS_LOW_POWER_SCAN;
-		goto exit;
-	}
-
 	if (request->flags & NL80211_SCAN_FLAG_LOW_SPAN) {
 		scan_flags |= WL_SCANFLAGS_LOW_SPAN;
 	}
@@ -1469,7 +1345,6 @@ wl_cfgscan_map_nl80211_scan_type(struct bcm_cfg80211 *cfg, struct cfg80211_scan_
 		scan_flags |= WL_SCANFLAGS_LOW_PRIO;
 	}
 
-exit:
 	WL_INFORM(("scan flags. wl:%x cfg80211:%x\n", scan_flags, request->flags));
 	return scan_flags;
 }
@@ -1527,6 +1402,11 @@ chanspec_t wl_freq_to_chanspec(int freq)
 	return chanspec;
 }
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 14, 0))
+#define IS_RADAR_CHAN(flags) (flags & (IEEE80211_CHAN_RADAR | IEEE80211_CHAN_PASSIVE_SCAN))
+#else
+#define IS_RADAR_CHAN(flags) (flags & (IEEE80211_CHAN_RADAR | IEEE80211_CHAN_NO_IR))
+#endif
 static void
 wl_cfgscan_populate_scan_channels(struct bcm_cfg80211 *cfg,
 	struct ieee80211_channel **channels, u32 n_channels,
@@ -1600,14 +1480,6 @@ wl_cfgscan_populate_scan_channels(struct bcm_cfg80211 *cfg,
 				continue;
 			}
 #endif /* P2P_SKIP_DFS */
-#ifdef WL_UNII4_CHAN
-			/* Skip UNII-4 frequencies */
-			if (CHSPEC_IS5G(chanspec) &&
-				IS_UNII4_CHANNEL(wf_chspec_primary20_chan(chanspec))) {
-				WL_DBG(("Skip UNII-4 chanspec 0x%x\n", chanspec));
-				continue;
-			}
-#endif /* WL_UNII4_CHAN */
 		}
 
 		if (use_chanspecs) {
@@ -1678,7 +1550,7 @@ wl_scan_prep(struct bcm_cfg80211 *cfg, void *scan_params, u32 len,
 	struct cfg80211_scan_request *request)
 {
 	wl_scan_params_t *params = NULL;
-	wl_scan_params_v3_t *params_v3 = NULL;
+	wl_scan_params_v2_t *params_v2 = NULL;
 	u32 scan_type = 0;
 	u32 scan_param_size = 0;
 	u32 n_channels = 0;
@@ -1697,41 +1569,34 @@ wl_scan_prep(struct bcm_cfg80211 *cfg, void *scan_params, u32 len,
 	}
 
 	WL_DBG(("Preparing Scan request\n"));
-	if (IS_SCAN_PARAMS_V3_V2(cfg)) {
-		params_v3 = (wl_scan_params_v3_t *)scan_params;
-		scan_param_size = sizeof(wl_scan_params_v3_t);
-		channel_offset = offsetof(wl_scan_params_v3_t, channel_list);
+	if (cfg->scan_params_v2) {
+		params_v2 = (wl_scan_params_v2_t *)scan_params;
+		scan_param_size = sizeof(wl_scan_params_v2_t);
+		channel_offset = offsetof(wl_scan_params_v2_t, channel_list);
 	} else {
 		params = (wl_scan_params_t *)scan_params;
 		scan_param_size = sizeof(wl_scan_params_t);
 		channel_offset = offsetof(wl_scan_params_t, channel_list);
 	}
 
-	if (params_v3) {
-		/* scan params ver3 */
+	if (params_v2) {
+		/* scan params ver2 */
 #if defined(WL_SCAN_TYPE)
 		scan_type  += wl_cfgscan_map_nl80211_scan_type(cfg, request);
 #endif /* WL_SCAN_TYPE */
-		(void)memcpy_s(&params_v3->bssid, ETHER_ADDR_LEN, &ether_bcast, ETHER_ADDR_LEN);
-		params_v3->version = htod16(cfg->scan_params_ver);
-		params_v3->length = htod16(sizeof(wl_scan_params_v3_t));
-		params_v3->bss_type = DOT11_BSSTYPE_ANY;
-		params_v3->scan_type = htod32(scan_type);
-		params_v3->nprobes = htod32(-1);
-		params_v3->active_time = htod32(-1);
-		params_v3->passive_time = htod32(-1);
-		params_v3->home_time = htod32(-1);
-		params_v3->channel_num = 0;
-		bzero(&params_v3->ssid, sizeof(wlc_ssid_t));
-		chan_list = params_v3->channel_list;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)) && defined(DHD_SCAN_INC_RNR)
-		/* scan for colocated APs reported by 2.4/5 GHz APs */
-		if (request->flags & NL80211_SCAN_FLAG_COLOCATED_6GHZ)
-#endif
-		{
-			params_v3->ssid_type |= WL_SCAN_INC_RNR;
-		}
+		(void)memcpy_s(&params_v2->bssid, ETHER_ADDR_LEN, &ether_bcast, ETHER_ADDR_LEN);
+		params_v2->version = htod16(WL_SCAN_PARAMS_VERSION_V2);
+		params_v2->length = htod16(sizeof(wl_scan_params_v2_t));
+		params_v2->bss_type = DOT11_BSSTYPE_ANY;
+		params_v2->scan_type = htod32(scan_type);
+		params_v2->nprobes = htod32(-1);
+		params_v2->active_time = htod32(-1);
+		params_v2->passive_time = htod32(-1);
+		params_v2->home_time = htod32(-1);
+		params_v2->channel_num = 0;
+		bzero(&params_v2->ssid, sizeof(wlc_ssid_t));
+		chan_list = params_v2->channel_list;
 	} else {
 		/* scan params ver 1 */
 		if (!params) {
@@ -1756,8 +1621,7 @@ wl_scan_prep(struct bcm_cfg80211 *cfg, void *scan_params, u32 len,
 		return BCME_OK;
 	}
 
-	WL_INFORM(("n_channels:%d n_ssids:%d ver:%d\n",
-		request->n_channels, request->n_ssids, cfg->scan_params_ver));
+	WL_INFORM(("n_channels:%d n_ssids:%d\n", request->n_channels, request->n_ssids));
 
 	cur_offset = channel_offset;
 	/* Copy channel array if applicable */
@@ -1784,12 +1648,12 @@ wl_scan_prep(struct bcm_cfg80211 *cfg, void *scan_params, u32 len,
 		u32 channel_num =
 				htod32((n_ssids << WL_SCAN_PARAMS_NSSID_SHIFT) |
 				(n_channels & WL_SCAN_PARAMS_COUNT_MASK));
-		if (params_v3) {
-			params_v3->channel_num = channel_num;
+		if (params_v2) {
+			params_v2->channel_num = channel_num;
 			if (n_channels == 1) {
-				params_v3->active_time = htod32(WL_SCAN_CONNECT_DWELL_TIME_MS);
-				params_v3->nprobes = htod32(
-					params_v3->active_time / WL_SCAN_JOIN_PROBE_INTERVAL_MS);
+				params_v2->active_time = htod32(WL_SCAN_CONNECT_DWELL_TIME_MS);
+				params_v2->nprobes = htod32(
+					params_v2->active_time / WL_SCAN_JOIN_PROBE_INTERVAL_MS);
 			}
 		} else {
 			params->channel_num = channel_num;
@@ -1873,7 +1737,7 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	u32 n_ssids;
 	s32 params_size;
 	wl_escan_params_t *eparams = NULL;
-	wl_escan_params_v3_t *eparams_v3 = NULL;
+	wl_escan_params_v2_t *eparams_v2 = NULL;
 	u8 *scan_params = NULL;
 	u8 *params = NULL;
 	s32 search_state = WL_P2P_DISC_ST_SCAN;
@@ -1894,9 +1758,9 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		goto exit;
 	}
 
-	if (IS_SCAN_PARAMS_V3_V2(cfg)) {
-		params_size = (WL_SCAN_PARAMS_V3_FIXED_SIZE +
-				OFFSETOF(wl_escan_params_v3_t, params));
+	if (cfg->scan_params_v2) {
+		params_size = (WL_SCAN_PARAMS_V2_FIXED_SIZE +
+				OFFSETOF(wl_escan_params_v2_t, params));
 	} else {
 		params_size = (WL_SCAN_PARAMS_FIXED_SIZE + OFFSETOF(wl_escan_params_t, params));
 	}
@@ -1984,12 +1848,12 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		}
 
 		wl_escan_set_sync_id(sync_id, cfg);
-		if (IS_SCAN_PARAMS_V3_V2(cfg)) {
-			eparams_v3 = (wl_escan_params_v3_t *)params;
-			scan_params = (u8 *)&eparams_v3->params;
-			eparams_v3->version = htod32(cfg->scan_params_ver);
-			eparams_v3->action =  htod16(action);
-			eparams_v3->sync_id = sync_id;
+		if (cfg->scan_params_v2) {
+			eparams_v2 = (wl_escan_params_v2_t *)params;
+			scan_params = (u8 *)&eparams_v2->params;
+			eparams_v2->version = htod32(ESCAN_REQ_VERSION_V2);
+			eparams_v2->action =  htod16(action);
+			eparams_v2->sync_id = sync_id;
 		} else {
 			eparams = (wl_escan_params_t *)params;
 			scan_params = (u8 *)&eparams->params;
@@ -2007,8 +1871,8 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 #if defined(USE_INITIAL_2G_SCAN) || defined(USE_INITIAL_SHORT_DWELL_TIME)
 		/* Override active_time to reduce scan time if it's first bradcast scan. */
 		if (is_first_init_2g_scan) {
-			if (eparams_v3) {
-				eparams_v3->params.active_time = FIRST_SCAN_ACTIVE_DWELL_TIME_MS;
+			if (eparams_v2) {
+				eparams_v2->params.active_time = FIRST_SCAN_ACTIVE_DWELL_TIME_MS;
 			} else {
 				eparams->params.active_time = FIRST_SCAN_ACTIVE_DWELL_TIME_MS;
 			}
@@ -2314,162 +2178,27 @@ wl_cfgscan_handle_scanbusy(struct bcm_cfg80211 *cfg, struct net_device *ndev, s3
 	return scanbusy_err;
 }
 
-static bool
-is_p2p_ssid_present(struct cfg80211_scan_request *request)
-{
-	struct cfg80211_ssid *ssids;
-	int i;
-
-	ssids = request->ssids;
-	for (i = 0; i < request->n_ssids; i++) {
-			if (ssids[i].ssid_len &&
-				IS_P2P_SSID(ssids[i].ssid, ssids[i].ssid_len)) {
-				/* P2P Scan */
-				return TRUE;
-			}
-	}
-	return FALSE;
-}
-
-static void
-wl_set_p2p_scan_states(struct bcm_cfg80211 *cfg, struct net_device *ndev)
-{
-	if (cfg->p2p_supported) {
-		/* p2p scan trigger */
-		if (p2p_on(cfg) == false) {
-			/* p2p on at the first time */
-			p2p_on(cfg) = true;
-#if defined(P2P_IE_MISSING_FIX)
-			cfg->p2p_prb_noti = false;
-#endif
-		}
-		wl_clr_p2p_status(cfg, GO_NEG_PHASE);
-		WL_DBG(("P2P: GO_NEG_PHASE status cleared \n"));
-		p2p_scan(cfg) = true;
-	}
-}
-
-static void
-wl_set_legacy_scan_states(struct bcm_cfg80211 *cfg,
-		struct cfg80211_scan_request *request, struct net_device *ndev, s32 bssidx)
-{
-	s32 err = BCME_OK;
-#ifdef WL11U
-	bcm_tlv_t *interworking_ie;
-#endif
-
-	/* legacy scan trigger
-	 * So, we have to disable p2p discovery if p2p discovery is on
-	 */
-	if (cfg->p2p_supported) {
-		p2p_scan(cfg) = false;
-		if (wl_get_p2p_status(cfg, DISCOVERY_ON)) {
-			err = wl_cfgp2p_discover_enable_search(cfg, false);
-			if (unlikely(err)) {
-				WL_ERR(("disable discovery failed\n"));
-				/* non-fatal error. fall through */
-			}
-		}
-	}
-
-#ifdef WL11U
-	if (request && (interworking_ie = wl_cfg80211_find_interworking_ie(request->ie,
-			request->ie_len)) != NULL) {
-		if ((err = wl_cfg80211_add_iw_ie(cfg, ndev, bssidx,
-			VNDR_IE_CUSTOM_FLAG, interworking_ie->id, interworking_ie->data,
-			interworking_ie->len)) != BCME_OK) {
-			WL_ERR(("Failed to add interworking IE"));
-		}
-	} else if (cfg->wl11u) {
-		/* we have to clear IW IE and disable gratuitous APR */
-		wl_cfg80211_clear_iw_ie(cfg, ndev, bssidx);
-		err = wldev_iovar_setint_bsscfg(ndev, "grat_arp", 0, bssidx);
-		/* we don't care about error here
-		 * because the only failure case is unsupported,
-		 * which is fine
-		 */
-		if (unlikely(err)) {
-			WL_ERR(("Set grat_arp failed:(%d) Ignore!\n", err));
-		}
-		cfg->wl11u = FALSE;
-	}
-#endif /* WL11U */
-
-	if (request) {
-		err = wl_cfg80211_set_mgmt_vndr_ies(cfg, ndev_to_cfgdev(ndev), bssidx,
-				VNDR_IE_PRBREQ_FLAG, request->ie, request->ie_len);
-		if (unlikely(err)) {
-			WL_ERR(("vndr_ie set for probereq failed for bssidx:%d!\n", bssidx));
-		}
-	}
-}
-
-static bool
-is_scan_allowed(struct bcm_cfg80211 *cfg, struct net_device *ndev)
-{
-#ifdef WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST
-	struct net_device *remain_on_channel_ndev = NULL;
-#endif
-
-#ifdef WL_SCHED_SCAN
-	if (cfg->sched_scan_running) {
-		WL_ERR(("PNO SCAN in progress\n"));
-		return FALSE;
-	}
-#endif /* WL_SCHED_SCAN */
-
-	if (wl_get_drv_status_all(cfg, SCANNING)) {
-		if (cfg->scan_request == NULL) {
-			/* SCANNING bit is set, but scan_request NULL!! */
-			wl_clr_drv_status_all(cfg, SCANNING);
-			WL_DBG(("<<<<<<<<<<<Force Clear Scanning Status>>>>>>>>>>>\n"));
-		} else {
-			WL_ERR(("Scanning already\n"));
-			return FALSE;
-		}
-	}
-
-	if (wl_get_drv_status(cfg, SCAN_ABORTING, ndev)) {
-		WL_ERR(("Scanning being aborted. skip new scan\n"));
-		return FALSE;
-	}
-
-	if (cfg->loc.in_progress) {
-		WL_ERR(("loc in progress. skip new scan\n"));
-		/* Listen in progress, avoid new scan trigger */
-		return FALSE;
-	}
-
-	if (WL_DRV_STATUS_SENDING_AF_FRM_EXT(cfg)) {
-		WL_ERR(("Sending Action Frames. Try it again.\n"));
-		return FALSE;
-	}
-
-#ifdef WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST
-	remain_on_channel_ndev = wl_cfg80211_get_remain_on_channel_ndev(cfg);
-	if (remain_on_channel_ndev) {
-		/* scan listen and proceed */
-		WL_DBG(("Remain_on_channel bit is set, somehow it didn't get cleared\n"));
-		_wl_cfgscan_cancel_scan(cfg);
-	}
-#endif /* WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST */
-
-	return TRUE;
-}
-
 s32
 __wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
 	struct cfg80211_scan_request *request,
 	struct cfg80211_ssid *this_ssid)
 {
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
-	bool p2p_ssid = FALSE;
+	struct cfg80211_ssid *ssids;
+	bool p2p_ssid;
+#ifdef WL11U
+	bcm_tlv_t *interworking_ie;
+#endif
 	s32 err = 0;
+	s32 bssidx = -1;
+	s32 i;
 	bool escan_req_failed = false;
 	s32 scanbusy_err = 0;
-	unsigned long flags;
-	s32 bssidx = 0;
 
+	unsigned long flags;
+#ifdef WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST
+	struct net_device *remain_on_channel_ndev = NULL;
+#endif
 	/*
 	 * Hostapd triggers scan before starting automatic channel selection
 	 * to collect channel characteristics. However firmware scan engine
@@ -2488,32 +2217,154 @@ __wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
 
 	ndev = ndev_to_wlc_ndev(ndev, cfg);
 
-	WL_DBG(("[%s] Enter\n", ndev->name));
+	if (WL_DRV_STATUS_SENDING_AF_FRM_EXT(cfg)) {
+		WL_ERR(("Sending Action Frames. Try it again.\n"));
+		return -EAGAIN;
+	}
+
+	WL_DBG(("Enter wiphy (%p)\n", wiphy));
+	mutex_lock(&cfg->scan_sync);
+	if (wl_get_drv_status_all(cfg, SCANNING)) {
+		if (cfg->scan_request == NULL) {
+			wl_clr_drv_status_all(cfg, SCANNING);
+			WL_DBG(("<<<<<<<<<<<Force Clear Scanning Status>>>>>>>>>>>\n"));
+		} else {
+			WL_ERR(("Scanning already\n"));
+			mutex_unlock(&cfg->scan_sync);
+			return -EAGAIN;
+		}
+	}
+	if (wl_get_drv_status(cfg, SCAN_ABORTING, ndev)) {
+		WL_ERR(("Scanning being aborted\n"));
+		mutex_unlock(&cfg->scan_sync);
+		return -EAGAIN;
+	}
+
+	if (cfg->loc.in_progress) {
+		/* Listen in progress, avoid new scan trigger */
+		mutex_unlock(&cfg->scan_sync);
+		return -EBUSY;
+	}
+	mutex_unlock(&cfg->scan_sync);
 
 #ifdef WL_BCNRECV
 	/* check fakeapscan in progress then abort */
 	wl_android_bcnrecv_stop(ndev, WL_BCNRECV_SCANBUSY);
 #endif /* WL_BCNRECV */
 
+#ifdef WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST
+	mutex_lock(&cfg->scan_sync);
+	remain_on_channel_ndev = wl_cfg80211_get_remain_on_channel_ndev(cfg);
+	if (remain_on_channel_ndev) {
+		WL_DBG(("Remain_on_channel bit is set, somehow it didn't get cleared\n"));
+		_wl_cfgscan_cancel_scan(cfg);
+	}
+	mutex_unlock(&cfg->scan_sync);
+#endif /* WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST */
+
 #ifdef P2P_LISTEN_OFFLOADING
 	wl_cfg80211_cancel_p2plo(cfg);
 #endif /* P2P_LISTEN_OFFLOADING */
 
-	if (request) {
-		/* scan bss */
-		p2p_ssid = is_p2p_ssid_present(request);
-		if (p2p_ssid && !(IS_P2P_IFACE(request->wdev))) {
-			/* P2P SSID in legacy scan */
-			WL_DBG(("p2p_search on non p2p iface %d\n",
-				request->wdev->iftype));
-			p2p_ssid = FALSE;
+	if (request) {		/* scan bss */
+		ssids = request->ssids;
+		p2p_ssid = false;
+		for (i = 0; i < request->n_ssids; i++) {
+			if (ssids[i].ssid_len &&
+				IS_P2P_SSID(ssids[i].ssid, ssids[i].ssid_len)) {
+				/* P2P Scan */
+				if (!(IS_P2P_IFACE(request->wdev))) {
+					/* P2P scan on non-p2p iface. Fail scan */
+					WL_ERR(("p2p_search on non p2p iface %d\n",
+						request->wdev->iftype));
+					break;
+				}
+				p2p_ssid = true;
+				break;
+			}
 		}
-	}
+		if (p2p_ssid) {
+			if (cfg->p2p_supported) {
+				/* p2p scan trigger */
+				if (p2p_on(cfg) == false) {
+					/* p2p on at the first time */
+					p2p_on(cfg) = true;
+					wl_cfgp2p_set_firm_p2p(cfg);
+#if defined(P2P_IE_MISSING_FIX)
+					cfg->p2p_prb_noti = false;
+#endif
+				}
+				wl_clr_p2p_status(cfg, GO_NEG_PHASE);
+				WL_DBG(("P2P: GO_NEG_PHASE status cleared \n"));
+				p2p_scan(cfg) = true;
+			}
+		} else {
+			/* legacy scan trigger
+			 * So, we have to disable p2p discovery if p2p discovery is on
+			 */
+			if (cfg->p2p_supported) {
+				p2p_scan(cfg) = false;
+				/* If Netdevice is not equals to primary and p2p is on
+				*  , we will do p2p scan using P2PAPI_BSSCFG_DEVICE.
+				*/
 
-	if ((bssidx = wl_get_bssidx_by_wdev(cfg, ndev->ieee80211_ptr)) < 0) {
-		WL_ERR(("Find bssidx from wdev failed!\n"));
-		err = -EINVAL;
-		goto scan_out;
+				if (p2p_scan(cfg) == false) {
+					if (wl_get_p2p_status(cfg, DISCOVERY_ON)) {
+						err = wl_cfgp2p_discover_enable_search(cfg,
+						false);
+						if (unlikely(err)) {
+							goto scan_out;
+						}
+
+					}
+				}
+			}
+			if (!cfg->p2p_supported || !p2p_scan(cfg)) {
+				if ((bssidx = wl_get_bssidx_by_wdev(cfg,
+					ndev->ieee80211_ptr)) < 0) {
+					WL_ERR(("Find p2p index from ndev(%p) failed\n",
+						ndev));
+					err = BCME_ERROR;
+					goto scan_out;
+				}
+#ifdef WL11U
+				if (request && (interworking_ie = wl_cfg80211_find_interworking_ie(
+						request->ie, request->ie_len)) != NULL) {
+					if ((err = wl_cfg80211_add_iw_ie(cfg, ndev, bssidx,
+							VNDR_IE_CUSTOM_FLAG, interworking_ie->id,
+							interworking_ie->data,
+							interworking_ie->len)) != BCME_OK) {
+						WL_ERR(("Failed to add interworking IE"));
+					}
+				} else if (cfg->wl11u) {
+					/* we have to clear IW IE and disable gratuitous APR */
+					wl_cfg80211_clear_iw_ie(cfg, ndev, bssidx);
+					err = wldev_iovar_setint_bsscfg(ndev, "grat_arp",
+					                                0, bssidx);
+					/* we don't care about error here
+					 * because the only failure case is unsupported,
+					 * which is fine
+					 */
+					if (unlikely(err)) {
+						WL_ERR(("Set grat_arp failed:(%d) Ignore!\n", err));
+					}
+					cfg->wl11u = FALSE;
+				}
+#endif /* WL11U */
+				if (request) {
+					err = wl_cfg80211_set_mgmt_vndr_ies(cfg,
+						ndev_to_cfgdev(ndev), bssidx, VNDR_IE_PRBREQ_FLAG,
+						request->ie, request->ie_len);
+				}
+
+				if (unlikely(err)) {
+					goto scan_out;
+				}
+
+			}
+		}
+	} else {		/* scan in ibss */
+		ssids = this_ssid;
 	}
 
 	WL_TRACE_HW4(("START SCAN\n"));
@@ -2522,34 +2373,23 @@ __wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
 		wl_get_scan_timeout_val(cfg) + SCAN_WAKE_LOCK_MARGIN_MS);
 	DHD_DISABLE_RUNTIME_PM((dhd_pub_t *)(cfg->pub));
 
-	if (cfg->p2p_supported && p2p_ssid) {
-		/* find my listen channel */
-		cfg->afx_hdl->my_listen_chan =
-			wl_find_listen_channel(cfg, request->ie, request->ie_len);
-		err = wl_cfgp2p_enable_discovery(cfg, ndev, request->ie, request->ie_len);
-		if (unlikely(err)) {
-			goto scan_out;
+	if (cfg->p2p_supported) {
+		if (request && p2p_on(cfg) && p2p_scan(cfg)) {
+
+			/* find my listen channel */
+			cfg->afx_hdl->my_listen_chan =
+				wl_find_listen_channel(cfg, request->ie,
+				request->ie_len);
+			err = wl_cfgp2p_enable_discovery(cfg, ndev,
+			request->ie, request->ie_len);
+
+			if (unlikely(err)) {
+				goto scan_out;
+			}
 		}
 	}
 
 	mutex_lock(&cfg->scan_sync);
-
-	if (is_scan_allowed(cfg, ndev) == FALSE) {
-		err = -EAGAIN;
-		WL_ERR(("scan not permitted!\n"));
-		escan_req_failed = true;
-		goto scan_out;
-	}
-
-	if (request) {
-		/* set scan related states that need mutex protection */
-		if (p2p_ssid) {
-			wl_set_p2p_scan_states(cfg, ndev);
-		} else {
-			wl_set_legacy_scan_states(cfg, request, ndev, bssidx);
-		}
-	}
-
 	err = wl_do_escan(cfg, wiphy, ndev, request);
 	if (likely(!err)) {
 		goto scan_success;
@@ -2745,8 +2585,8 @@ static void wl_cfgscan_scan_abort(struct bcm_cfg80211 *cfg)
 	u32 channel, channel_num;
 
 	/* Abort scan params only need space for 1 channel and 0 ssids */
-	if (IS_SCAN_PARAMS_V3_V2(cfg)) {
-		params_size = WL_SCAN_PARAMS_V3_FIXED_SIZE + (1 * sizeof(uint16));
+	if (cfg->scan_params_v2) {
+		params_size = WL_SCAN_PARAMS_V2_FIXED_SIZE + (1 * sizeof(uint16));
 	} else {
 		params_size = WL_SCAN_PARAMS_FIXED_SIZE + (1 * sizeof(uint16));
 	}
@@ -2761,11 +2601,11 @@ static void wl_cfgscan_scan_abort(struct bcm_cfg80211 *cfg)
 	channel = htodchanspec(-1);
 	channel_num = htod32((0 << WL_SCAN_PARAMS_NSSID_SHIFT) |
 			(1 & WL_SCAN_PARAMS_COUNT_MASK));
-	if (IS_SCAN_PARAMS_V3_V2(cfg)) {
-		wl_scan_params_v3_t *params_v3 = (wl_scan_params_v3_t *)params;
-		params_v3->channel_list[0] = channel;
-		params_v3->channel_num = channel_num;
-		params_v3->length = htod16(sizeof(wl_scan_params_v3_t));
+	if (cfg->scan_params_v2) {
+		wl_scan_params_v2_t *params_v2 = (wl_scan_params_v2_t *)params;
+		params_v2->channel_list[0] = channel;
+		params_v2->channel_num = channel_num;
+		params_v2->length = htod16(sizeof(wl_scan_params_v2_t));
 	} else {
 		wl_scan_params_t *params_v1 = (wl_scan_params_t *)params;
 		params_v1->channel_list[0] = channel;
@@ -3569,12 +3409,9 @@ wl_cfg80211_scan_mac_disable(struct net_device *dev)
 #define PNO_TIME                    30u
 #define PNO_REPEAT_MAX              100u
 #define PNO_FREQ_EXPO_MAX           2u
-#define PNO_ADAPTIVE_SCAN_LIMIT     80u
-#define ADP_PNO_REPEAT_DEFAULT      2u
-#ifndef WL_DUAL_STA
+#define PNO_ADAPTIVE_SCAN_LIMIT     60u
 #define PNO_SCAN_MAX_UNASSOC_SEC    PNO_SCAN_MAX_FW_SEC
 #define PNO_SCAN_MAX_ASSOC_SEC      3600
-#endif /* !WL_DUAL_STA */
 
 static bool
 is_ssid_in_list(struct cfg80211_ssid *ssid, struct cfg80211_ssid *ssid_list, int count)
@@ -3603,7 +3440,7 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 	ushort pno_time = 0;
 	int pno_repeat = 0;
 	int pno_freq_expo_max = 0;
-	wlc_ssid_ext_t *ssids_local = NULL;
+	wlc_ssid_ext_t ssids_local[MAX_PFN_LIST_COUNT];
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
 	struct cfg80211_ssid *ssid = NULL;
@@ -3618,17 +3455,6 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 	unsigned long flags;
 	bool adaptive_pno = false;
 
-#ifdef WL_DUAL_STA
-	if (!IS_INET_LINK_NDEV(cfg, dev)) {
-		WL_ERR(("Sched scan not supported on non-INET link\n"));
-		return -EOPNOTSUPP;
-	}
-	if ((wl_cfgvif_get_iftype_count(cfg, WL_IF_TYPE_STA) >= 2) || cfg->latency_mode) {
-		WL_ERR(("Sched scan not supported in multi sta connected state"
-			" or latency mode %d\n", cfg->latency_mode));
-		return -EOPNOTSUPP;
-	}
-#endif /* WL_DUAL_STA */
 	if (!request) {
 		WL_ERR(("Sched scan request was NULL\n"));
 		return -EINVAL;
@@ -3658,15 +3484,13 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 
 	if (adaptive_pno) {
 		/* Run adaptive PNO */
-		pno_time = request->scan_plans->interval;
+		pno_time = PNO_TIME;
 		pno_freq_expo_max = PNO_FREQ_EXPO_MAX;
-		pno_repeat = ADP_PNO_REPEAT_DEFAULT;
 	} else {
 		/* use host provided values */
 		pno_time = request->scan_plans->interval;
 	}
 
-#ifndef WL_DUAL_STA
 	{
 		uint32 max_scan_freq = PNO_SCAN_MAX_UNASSOC_SEC;
 
@@ -3681,27 +3505,17 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 			return -EINVAL;
 		}
 	}
-#endif /* !WL_DUAL_STA */
+
+	WL_INFORM_MEM(("Enter. ssids:%d match_sets:%d pno_time:%d pno_repeat:%d "
+		"channels:%d adaptive:%d\n", request->n_ssids, request->n_match_sets,
+		pno_time, pno_repeat, request->n_channels, adaptive_pno));
 
 	if (!request->n_ssids || !request->n_match_sets) {
-		WL_ERR(("Invalid sched scan req!! n_ssids:%d, request->n_match_sets:%d \n",
-				request->n_ssids, request->n_match_sets));
+		WL_ERR(("Invalid sched scan req!! n_ssids:%d \n", request->n_ssids));
 		return -EINVAL;
 	}
 
-	mutex_lock(&cfg->scan_sync);
-
-	WL_INFORM_MEM(("[%s] Enter. ssids:%d match_sets:%d pno_time:%d pno_repeat:%d "
-		"channels:%d adaptive:%d\n", dev->name, request->n_ssids, request->n_match_sets,
-		pno_time, pno_repeat, request->n_channels, adaptive_pno));
-
-	ssids_local = (wlc_ssid_ext_t *)MALLOCZ(cfg->osh,
-		sizeof(wlc_ssid_ext_t) * MAX_PFN_LIST_COUNT);
-	if (!ssids_local) {
-		WL_ERR(("No memory"));
-		ret = -ENOMEM;
-		goto exit;
-	}
+	bzero(&ssids_local, sizeof(ssids_local));
 
 	if (request->n_ssids > 0) {
 		hidden_ssid_list = request->ssids;
@@ -3711,7 +3525,7 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 		/* get channel list. Note PNO uses channels and not chanspecs */
 		wl_cfgscan_populate_scan_channels(cfg,
 				request->channels, request->n_channels,
-				chan_list, &num_channels, true, false);
+				chan_list, &num_channels, false, false);
 	}
 
 	if (DBG_RING_ACTIVE(dhdp, DHD_EVENT_RING_ID)) {
@@ -3720,8 +3534,7 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 		if (!event_data) {
 			WL_ERR(("%s: failed to allocate log_conn_event_t with "
 						"length(%d)\n", __func__, alloc_len));
-			ret = -ENOMEM;
-			goto exit;
+			return -ENOMEM;
 		}
 	}
 	for (i = 0; i < request->n_match_sets && ssid_cnt < MAX_PFN_LIST_COUNT; i++) {
@@ -3808,14 +3621,9 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && (defined(SUPPORT_RANDOM_MAC_SCAN)) */
 
 exit:
-	if (ssids_local) {
-		MFREE(cfg->osh, ssids_local,
-			sizeof(wlc_ssid_ext_t) * MAX_PFN_LIST_COUNT);
-	}
 	if (event_data) {
 		MFREE(cfg->osh, event_data, alloc_len);
 	}
-	mutex_unlock(&cfg->scan_sync);
 	return ret;
 }
 
@@ -3843,21 +3651,19 @@ wl_cfg80211_sched_scan_stop(struct wiphy *wiphy, struct net_device *dev)
 #endif /* LINUX_VER > 4.11 */
 {
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
-	struct net_device *pri_ndev;
 
-	WL_INFORM_MEM(("[%s] Enter\n", dev->name));
-	pri_ndev = bcmcfg_to_prmry_ndev(cfg);
+	WL_INFORM((">>> SCHED SCAN STOP\n"));
 	wl_cfg80211_stop_pno(cfg, dev);
 
 	cancel_delayed_work(&cfg->sched_scan_stop_work);
 
 	mutex_lock(&cfg->scan_sync);
 	if (cfg->sched_scan_req) {
-		if (cfg->sched_scan_running && wl_get_drv_status(cfg, SCANNING, pri_ndev)) {
+		if (cfg->sched_scan_running && wl_get_drv_status(cfg, SCANNING, dev)) {
 			/* If targetted escan for PNO is running, abort it */
 			WL_INFORM_MEM(("abort targetted escan\n"));
 			_wl_cfgscan_cancel_scan(cfg);
-			wl_clr_drv_status(cfg, SCANNING, pri_ndev);
+			wl_clr_drv_status(cfg, SCANNING, dev);
 		} else {
 			WL_INFORM_MEM(("pno escan state:%d\n",
 				cfg->sched_scan_running));
@@ -4189,16 +3995,9 @@ wl_cfgscan_init_pno_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	uint8 random_mask_46_bits[ETHER_ADDR_LEN] = {0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 #endif /* KERNEL_VER >= 3.19 && SUPPORT_RANDOM_MAC_SCAN */
 	mutex_lock(&cfg->scan_sync);
-
-	/* No scans in progress */
-	if (!cfg->sched_scan_req) {
-		err = BCME_ERROR;
-		WL_ERR(("No sched scan is in progress, err:%d\n", err));
-		goto exit;
-	}
+	LOG_TS(cfg, scan_start);
 
 	if (wl_get_drv_status_all(cfg, SCANNING)) {
-		WL_INFORM_MEM(("scan in progress. cancel and trigger PNO targetted scan\n"));
 		_wl_cfgscan_cancel_scan(cfg);
 	}
 
@@ -4211,21 +4010,19 @@ wl_cfgscan_init_pno_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	memcpy_s(&request->mac_addr, ETH_ALEN, random_addr, ETH_ALEN);
 	memcpy_s(&request->mac_addr_mask, ETH_ALEN, random_mask_46_bits, ETH_ALEN);
 #endif /*  KERNEL_VER >= 3.19 && SUPPORT_RANDOM_MAC_SCAN */
-	LOG_TS(cfg, scan_start);
 	err = wl_do_escan(cfg, wiphy, ndev, request);
 	if (err) {
 		wl_clr_drv_status(cfg, SCANNING, ndev);
+		mutex_unlock(&cfg->scan_sync);
 		WL_ERR(("targeted escan failed. err:%d\n", err));
-		CLR_TS(cfg, scan_start);
-		goto exit;
+		return err;
 	}
 
 	DBG_EVENT_LOG(dhdp, WIFI_EVENT_DRIVER_PNO_SCAN_REQUESTED);
 
 	cfg->sched_scan_running = TRUE;
-
-exit:
 	mutex_unlock(&cfg->scan_sync);
+
 	return err;
 }
 
@@ -4236,7 +4033,7 @@ wl_cfgscan_update_v3_schedscan_results(struct bcm_cfg80211 *cfg, struct net_devi
 	int err = 0;
 	wl_pfn_net_info_v3_t *netinfo, *pnetinfo;
 	struct cfg80211_scan_request *request = NULL;
-	struct cfg80211_ssid *ssid = NULL;
+	struct cfg80211_ssid ssid[MAX_PFN_LIST_COUNT];
 	struct ieee80211_channel *channel = NULL;
 	struct wiphy *wiphy	= bcmcfg_to_wiphy(cfg);
 	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
@@ -4261,13 +4058,13 @@ wl_cfgscan_update_v3_schedscan_results(struct bcm_cfg80211 *cfg, struct net_devi
 			pfn_result->count = MAX_PFN_LIST_COUNT;
 		}
 
-		ssid = (struct cfg80211_ssid *)MALLOCZ(cfg->osh,
-			sizeof(struct cfg80211_ssid) * MAX_PFN_LIST_COUNT);
+		bzero(&ssid, sizeof(ssid));
+
 		request = (struct cfg80211_scan_request *)MALLOCZ(cfg->osh,
 			sizeof(*request) + sizeof(*request->channels) * pfn_result->count);
 		channel = (struct ieee80211_channel *)MALLOCZ(cfg->osh,
 			(sizeof(struct ieee80211_channel) * pfn_result->count));
-		if (!request || !channel || !ssid) {
+		if (!request || !channel) {
 			WL_ERR(("No memory"));
 			err = -ENOMEM;
 			goto out_err;
@@ -4383,10 +4180,6 @@ wl_cfgscan_update_v3_schedscan_results(struct bcm_cfg80211 *cfg, struct net_devi
 	}
 
 out_err:
-	if (ssid) {
-		MFREE(cfg->osh, ssid,
-			sizeof(struct cfg80211_ssid) * MAX_PFN_LIST_COUNT);
-	}
 	if (request) {
 		MFREE(cfg->osh, request,
 			sizeof(*request) + sizeof(*request->channels) * pfn_result->count);
@@ -4415,7 +4208,7 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
 	int err = 0;
 	struct cfg80211_scan_request *request = NULL;
-	struct cfg80211_ssid *ssid = NULL;
+	struct cfg80211_ssid ssid[MAX_PFN_LIST_COUNT];
 	struct ieee80211_channel *channel = NULL;
 	int channel_req = 0;
 	int band = 0;
@@ -4438,6 +4231,8 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	STATIC_ASSERT(sizeof(wl_pfn_net_info_v1_t) == sizeof(wl_pfn_net_info_v2_t));
 	STATIC_ASSERT(sizeof(wl_pfn_lnet_info_v1_t) == sizeof(wl_pfn_lnet_info_v2_t));
 	STATIC_ASSERT(sizeof(wl_pfn_subnet_info_v1_t) == sizeof(wl_pfn_subnet_info_v2_t));
+	STATIC_ASSERT(OFFSETOF(wl_pfn_subnet_info_v1_t, SSID) ==
+	              OFFSETOF(wl_pfn_subnet_info_v2_t, u.SSID));
 
 	/* Extract the version-specific items */
 	if (pfn_result_v1->version == PFN_SCANRESULT_VERSION_V1) {
@@ -4451,13 +4246,13 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			if (n_pfn_results > MAX_PFN_LIST_COUNT)
 				n_pfn_results = MAX_PFN_LIST_COUNT;
 
-			ssid = (struct cfg80211_ssid *)MALLOCZ(cfg->osh,
-				sizeof(struct cfg80211_ssid) * MAX_PFN_LIST_COUNT);
+			bzero(&ssid, sizeof(ssid));
+
 			request = (struct cfg80211_scan_request *)MALLOCZ(cfg->osh,
 				sizeof(*request) + sizeof(*request->channels) * n_pfn_results);
 			channel = (struct ieee80211_channel *)MALLOCZ(cfg->osh,
 				(sizeof(struct ieee80211_channel) * n_pfn_results));
-			if (!request || !channel || !ssid) {
+			if (!request || !channel) {
 				WL_ERR(("No memory"));
 				err = -ENOMEM;
 				goto out_err;
@@ -4597,13 +4392,13 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			if (n_pfn_results > MAX_PFN_LIST_COUNT)
 				n_pfn_results = MAX_PFN_LIST_COUNT;
 
-			ssid = (struct cfg80211_ssid *)MALLOCZ(cfg->osh,
-				sizeof(struct cfg80211_ssid) * MAX_PFN_LIST_COUNT);
+			bzero(&ssid, sizeof(ssid));
+
 			request = (struct cfg80211_scan_request *)MALLOCZ(cfg->osh,
 				sizeof(*request) + sizeof(*request->channels) * n_pfn_results);
 			channel = (struct ieee80211_channel *)MALLOCZ(cfg->osh,
 				(sizeof(struct ieee80211_channel) * n_pfn_results));
-			if (!request || !channel || !ssid) {
+			if (!request || !channel) {
 				WL_ERR(("No memory"));
 				err = -ENOMEM;
 				goto out_err;
@@ -4747,10 +4542,6 @@ out_err:
 	}
 	mutex_unlock(&cfg->scan_sync);
 
-	if (ssid) {
-		MFREE(cfg->osh, ssid,
-			sizeof(struct cfg80211_ssid) * MAX_PFN_LIST_COUNT);
-	}
 	if (request) {
 		MFREE(cfg->osh, request,
 			sizeof(*request) + sizeof(*request->channels) * n_pfn_results);
@@ -4962,27 +4753,27 @@ wl_init_scan_params(struct bcm_cfg80211 *cfg, u8 *params, u16 params_size,
 {
 	u32 sync_id = 0;
 	wl_escan_params_t *eparams = NULL;
-	wl_escan_params_v3_t *eparams_v3 = NULL;
+	wl_escan_params_v2_t *eparams_v2 = NULL;
 	wl_scan_params_t *scanparams = NULL;
-	wl_scan_params_v3_t *scanparams_v3 = NULL;
+	wl_scan_params_v2_t *scanparams_v2 = NULL;
 
 	wl_escan_set_sync_id(sync_id, cfg);
-	if (IS_SCAN_PARAMS_V3_V2(cfg)) {
-		eparams_v3 = (wl_escan_params_v3_t *)params;
-		eparams_v3->version = htod32(cfg->scan_params_ver);
-		eparams_v3->action =  htod16(action);
-		eparams_v3->sync_id = sync_id;
-		scanparams_v3 = (wl_scan_params_v3_t *)&eparams_v3->params;
-		(void)memcpy_s(&scanparams_v3->bssid, ETHER_ADDR_LEN, &ether_bcast, ETHER_ADDR_LEN);
-		scanparams_v3->version = htod16(WL_SCAN_PARAMS_VERSION_V3);
-		scanparams_v3->length = htod16(sizeof(wl_scan_params_v3_t));
-		scanparams_v3->bss_type = DOT11_BSSTYPE_ANY;
-		scanparams_v3->scan_type = htod32(scan_type);
-		scanparams_v3->nprobes = htod32(-1);
-		scanparams_v3->active_time = htod32(-1);
-		scanparams_v3->passive_time = htod32(passive_time);
-		scanparams_v3->home_time = htod32(-1);
-		bzero(&scanparams_v3->ssid, sizeof(wlc_ssid_t));
+	if (cfg->scan_params_v2) {
+		eparams_v2 = (wl_escan_params_v2_t *)params;
+		eparams_v2->version = htod32(ESCAN_REQ_VERSION_V2);
+		eparams_v2->action =  htod16(action);
+		eparams_v2->sync_id = sync_id;
+		scanparams_v2 = (wl_scan_params_v2_t *)&eparams_v2->params;
+		(void)memcpy_s(&scanparams_v2->bssid, ETHER_ADDR_LEN, &ether_bcast, ETHER_ADDR_LEN);
+		scanparams_v2->version = htod16(WL_SCAN_PARAMS_VERSION_V2);
+		scanparams_v2->length = htod16(sizeof(wl_scan_params_v2_t));
+		scanparams_v2->bss_type = DOT11_BSSTYPE_ANY;
+		scanparams_v2->scan_type = htod32(scan_type);
+		scanparams_v2->nprobes = htod32(-1);
+		scanparams_v2->active_time = htod32(-1);
+		scanparams_v2->passive_time = htod32(passive_time);
+		scanparams_v2->home_time = htod32(-1);
+		bzero(&scanparams_v2->ssid, sizeof(wlc_ssid_t));
 	} else {
 		eparams = (wl_escan_params_t *)params;
 		eparams->version = htod32(ESCAN_REQ_VERSION);
@@ -5043,9 +4834,9 @@ wl_cfgscan_listen_on_channel(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev
 	struct net_device *ndev = NULL;
 	u8 *params = NULL;
 	wl_escan_params_t *eparams = NULL;
-	wl_escan_params_v3_t *eparams_v3 = NULL;
+	wl_escan_params_v2_t *eparams_v2 = NULL;
 	wl_scan_params_t *scanparams = NULL;
-	wl_scan_params_v3_t *scanparams_v3 = NULL;
+	wl_scan_params_v2_t *scanparams_v2 = NULL;
 	u16 *chanspec_list = NULL;
 	u32 channel_num = 0, scan_type = 0;
 
@@ -5076,9 +4867,9 @@ wl_cfgscan_listen_on_channel(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev
 	/* Use primary ndev for netless dev. BSSIDX will point to right I/F */
 	ndev = wdev->netdev ? wdev->netdev : bcmcfg_to_prmry_ndev(cfg);
 
-	if (IS_SCAN_PARAMS_V3_V2(cfg)) {
-		params_size = (WL_SCAN_PARAMS_V3_FIXED_SIZE +
-			OFFSETOF(wl_escan_params_v3_t, params));
+	if (cfg->scan_params_v2) {
+		params_size = (WL_SCAN_PARAMS_V2_FIXED_SIZE +
+			OFFSETOF(wl_escan_params_v2_t, params));
 	} else {
 		params_size = (WL_SCAN_PARAMS_FIXED_SIZE + OFFSETOF(wl_escan_params_t, params));
 	}
@@ -5103,11 +4894,11 @@ wl_cfgscan_listen_on_channel(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev
 		scan_type, WL_SCAN_ACTION_START, dwell);
 
 	channel_num = (chanspec_num & WL_SCAN_PARAMS_COUNT_MASK);
-	if (IS_SCAN_PARAMS_V3_V2(cfg)) {
-		eparams_v3 = (wl_escan_params_v3_t *)params;
-		scanparams_v3 = (wl_scan_params_v3_t *)&eparams_v3->params;
-		chanspec_list = scanparams_v3->channel_list;
-		scanparams_v3->channel_num = channel_num;
+	if (cfg->scan_params_v2) {
+		eparams_v2 = (wl_escan_params_v2_t *)params;
+		scanparams_v2 = (wl_scan_params_v2_t *)&eparams_v2->params;
+		chanspec_list = scanparams_v2->channel_list;
+		scanparams_v2->channel_num = channel_num;
 	} else {
 		eparams = (wl_escan_params_t *)params;
 		scanparams = (wl_scan_params_t *)&eparams->params;
@@ -5397,8 +5188,7 @@ wl_android_get_roam_scan_chanlist(struct bcm_cfg80211 *cfg)
 	wlc_ssid_t *ssid = NULL;
 	wl_roam_channel_list_t channel_list;
 	uint16 channels[MAX_ROAM_CHANNEL] = {0};
-	char chanspec_buf[CHANSPEC_STR_LEN];
-	int i = 0, nchan = 0;
+	int i = 0;
 
 	ndev = bcmcfg_to_prmry_ndev(cfg);
 	wiphy = bcmcfg_to_wiphy(cfg);
@@ -5434,15 +5224,9 @@ wl_android_get_roam_scan_chanlist(struct bcm_cfg80211 *cfg)
 
 	WL_DBG(("SSID %s(%d), RCC(%d)\n", ssid->SSID, ssid->SSID_len, channel_list.n));
 	for (i = 0; i < channel_list.n; i++) {
-		WL_DBG(("Chanspec[%d] CH: %s (0x%04x)\n",
-			i, wf_chspec_ntoa_ex(channel_list.channels[i], chanspec_buf),
-			channel_list.channels[i]));
-		if (CHSPEC_IS6G(channel_list.channels[i])) {
-			WL_DBG(("Skip 6G channel\n"));
-			continue;
-		}
-		channels[nchan] = CHSPEC_CHANNEL(channel_list.channels[i]);
-		nchan++;
+		channels[i] = CHSPEC_CHANNEL(channel_list.channels[i]);
+		WL_DBG(("Chanspec[%d] CH:%03d(0x%04x)\n",
+			i, channels[i], channel_list.channels[i]));
 	}
 
 	err = nla_put_string(skb, RCC_ATTRIBUTE_SSID, ssid->SSID);
@@ -5457,7 +5241,7 @@ wl_android_get_roam_scan_chanlist(struct bcm_cfg80211 *cfg)
 		goto fail;
 	}
 
-	err = nla_put_u32(skb, RCC_ATTRIBUTE_NUM_CHANNELS, nchan);
+	err = nla_put_u32(skb, RCC_ATTRIBUTE_NUM_CHANNELS, channel_list.n);
 	if (unlikely(err)) {
 		WL_ERR(("nla_put_u32 RCC_ATTRIBUTE_NUM_CHANNELS failed\n"));
 		goto fail;
@@ -5525,6 +5309,7 @@ wl_android_get_roam_scan_freqlist(struct bcm_cfg80211 *cfg)
 	}
 	if (channel_list.n > MAX_ROAM_CHANNEL) {
 		WL_ERR(("Invalid roamscan channels count(%d)\n", channel_list.n));
+		err = BCME_ERROR;
 		goto fail;
 	}
 
@@ -5572,7 +5357,6 @@ fail:
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0) */
 	return err;
 }
-
 #endif /* WL_GET_RCC */
 
 /*
@@ -5612,10 +5396,8 @@ wl_get_assoc_channels(struct bcm_cfg80211 *cfg,
 		}
 		ssid.SSID_len = (uint32)info->ssid_len;
 
-		/* Utilize channel hint if availble */
-		if ((info->chan_cnt == 1) && info->chanspecs[0]) {
+		if (info->targeted_join && info->chanspecs[0]) {
 			target_chspec = info->chanspecs[0];
-			WL_DBG(("channel_hint chanspec:%x\n", info->chanspecs[0]));
 		} else {
 			target_chspec = INVCHANSPEC;
 		}
@@ -5634,7 +5416,6 @@ wl_get_assoc_channels(struct bcm_cfg80211 *cfg,
 					WL_INFORM_MEM(("6G channel in rcc. use fw nw sel\n"));
 					/* skip bssid hint inclusion and provide bcast bssid */
 					info->bssid_hint = false;
-					info->targeted_join = false;
 					(void)memcpy_s(&info->bssid,
 							ETH_ALEN, &ether_bcast, ETH_ALEN);
 					break;
@@ -5673,31 +5454,14 @@ wl_cfgscan_is_dfs_set(wifi_band band)
 }
 
 s32
-wl_cfgscan_get_band_freq_list(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev, int band,
-	uint32 *list, uint32 *num_channels)
+wl_cfgscan_get_band_freq_list(struct bcm_cfg80211 *cfg, int band,
+	uint16 *list, uint32 *num_channels)
 {
 	s32 err = BCME_OK;
 	uint32 i, freq, list_count, count = 0;
 	struct net_device *dev = bcmcfg_to_prmry_ndev(cfg);
 	uint32 chspec, chaninfo;
 	bool dfs_set = false;
-	bool ap_iface;
-
-	if (!wdev) {
-		WL_ERR(("wdev null\n"));
-		return -EINVAL;
-	}
-
-	ap_iface = IS_AP_IFACE(wdev);
-#ifndef WL_DUAL_APSTA
-	if (!ap_iface && (wdev->netdev != bcmcfg_to_prmry_ndev(cfg))) {
-		/* The GETCHANNEL API could come before role conversion. so
-		 * for now consider the requests coming on non primary I/F
-		 * too as request for AP.
-		 */
-		ap_iface = TRUE;
-	}
-#endif /* WL_DUAL_APSTA */
 
 	dfs_set = wl_cfgscan_is_dfs_set(band);
 	err = wldev_iovar_getbuf_bsscfg(dev, "chan_info_list", NULL,
@@ -5716,25 +5480,14 @@ wl_cfgscan_get_band_freq_list(struct bcm_cfg80211 *cfg, struct wireless_dev *wde
 		chaninfo = dtoh32(((wl_chanspec_list_v1_t *)list)->chspecs[i].chaninfo);
 		freq = wl_channel_to_frequency(wf_chspec_ctlchan(chspec),
 			CHSPEC_BAND(chspec));
-
-		if ((band & WIFI_BAND_BG) && CHSPEC_IS2G(chspec)) {
-			/* add 2g channels */
-			list[count++] = freq;
+		if (((band & WIFI_BAND_BG) && CHSPEC_IS2G(chspec)) ||
+				((band & WIFI_BAND_6GHZ) && CHSPEC_IS6G(chspec))) {
+			/* add 2g/6g channels */
+			list[i] = freq;
+			count++;
 		}
-
-		if ((band & WIFI_BAND_6GHZ) && CHSPEC_IS6G(chspec) && CHSPEC_IS20(chspec)) {
-			/* For AP interface and 6G band, use only VLP, PSC channels */
-			if (ap_iface && (!(chaninfo & WL_CHAN_BAND_6G_PSC) ||
-					!(chaninfo & WL_CHAN_BAND_6G_VLP))) {
-				WL_DBG(("skipping chspec:%x freq:%d for ap_iface\n", chspec, freq));
-				continue;
-			}
-			/* add 6g channels */
-			list[count++] = freq;
-		}
-
 		/* handle 5g separately */
-		if (CHSPEC_IS5G(chspec) && CHSPEC_IS20(chspec)) {
+		if (CHSPEC_IS5G(chspec)) {
 			if (!((band == WIFI_BAND_A_DFS) && IS_DFS(chaninfo)) &&
 				!(band & WIFI_BAND_A)) {
 				/* Not DFS only case nor 5G case */
@@ -5744,244 +5497,982 @@ wl_cfgscan_get_band_freq_list(struct bcm_cfg80211 *cfg, struct wireless_dev *wde
 			if ((band & WIFI_BAND_A) && !dfs_set && IS_DFS(chaninfo)) {
 				continue;
 			}
-			list[count++] = freq;
+
+			list[i] = freq;
+			count++;
 		}
 	}
-
-	WL_INFORM_MEM(("get_freqlist_cnt:%d band:%d\n", count, band));
 	*num_channels = count;
 	return err;
 }
 #endif /* DHD_GET_VALID_CHANNELS */
 
-void
-wl_get_ap_chanspecs(struct bcm_cfg80211 *cfg, wl_ap_oper_data_t *ap_data)
+#if defined(WL_SOFTAP_ACS)
+#define SEC_FREQ_HT40_OFFSET 20
+static acs_delay_work_t delay_work_acs = { .init_flag = 0 };
+
+static int wl_cfgscan_acs_parse_result(acs_selected_channels_t *pResult,
+        chanspec_t ch_chosen, drv_acs_params_t *pParameter)
 {
-	struct net_info *iter, *next;
-	u32 ch;
+	unsigned int chspec_band, chspec_ctl_freq, chspec_center_ch, chspec_bw, chspec_sb;
 
-	bzero(ap_data, sizeof(wl_ap_oper_data_t));
-
-	GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
-	for_each_ndev(cfg, iter, next) {
-		GCC_DIAGNOSTIC_POP();
-		if ((iter->ndev) &&
-			(iter->ndev->ieee80211_ptr->iftype == NL80211_IFTYPE_AP) &&
-			wl_get_drv_status(cfg, CONNECTED, iter->ndev)) {
-				if (wldev_iovar_getint(iter->ndev, "chanspec", (&ch)) == BCME_OK) {
-					ap_data->iface[ap_data->count].ndev = iter->ndev;
-					ap_data->iface[ap_data->count].chspec = (chanspec_t)ch;
-					ap_data->count++;
-				}
-		}
-	}
-}
-
-inline bool
-is_chanspec_dfs(struct bcm_cfg80211 *cfg, chanspec_t chspec)
-{
-	u32 ch;
-	s32 err;
-	u8 buf[WLC_IOCTL_SMLEN];
-	struct net_device *ndev = bcmcfg_to_prmry_ndev(cfg);
-
-	ch = (u32)chspec;
-	err = wldev_iovar_getbuf_bsscfg(ndev, "per_chan_info", (void *)&ch,
-			sizeof(u32), buf, WLC_IOCTL_SMLEN, 0, NULL);
-	if (unlikely(err)) {
-		WL_ERR(("get per chan info failed:%d\n", err));
-		return FALSE;
+	if ((!pResult) || (!pParameter)) {
+		WL_ERR(("%s: parameter invalid\n", __FUNCTION__));
+		return BCME_BADARG;
+	} else if (!wf_chspec_valid(ch_chosen)) {
+		WL_ERR(("%s: ch_chosen=0x%X invalid\n",
+		        __FUNCTION__, ch_chosen));
+		return BCME_BADARG;
 	}
 
-	/* Check the channel flags returned by fw */
-	if (*((u32 *)buf) & WL_CHAN_PASSIVE) {
-		return TRUE;
+	chspec_ctl_freq = wl_channel_to_frequency(wf_chspec_ctlchan((chanspec_t)ch_chosen),
+			CHSPEC_BAND((chanspec_t)ch_chosen));
+	chspec_center_ch = wf_chspec_ctlchan((chanspec_t)ch_chosen);
+	chspec_band = CHSPEC_BAND((chanspec_t)ch_chosen);
+	chspec_bw = CHSPEC_BW(ch_chosen);
+	chspec_sb = CHSPEC_CTL_SB(ch_chosen);
+	WL_TRACE(("%s: ctl_freq=%d, center_ch=%d, band=0x%X, bw=0x%X, sb=0x%X\n",
+	          __FUNCTION__,
+	          chspec_ctl_freq,  chspec_center_ch, chspec_band, chspec_bw, chspec_sb));
+
+	(void)memset_s(pResult, sizeof(acs_selected_channels_t),
+		0, sizeof(acs_selected_channels_t));
+
+	/* hw_mode */
+	switch (chspec_band) {
+		case WL_CHANSPEC_BAND_2G:
+			pResult->hw_mode = HOSTAPD_MODE_IEEE80211G;
+			break;
+		case WL_CHANSPEC_BAND_5G:
+		case WL_CHANSPEC_BAND_6G:
+		default:
+			pResult->hw_mode = HOSTAPD_MODE_IEEE80211A;
+			break;
 	}
-	return FALSE;
-}
+	WL_TRACE(("%s: hw_mode=%d\n", __FUNCTION__, pResult->hw_mode));
 
-static bool wl_find_matching_chanspec(chanspec_t sta_chanspec,
-	int qty, uint32 *pList)
-{
-	uint32 i = qty;
-
-	if (!qty) {
-		WL_ERR(("Invalid qty\n"));
-		return false;
-	}
-
-	while (i--) {
-		if (pList[i]) {
-			if (wf_chspec_ctlchspec((pList[i])) == wf_chspec_ctlchspec(sta_chanspec)) {
-				WL_INFORM_MEM(("Found sta chanspec in the list:0x%x\n",
-					sta_chanspec));
-				return true;
+	/* ch_width and others */
+	switch (chspec_bw) {
+	case WL_CHANSPEC_BW_40:
+		if (pParameter->ht40_enabled) {
+			pResult->ch_width = 40;
+			switch (chspec_sb) {
+			case WL_CHANSPEC_CTL_SB_U:
+				pResult->pri_freq = chspec_ctl_freq;
+				pResult->sec_freq = chspec_ctl_freq - SEC_FREQ_HT40_OFFSET;
+				break;
+			case WL_CHANSPEC_CTL_SB_L:
+			default:
+				pResult->pri_freq = chspec_ctl_freq;
+				pResult->sec_freq = chspec_ctl_freq + SEC_FREQ_HT40_OFFSET;
+				break;
 			}
-			WL_INFORM_MEM(("skipped chanspec:0x%x\n", pList[i]));
+			WL_TRACE(("%s: HT40 ok\n", __FUNCTION__));
+		} else {
+			pResult->ch_width = 20;
+			pResult->pri_freq = chspec_ctl_freq;
+			pResult->sec_freq = 0;
+			WL_TRACE(("%s: HT40 to HT20\n", __FUNCTION__));
+		}
+		break;
+	case WL_CHANSPEC_BW_80:
+		if ((pParameter->vht_enabled) || (pParameter->he_enabled)) {
+			pResult->ch_width = 80;
+			pResult->vht_seg0_center_ch = chspec_center_ch;
+			pResult->vht_seg1_center_ch = 0;
+			switch (chspec_sb) {
+			case WL_CHANSPEC_CTL_SB_LL:
+			case WL_CHANSPEC_CTL_SB_LU:
+				pResult->pri_freq = chspec_ctl_freq;
+				pResult->sec_freq = chspec_ctl_freq + SEC_FREQ_HT40_OFFSET;
+				break;
+			case WL_CHANSPEC_CTL_SB_UL:
+			case WL_CHANSPEC_CTL_SB_UU:
+			default:
+				pResult->pri_freq = chspec_ctl_freq;
+				pResult->sec_freq = chspec_ctl_freq - SEC_FREQ_HT40_OFFSET;
+				break;
+			}
+			WL_TRACE(("%s: HT80 ok\n", __FUNCTION__));
+		} else if (pParameter->ht40_enabled) {
+			pResult->ch_width = 40;
+			switch (chspec_sb) {
+			case WL_CHANSPEC_CTL_SB_LL:
+			case WL_CHANSPEC_CTL_SB_UL:
+				pResult->pri_freq = chspec_ctl_freq;
+				pResult->sec_freq = chspec_ctl_freq + SEC_FREQ_HT40_OFFSET;
+				break;
+			case WL_CHANSPEC_CTL_SB_LU:
+			case WL_CHANSPEC_CTL_SB_UU:
+			default:
+				pResult->pri_freq = chspec_ctl_freq;
+				pResult->sec_freq = chspec_ctl_freq - SEC_FREQ_HT40_OFFSET;
+				break;
+			}
+			WL_TRACE(("%s: HT80 to HT40\n", __FUNCTION__));
+		} else {
+			pResult->ch_width = 20;
+			pResult->pri_freq = chspec_ctl_freq;
+			pResult->sec_freq = 0;
+			WL_TRACE(("%s: HT80 to HT20\n", __FUNCTION__));
+		}
+		break;
+	case WL_CHANSPEC_BW_160:
+	case WL_CHANSPEC_BW_8080:
+		if ((pParameter->vht_enabled) || (pParameter->he_enabled)) {
+			pResult->ch_width = 160;
+			switch (chspec_sb) {
+			case WL_CHANSPEC_CTL_SB_LLL:
+			case WL_CHANSPEC_CTL_SB_LLU:
+			case WL_CHANSPEC_CTL_SB_LUL:
+			case WL_CHANSPEC_CTL_SB_LUU:
+				pResult->pri_freq = chspec_ctl_freq;
+				pResult->sec_freq = chspec_ctl_freq + SEC_FREQ_HT40_OFFSET;
+				pResult->vht_seg0_center_ch = chspec_center_ch;
+				pResult->vht_seg1_center_ch = chspec_center_ch + CH_80MHZ_APART;
+				break;
+			case WL_CHANSPEC_CTL_SB_ULL:
+			case WL_CHANSPEC_CTL_SB_ULU:
+			case WL_CHANSPEC_CTL_SB_UUL:
+			case WL_CHANSPEC_CTL_SB_UUU:
+			default:
+				pResult->pri_freq = chspec_ctl_freq;
+				pResult->sec_freq = chspec_ctl_freq - SEC_FREQ_HT40_OFFSET;
+				pResult->vht_seg0_center_ch = chspec_center_ch;
+				pResult->vht_seg1_center_ch = chspec_center_ch - CH_80MHZ_APART;
+				break;
+			}
+			WL_TRACE(("%s: HT160 ok\n", __FUNCTION__));
+		} else if (pParameter->ht40_enabled) {
+			pResult->ch_width = 40;
+			switch (chspec_sb) {
+			case WL_CHANSPEC_CTL_SB_LLL:
+			case WL_CHANSPEC_CTL_SB_LUL:
+			case WL_CHANSPEC_CTL_SB_ULL:
+			case WL_CHANSPEC_CTL_SB_UUL:
+				pResult->pri_freq = chspec_ctl_freq;
+				pResult->sec_freq = chspec_ctl_freq + SEC_FREQ_HT40_OFFSET;
+				break;
+			case WL_CHANSPEC_CTL_SB_LLU:
+			case WL_CHANSPEC_CTL_SB_LUU:
+			case WL_CHANSPEC_CTL_SB_ULU:
+			case WL_CHANSPEC_CTL_SB_UUU:
+			default:
+				pResult->pri_freq = chspec_ctl_freq;
+				pResult->sec_freq = chspec_ctl_freq - SEC_FREQ_HT40_OFFSET;
+				break;
+			}
+			WL_TRACE(("%s: HT160 to HT40\n", __FUNCTION__));
+		} else {
+			pResult->ch_width = 20;
+			pResult->pri_freq = chspec_ctl_freq;
+			pResult->sec_freq = 0;
+			WL_TRACE(("%s: HT160 to HT20\n", __FUNCTION__));
+		}
+		break;
+	case WL_CHANSPEC_BW_20:
+	default:
+		if ((pParameter->ht_enabled) || (TRUE)) {
+			pResult->ch_width = 20;
+			pResult->pri_freq = chspec_ctl_freq;
+		}
+		WL_TRACE(("%s: HT20 ok\n", __FUNCTION__));
+		break;
+	}
+
+	WL_TRACE(("%s: result: pri_freq=%d, sec_freq=%d, vht_seg0=%d, vht_seg1=%d,"
+	          " ch_width=%d, hw_mode=%d\n", __FUNCTION__,
+	          pResult->pri_freq, pResult->sec_freq,
+	          pResult->vht_seg0_center_ch, pResult->vht_seg1_center_ch,
+	          pResult->ch_width, pResult->hw_mode));
+
+	return 0;
+}
+
+static int wl_cfgscan_acs_parse_parameter_save(int *pLen, uint32 *pList, chanspec_t chspec)
+{
+	int ret = 0;
+	int qty = 0;
+	int i;
+
+	do {
+		if ((!pLen) || (!pList)) {
+			WL_ERR(("%s: parameter invalid\n", __FUNCTION__));
+			ret = BCME_BADARG;
+			break;
+		} else {
+			qty = *pLen;
+		}
+
+		if (!wf_chspec_valid(chspec)) {
+			WL_TRACE(("%s: chanspec=0x%X invalid\n", __FUNCTION__, chspec));
+			ret = BCME_BADARG;
+			break;
+		}
+
+		for (i = 0; i < qty; i++) {
+			if (pList[i] == chspec) {
+				break;
+			}
+		}
+
+		if (i == qty) {
+			pList[qty++] = chspec;
+			*pLen = qty;
+			WL_TRACE(("%s: fill list[%d] = 0x%X\n", __FUNCTION__, qty, chspec));
+		} else {
+			WL_TRACE(("%s: duplicate with [idx]=[%d]=0x%X\n", __FUNCTION__, i, chspec));
+			break;
+		}
+	} while (0);
+
+	return ret;
+}
+
+static int wl_cfgscan_acs_parse_parameter(int *pLen, uint32 *pList, unsigned int chanspec,
+		drv_acs_params_t *pParameter)
+{
+	unsigned int chspec_ctl_ch = 0x0;
+	unsigned int chspec_band, chspec_bw, chspec_sb;
+	uint32 qty = 0, i = 0, channel = 0;
+	s32 ret = 0;
+
+	do {
+		if ((!pLen) || (!pList) || (!pParameter)) {
+			WL_ERR(("%s: parameter invalid\n", __FUNCTION__));
+			ret = BCME_BADARG;
+			break;
+		}
+
+		chspec_band = CHSPEC_BAND((chanspec_t)chanspec);
+		channel = wf_chspec_ctlchan((chanspec_t)chanspec);
+		qty = *pLen;
+
+		/* Handle 6G as a special case */
+		if (chspec_band == WL_CHANSPEC_BAND_6G) {
+			/* Firmware expects 20Mhz PSC channels. */
+			chspec_bw = WL_CHANSPEC_BW_20;
+			chspec_ctl_ch = channel;
+			chspec_sb = WL_CHANSPEC_CTL_SB_NONE;
+			chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+					chspec_bw | chspec_sb);
+			wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+			*pLen = qty;
+			return 0;
+		}
+
+		/* HT20 */
+		chspec_bw = WL_CHANSPEC_BW_20;
+		if (((pParameter->ht_enabled) || (pParameter->ht40_enabled) ||
+				(pParameter->vht_enabled) || (pParameter->he_enabled)) &&
+				(20 <= pParameter->ch_width)) {
+			chspec_ctl_ch = channel;
+			chspec_sb = WL_CHANSPEC_CTL_SB_NONE;
+			chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+					chspec_bw | chspec_sb);
+			WL_TRACE(("%s: checking HT20  [%d] = 0x%X\n", __FUNCTION__, qty, chanspec));
+			wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+		}
+
+		/* HT40 */
+		chspec_bw = WL_CHANSPEC_BW_40;
+		if (((pParameter->ht40_enabled) || (pParameter->vht_enabled) ||
+		          (pParameter->he_enabled)) && (pParameter->ch_width >= 40)) {
+			for (i = -CH_20MHZ_APART; i <= CH_20MHZ_APART; i++) {
+				chspec_ctl_ch = channel + i;
+				/* L-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_LOWER;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("%s: checking HT40 U  [%d] = 0x%X\n",
+						__FUNCTION__, qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+				/* R-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_UPPER;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("%s: checking HT40 L  [%d] = 0x%X\n",
+						__FUNCTION__, qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+			}
+		}
+
+		/* HT80 */
+		chspec_bw = WL_CHANSPEC_BW_80;
+		if ((pParameter->vht_enabled || pParameter->he_enabled) &&
+				(80 <= pParameter->ch_width)) {
+			for (i = -CH_40MHZ_APART; i <= CH_40MHZ_APART; i++) {
+				chspec_ctl_ch = channel + i;
+				/* L-L-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_LL;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("checking HT80 LL  [%d] = 0x%X\n", qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+				/* L-U-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_LU;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("checking HT80 LU  [%d] = 0x%X\n", qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+				/* U-L-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_UL;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("checking HT80 UL  [%d] = 0x%X\n", qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+				/* U-U-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_UU;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("checking HT80 UU  [%d] = 0x%X\n", qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+			}
+		}
+
+		/* HT160 */
+		chspec_bw = WL_CHANSPEC_BW_160;
+		if (pParameter->he_enabled && (160 <= pParameter->ch_width)) {
+			for (i = -CH_80MHZ_APART; i <= CH_80MHZ_APART; i++) {
+				chspec_ctl_ch = channel + i;
+				/* L-L-L-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_LLL;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("checking HT160 LLL  [%d] = 0x%X\n", qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+				/* L-L-U-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_LLU;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("checking HT160 LLU  [%d] = 0x%X\n", qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+				/* L-U-L-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_LUL;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("checking HT160 LUL  [%d] = 0x%X\n", qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+				/* L-U-U-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_LUU;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("checking HT160 LUU  [%d] = 0x%X\n", qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+				/* U-L-L-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_ULL;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("checking HT160 ULL  [%d] = 0x%X\n", qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+				/* U-L-U-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_ULU;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("checking HT160 ULU  [%d] = 0x%X\n", qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+				/* U-U-L-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_UUL;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("checking HT160 UUL  [%d] = 0x%X\n", qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+				/* U-U-U-sideband */
+				chspec_sb = WL_CHANSPEC_CTL_SB_UUU;
+				chanspec = (chanspec_t)(chspec_ctl_ch | chspec_band |
+						chspec_bw | chspec_sb);
+				WL_TRACE(("checking HT160 UUU  [%d] = 0x%X\n", qty, chanspec));
+				wl_cfgscan_acs_parse_parameter_save(&qty, pList, chanspec);
+			}
+		}
+
+		*pLen = qty;
+		WL_TRACE(("%s: current quantity=%d\n", __FUNCTION__, qty));
+	} while (0);
+
+	return ret;
+}
+
+static void wl_cfgscan_acs_result_event(struct work_struct *work)
+{
+	acs_delay_work_t *delay_work = (acs_delay_work_t *)work;
+	struct net_device *ndev = NULL;
+	struct wiphy *wiphy = NULL;
+	chanspec_t ch_chosen;
+	drv_acs_params_t *pParameter;
+	gfp_t kflags;
+	struct sk_buff *skb = NULL;
+	acs_selected_channels_t result;
+	int len = 0;
+	int ret = 0;
+
+	do {
+		if (!delay_work) {
+			WL_ERR(("%s: work parameter invalid\n", __FUNCTION__));
+			ret = BCME_BADARG;
+			break;
+		} else {
+			ndev = delay_work->ndev;
+			ch_chosen = delay_work->ch_chosen;
+			pParameter = &delay_work->parameter;
+		}
+
+		if ((!ndev) || (!(ndev->ieee80211_ptr)) || (!(ndev->ieee80211_ptr->wiphy))) {
+			WL_ERR(("%s: parameter invalid\n", __FUNCTION__));
+			ret = BCME_BADARG;
+			break;
+		}
+		wiphy = ndev->ieee80211_ptr->wiphy;
+
+		/* construct result */
+		if (wl_cfgscan_acs_parse_result(&result, ch_chosen, pParameter) < 0) {
+			WL_ERR(("%s: fail to convert the result\n", __FUNCTION__));
+			ret = BCME_BADARG;
+			break;
+		}
+
+		len = 200;
+		kflags = in_atomic()? GFP_ATOMIC : GFP_KERNEL;
+		WL_TRACE(("%s: idx=%d, wiphy->n_vendor_events=%d\n",
+		          __FUNCTION__, BRCM_VENDOR_EVENT_ACS, wiphy->n_vendor_events));
+		/* Alloc the SKB for vendor_event */
+#if (defined(CONFIG_ARCH_MSM) && defined(SUPPORT_WDEV_CFG80211_VENDOR_EVENT_ALLOC)) || \
+	LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0) || defined(USE_BACKPORT_4)
+		skb = cfg80211_vendor_event_alloc(wiphy, ndev_to_wdev(ndev), len,
+				BRCM_VENDOR_EVENT_ACS, kflags);
+#else
+		skb = cfg80211_vendor_event_alloc(wiphy, len, BRCM_VENDOR_EVENT_ACS, kflags);
+#endif /* CONFIG_ARCH_MSM SUPPORT_WDEV_CFG80211_VENDOR_EVENT_ALLOC */
+		if (!skb) {
+			WL_ERR(("%s: Error, no memory for event\n", __FUNCTION__));
+			ret = BCME_NOMEM;
+			break;
+		}
+		WL_TRACE(("%s: good to get skb=0x%p\n", __FUNCTION__, skb));
+
+		if ((nla_put_u32(skb, BRCM_VENDOR_ATTR_ACS_PRIMARY_FREQ, result.pri_freq) < 0) ||
+		    (nla_put_u32(skb, BRCM_VENDOR_ATTR_ACS_SECONDARY_FREQ, result.sec_freq) < 0) ||
+		    (nla_put_u8(skb, BRCM_VENDOR_ATTR_ACS_VHT_SEG0_CENTER_CHANNEL,
+				result.vht_seg0_center_ch) < 0) ||
+		    (nla_put_u8(skb, BRCM_VENDOR_ATTR_ACS_VHT_SEG1_CENTER_CHANNEL,
+				result.vht_seg1_center_ch) < 0) ||
+		    (nla_put_u16(skb, BRCM_VENDOR_ATTR_ACS_CHWIDTH, result.ch_width) < 0) ||
+		    (nla_put_u8(skb, BRCM_VENDOR_ATTR_ACS_HW_MODE, result.hw_mode) < 0)) {
+			WL_ERR(("%s: Error, fail to fill the result\n", __FUNCTION__));
+			ret = BCME_BADARG;
+			break;
+		}
+
+		WL_TRACE(("%s: send the event\n", __FUNCTION__));
+		cfg80211_vendor_event(skb, kflags);
+	} while (0);
+
+	if (ret < 0) {
+		if (skb) {
+			WL_ERR(("%s: free the event since fail with ret=%d\n", __FUNCTION__, ret));
+			dev_kfree_skb_any(skb);
+		}
+	}
+}
+
+static int wl_cfgscan_acs_do_apcs(struct net_device *dev, int band, chanspec_t *pCH,
+	int len, unsigned char *pBuffer, int qty, uint32 *pList)
+{
+	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
+	uint32 sta_band = WLC_BAND_INVALID;
+	int channel = 0;
+	int chosen = 0;
+	int retry = 0;
+	int ret = 0;
+	int spect = 0;
+
+#if defined(CONFIG_WLAN_BEYONDX) || defined(CONFIG_SEC_5GMODEL)
+	wl_cfg80211_register_dev_ril_bridge_event_notifier();
+	if (band == WLC_BAND_2G) {
+		wl_cfg80211_send_msg_to_ril();
+
+		if (g_mhs_chan_for_cpcoex) {
+			chosen = CH20MHZ_CHSPEC(g_mhs_chan_for_cpcoex);
+			g_mhs_chan_for_cpcoex = 0;
+			goto done2;
+		}
+	}
+	wl_cfg80211_unregister_dev_ril_bridge_event_notifier();
+#endif /* CONFIG_WLAN_BEYONDX || defined(CONFIG_SEC_5GMODEL) */
+
+	/* If STA is connected, we can't do APCS
+	 * and try to get a chanspec based on STA channel
+	 */
+	channel = wl_android_get_sta_channel(cfg);
+	if (channel) {
+		sta_band = WL_GET_BAND(channel);
+		switch (sta_band) {
+			case (WLC_BAND_5G):
+#ifdef WL_6G_BAND
+			case (WLC_BAND_6G):
+#endif /* WL_6G_BAND */
+				if ((band == WLC_BAND_2G) || (band == WLC_BAND_AUTO)) {
+					chosen = wl_freq_to_chanspec(APCS_DEFAULT_2G_FREQ);
+				} else {
+					chosen = CH20MHZ_CHSPEC(channel);
+				}
+				break;
+			case (WLC_BAND_2G):
+#ifdef WL_6G_BAND
+				if (band & WLC_BAND_6G) {
+					chosen = wl_freq_to_chanspec(APCS_DEFAULT_6G_FREQ);
+				} else
+#endif /* WL_6G_BAND */
+				if (band & WLC_BAND_5G) {
+					chosen = wl_freq_to_chanspec(APCS_DEFAULT_5G_FREQ);
+				} else if (band == WLC_BAND_AUTO) {
+#ifdef WL_6G_BAND
+					if (cfg->band_6g_supported) {
+						chosen = wl_freq_to_chanspec(APCS_DEFAULT_6G_FREQ);
+					} else {
+						chosen = wl_freq_to_chanspec(APCS_DEFAULT_5G_FREQ);
+					}
+#else
+					chosen = wl_freq_to_chanspec(APCS_DEFAULT_5G_FREQ);
+#endif /* WL_6G_BAND */
+				} else {
+					chosen = CH20MHZ_CHSPEC(channel);
+				}
+				break;
+			default:
+				ret = BCME_BADARG;
+				WL_ERR(("%s: band is not specified\n", __FUNCTION__));
+				goto done;
+		}
+		WL_INFORM_MEM(("sta connected case. chosen:0x%x\n", chosen));
+		goto done2;
+	}
+
+	ret = wldev_ioctl_get(dev, WLC_GET_SPECT_MANAGMENT, &spect, sizeof(spect));
+	if (ret) {
+		WL_ERR(("%s: ***Error, error getting the spect, ret=%d\n", __FUNCTION__, ret));
+		ret = BCME_BADARG;
+		goto done;
+	}
+
+	if (spect > 0) {
+		ret = wl_android_set_spect(dev, 0);
+		if (ret < 0) {
+			WL_ERR(("%s: Error, fail setting spect, ret=%d\n", __FUNCTION__, ret));
+			ret = BCME_BADARG;
+			goto done;
 		}
 	}
 
-	return false;
+	if ((pBuffer) && (0 < len)) {
+		/* The buffer has count followed by chanspecs */
+		u32 buf_len = (qty + 1) * sizeof(uint32);
+		if (wl_dbg_level & WL_DBG_DBG) {
+			prhex("acs iovar_buf:", pBuffer, buf_len);
+		}
+
+		/* Skip ACS for single channel case */
+		if ((qty == 1) && pList) {
+			/* For single chanspec, ACS not required */
+			chosen = pList[0];
+			WL_INFORM_MEM(("single channel case. Skip ACS. chosen:0x%x\n", chosen));
+			goto done2;
+		}
+
+		ret = wldev_ioctl_set(dev, WLC_START_CHANNEL_SEL, (void *)pBuffer, buf_len);
+		if (ret) {
+			WL_ERR(("autochannel trigger failed. ret=%d\n", ret));
+		} else {
+			WL_INFORM_MEM(("acs triggered for %d chanspecs. ret=%d\n", qty, ret));
+		}
+	} else {
+		ret = BCME_BADARG;
+		WL_ERR(("%s: Error, no parameter to go, ret=%d\n", __FUNCTION__, ret));
+	}
+
+	if (ret < 0) {
+		channel = 0;
+		ret = BCME_BADARG;
+		goto done;
+	}
+
+	/* Wait for auto channel selection, max 3000 ms */
+	if ((band == WLC_BAND_2G) || (band == WLC_BAND_5G) || (band == WLC_BAND_6G)) {
+		OSL_SLEEP(500);
+	} else {
+		/* Full channel scan at the minimum takes 1.2secs
+		 * even with parallel scan. max wait time: 3500ms
+		 */
+		OSL_SLEEP(1000);
+	}
+
+	retry = APCS_MAX_RETRY;
+	while (retry--) {
+		ret = wldev_ioctl_get(dev, WLC_GET_CHANNEL_SEL, &chosen, sizeof(chosen));
+		if (ret < 0) {
+			chosen = 0;
+		} else {
+			chosen = dtoh32(chosen);
+		}
+		WL_DBG(("%s: round=%d, ret=%d, chosen=0x%X\n",
+		          __FUNCTION__, APCS_MAX_RETRY-retry, ret, chosen));
+
+		if (chosen) {
+			int freq;
+
+			channel = wf_chspec_ctlchan((chanspec_t)chosen);
+			freq = wl_channel_to_frequency(
+				wf_chspec_ctlchan((chanspec_t)chosen),
+				CHSPEC_BAND((chanspec_t)chosen));
+
+			WL_INFORM_MEM(("%s: * good, selected chosen=0x%X, freq:%d channel = %d\n",
+				__FUNCTION__, chosen, freq, channel));
+			break;
+		}
+		OSL_SLEEP(300);
+	}
+
+done:
+
+	if (!chosen) {
+		WL_ERR(("%s: retry=%d, ret=%d, chosen=0x%X. Attempt default chan\n",
+			__FUNCTION__, retry, ret, chosen));
+
+		/* On failure, fallback to a default channel */
+		if (band == WLC_BAND_5G) {
+			if ((!pList) || (!qty)) {
+				chosen = CH20MHZ_CHSPEC(APCS_DEFAULT_5G_CH);
+			} else {
+				chosen = pList[qty - 1];
+			}
+#ifdef WL_6G_BAND
+		} else if (band == WLC_BAND_6G) {
+			if ((!pList) || (!qty)) {
+				chosen = CH20MHZ_CHSPEC(APCS_DEFAULT_6G_CH);
+			} else {
+				chosen = pList[qty - 1];
+			}
+#endif /* WL_6G_BAND */
+		} else {
+			if ((!pList) || (!qty)) {
+				chosen = CH20MHZ_CHSPEC(APCS_DEFAULT_2G_CH);
+			} else {
+				chosen = pList[qty - 1];
+			}
+		}
+		if (ret < 0) {
+			/* set it 0 when use default channel */
+			ret = 0;
+		}
+		WL_ERR(("ACS failed. Fall back to default chanspec (0x%x)\n", chosen));
+	}
+
+done2:
+	*pCH = chosen;
+
+	if (spect > 0) {
+		ret = wl_android_set_spect(dev, spect);
+	}
+
+	return ret;
 }
 
-static bool
-wl_acs_check_scc(struct bcm_cfg80211 *cfg, drv_acs_params_t *parameter,
-	chanspec_t sta_chanspec, int qty, uint32 *pList)
+#define MAX_ACS_FREQS	256u
+static int
+wl_convert_freqlist_to_chspeclist(struct bcm_cfg80211 *cfg,
+		u32 *pElem_freq, u32 freq_list_len, u32 *req_len,
+		u32 *pList, drv_acs_params_t *parameter)
 {
-	bool scc = FALSE;
+	int i;
+	u32 list_size;
+	s32 ret = BCME_OK;
+	u32 allowed_band = 0;
+	u32 *chspeclist = NULL;
 
-	if (!(parameter->freq_bands & CHSPEC_TO_WLC_BAND(sta_chanspec))) {
-		return scc;
+	if (freq_list_len > MAX_ACS_FREQS) {
+		WL_ERR(("invalid len:%d\n", freq_list_len));
+		return -EINVAL;
 	}
 
-	if (wl_find_matching_chanspec(sta_chanspec, qty, pList)) {
-		scc = TRUE;
+	list_size = sizeof(u32) * freq_list_len;
+	chspeclist = MALLOCZ(cfg->osh, list_size);
+	if (!chspeclist) {
+		WL_ERR(("chspec list alloc failed\n"));
+		return -ENOMEM;
 	}
 
-#ifdef DHD_ACS_CHECK_SCC_2G_ACTIVE_CH
-	/*
-	 * For the corner case when STA is running in Ch12 or Ch13
-	 * and Framework may give the Ch [1-11] to ACS algorithm.
-	 * In this case, SoftAP will be failed to run.
-	 * To allow SoftAP to run in that channel as SCC mode,
-	 * get active channels and check it
-	 */
-	if (scc == FALSE && CHSPEC_IS2G(sta_chanspec)) {
-		scc = wl_check_active_2g_chan(cfg, parameter, sta_chanspec);
+	for (i = 0; i < freq_list_len; i++) {
+		chspeclist[i] = wl_freq_to_chanspec(pElem_freq[i]);
+		/* mark all the bands found */
+		parameter->freq_bands |= CHSPEC_TO_WLC_BAND(CHSPEC_BAND(chspeclist[i]));
+		WL_DBG(("%s: list[%d]=%d => chspec=0x%x\n", __FUNCTION__, i,
+				pElem_freq[i], chspeclist[i]));
 	}
-#endif /* DHD_ACS_CHECK_SCC_2G_ACTIVE_CH */
 
-	if (scc == TRUE) {
-		parameter->scc_chspec = sta_chanspec;
-		parameter->freq_bands = CHSPEC_TO_WLC_BAND(sta_chanspec);
-		WL_INFORM_MEM(("SCC case, ACS pick up STA chanspec:0x%x\n", sta_chanspec));
+	WL_DBG(("** freq_bands=0x%x\n", parameter->freq_bands));
+#ifdef WL_5G_SOFTAP_ONLY_ON_DEF_CHAN
+	if ((parameter->freq_bands & WLC_BAND_5G) &&
+			!(parameter->freq_bands & WLC_BAND_6G)) {
+
+		/* Use default 5G channel for cases where 6G is not provided */
+		for (i = 0; i < freq_list_len; i++) {
+			if (CHSPEC_CHANNEL(chspeclist[i]) == APCS_DEFAULT_5G_CH) {
+				WL_INFORM_MEM(("Def ACS chanspec:0x%x\n", chspeclist[i]));
+				wl_cfgscan_acs_parse_parameter(req_len, pList,
+					chspeclist[i], parameter);
+				goto exit;
+			}
+		}
+
+		if (i == freq_list_len) {
+			WL_ERR(("Default 5g channel not found in the list\n"));
+			ret = -EINVAL;
+			goto exit;
+		}
 	}
-	return scc;
+#endif /* WL_5G_SOFTAP_ONLY_ON_DEF_CHAN */
+#ifndef WL_ACS_MULTIBAND
+	/* Utilize preferred band for ACS 6G > 5G > 2G */
+	if (parameter->freq_bands & WLC_BAND_6G) {
+		allowed_band = WL_CHANSPEC_BAND_6G;
+	} else if ((parameter->freq_bands & WLC_BAND_5G)) {
+		allowed_band = WL_CHANSPEC_BAND_5G;
+	} else if ((parameter->freq_bands & WLC_BAND_2G)) {
+		allowed_band = WL_CHANSPEC_BAND_2G;
+	} else {
+		WL_ERR(("Unsupported band\n"));
+		ret = -EINVAL;
+		goto exit;
+	}
+
+	/* Filter out non-preferred frequencies */
+	WL_INFORM_MEM(("**ACS band:0x%x\n", allowed_band));
+	for (i = 0; i < freq_list_len; i++) {
+		if (CHSPEC_BAND(chspeclist[i]) == allowed_band) {
+#ifndef WL_ACS_6G_NONPSC
+			if ((allowed_band == WL_CHANSPEC_BAND_6G) &&
+				!CHSPEC_IS_6G_PSC(chspeclist[i])) {
+				/* Skip non PSC channels by default */
+				WL_DBG(("Skipping non PSC channel\n"));
+				continue;
+			}
+#endif /* WL_ACS_6G_NONPSC */
+			WL_INFORM_MEM(("ACS chanspec:0x%x\n", chspeclist[i]));
+			wl_cfgscan_acs_parse_parameter(req_len, pList,
+				chspeclist[i], parameter);
+		} else {
+			WL_INFORM_MEM(("Skipping ACS chanspec:0x%x\n", chspeclist[i]));
+		}
+	}
+#endif /* WL_ACS_MULTIBAND */
+
+exit:
+	MFREE(cfg->osh, chspeclist, list_size);
+	return ret;
 }
 
 int
-wl_handle_acs_concurrency_cases(struct bcm_cfg80211 *cfg, drv_acs_params_t *parameter,
-	int qty, uint32 *pList)
+wl_cfgscan_acs(struct wiphy *wiphy,
+	struct wireless_dev *wdev, const void *data, int len)
 {
-	chanspec_t chspec = 0;
-	wl_ap_oper_data_t ap_oper_data = {0};
+	int  ret = 0;
+	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	struct net_device *net = wdev_to_ndev(wdev);
 
-	/* If STA is connected, figure out the STA connected band and applly
-	 * following rules:
-	 * If STA is in DFS channel or there is an AP already in that band, check
-	 * whether the AP can be started in the other band
-	 * If STA band and incoming Band matches, attempt SCC
-	 */
+	int qty = 0, total = 0;
+	unsigned int *pElem_freq = NULL;
+	/* original HOSTAPD parameters */
+	struct nlattr *tb[BRCM_VENDOR_ATTR_ACS_LAST + 1];
+	drv_acs_params_t *parameter = NULL;
+#ifdef WL_ACS_CHANLIST
+	int i = 0;
+	unsigned char *pElem_chan = NULL;
+	const struct nlattr *pChanList = NULL;
+#endif /* WL_ACS_CHANLIST */
+	const struct nlattr *pFreqList = NULL;
+	uint32 chan_list_len = 0, freq_list_len = 0;
+	/* converted list */
+	wl_uint32_list_t *pReq = NULL;
+	uint32 *pList = NULL;
+	int req_len = 0;
+	chanspec_t ch_chosen = 0x0;
 
-	/* Check whether AP is already operational */
-	wl_get_ap_chanspecs(cfg, &ap_oper_data);
-
-	if (ap_oper_data.count >= MAX_AP_IFACES) {
-		WL_ERR(("ACS request in multi AP case!! count:%d\n",
-			ap_oper_data.count));
-		return -EINVAL;
+	if (!delay_work_acs.init_flag) {
+		delay_work_acs.ndev = net;
+		delay_work_acs.ch_chosen = 0;
+		INIT_DELAYED_WORK(&delay_work_acs.acs_delay_work, wl_cfgscan_acs_result_event);
+		delay_work_acs.init_flag = 1;
 	}
 
-	if (ap_oper_data.count == 1) {
-		chanspec_t ch = ap_oper_data.iface[0].chspec;
-		u16 ap_band;
-
-		/* Single AP case. Bring up the AP in the other band */
-		ap_band = CHSPEC_TO_WLC_BAND(ch);
-		if ((ap_band == WLC_BAND_5G) || (ap_band == WLC_BAND_6G)) {
-			WL_INFORM_MEM(("AP operational in band:%d\n", ap_band));
-			if (!(parameter->freq_bands & WLC_BAND_2G)) {
-				WL_ERR(("2G band not present in ACS list. fail ACS\n"));
-				return -EINVAL;
-			} else {
-				/* Force set 2g and clear other bands for ACS */
-				parameter->freq_bands = WLC_BAND_2G;
-			}
-		} else if (ap_band == WLC_BAND_2G) {
-			WL_INFORM_MEM(("AP operational in 2G band\n"));
-			if (!(parameter->freq_bands & WLC_BAND_5G) &&
-					!(parameter->freq_bands & WLC_BAND_6G)) {
-				WL_ERR(("5G/6G freqs not available in the ACS list. FAIL ACS\n"));
-				return -EINVAL;
-			} else {
-				/* 6g/5g freqlist available. Clear 2g */
-				parameter->freq_bands &= ~WLC_BAND_2G;
-			}
+	do {
+		/* get orignal HOSTAPD paramters */
+		if (nla_parse(tb, BRCM_VENDOR_ATTR_ACS_LAST, (struct nlattr *)data,
+				len, NULL, NULL) ||
+				(!tb[BRCM_VENDOR_ATTR_ACS_HW_MODE])) {
+			WL_ERR(("%s: ***Error, parse fail\n", __FUNCTION__));
+			ret = BCME_BADARG;
+			break;
 		}
-		WL_INFORM_MEM(("AP band:0x%x Trimmed ACS band:0x%x\n",
-			ap_band, parameter->freq_bands));
-	}
 
-	/* Check STA concurrency cases */
-	if (wl_cfgvif_get_iftype_count(cfg, WL_IF_TYPE_STA) >= 2) {
-		/* Dual sta operational. Invalid use case */
-		WL_ERR(("Dual sta operational. ACS request not expected.\n"));
-		return -EINVAL;
-	}
+		parameter = &delay_work_acs.parameter;
+		(void)memset_s(parameter, sizeof(drv_acs_params_t), 0, sizeof(drv_acs_params_t));
+		if (tb[BRCM_VENDOR_ATTR_ACS_HW_MODE]) {
+			parameter->hw_mode = nla_get_u8(tb[BRCM_VENDOR_ATTR_ACS_HW_MODE]);
+			WL_TRACE(("%s: hw_mode=%d\n", __FUNCTION__, parameter->hw_mode));
+		}
+		if (tb[BRCM_VENDOR_ATTR_ACS_HT_ENABLED]) {
+			parameter->ht_enabled = nla_get_u8(tb[BRCM_VENDOR_ATTR_ACS_HT_ENABLED]);
+			WL_TRACE(("%s: ht_enabled=%d\n", __FUNCTION__, parameter->ht_enabled));
+		}
+		if (tb[BRCM_VENDOR_ATTR_ACS_HT40_ENABLED]) {
+			parameter->ht40_enabled = nla_get_u8(tb[BRCM_VENDOR_ATTR_ACS_HT40_ENABLED]);
+			WL_TRACE(("%s: ht40_enabled=%d\n", __FUNCTION__, parameter->ht40_enabled));
+		}
+		if (tb[BRCM_VENDOR_ATTR_ACS_VHT_ENABLED]) {
+			parameter->vht_enabled = nla_get_u8(tb[BRCM_VENDOR_ATTR_ACS_VHT_ENABLED]);
+			WL_TRACE(("%s: vht_enabled=%d\n", __FUNCTION__, parameter->vht_enabled));
+		}
+		parameter->he_enabled = parameter->vht_enabled;
+		if (tb[BRCM_VENDOR_ATTR_ACS_CHWIDTH]) {
+			parameter->ch_width = nla_get_u8(tb[BRCM_VENDOR_ATTR_ACS_CHWIDTH]);
+			WL_TRACE(("%s: ch_width=%d\n", __FUNCTION__, parameter->ch_width));
+		}
 
-	chspec = wl_cfg80211_get_sta_chanspec(cfg);
+		if (tb[BRCM_VENDOR_ATTR_ACS_CH_LIST]) {
+#ifdef WL_ACS_CHANLIST
+			pChanList = tb[BRCM_VENDOR_ATTR_ACS_CH_LIST];
+			chan_list_len = nla_len(tb[BRCM_VENDOR_ATTR_ACS_CH_LIST]);
+			WL_TRACE(("%s: chan_list_len=%d\n", __FUNCTION__, chan_list_len));
+#else
+			WL_ERR(("%s: chan_list attribute not supported\n", __FUNCTION__));
+#endif /* WL_ACS_CHANLIST */
+		}
+		if (tb[BRCM_VENDOR_ATTR_ACS_FREQ_LIST]) {
+			pFreqList = tb[BRCM_VENDOR_ATTR_ACS_FREQ_LIST];
+			freq_list_len = nla_len(tb[BRCM_VENDOR_ATTR_ACS_FREQ_LIST]) / sizeof(int);
+			WL_TRACE(("%s: freq_list_len=%d\n", __FUNCTION__, freq_list_len));
+		}
 
-	if (chspec) {
-		bool scc_case = false;
-		u32 sta_band = CHSPEC_TO_WLC_BAND(chspec);
-		if (sta_band == WLC_BAND_2G) {
-			if (parameter->freq_bands & (WLC_BAND_5G | WLC_BAND_6G)) {
-				/* Remove the 2g band from incoming ACS bands */
-				parameter->freq_bands &= ~WLC_BAND_2G;
-			} else if (wl_acs_check_scc(cfg, parameter, chspec, qty, pList)) {
-				scc_case = TRUE;
-			} else {
-				WL_ERR(("STA connected in 2G,"
-					" but no 2G channel available. Fail ACS\n"));
-				return -EINVAL;
-			}
-		} else if (sta_band == WLC_BAND_5G) {
-			if (is_chanspec_dfs(cfg, chspec) ||
-#ifdef WL_UNII4_CHAN
-				(CHSPEC_IS5G(chspec) &&
-				IS_UNII4_CHANNEL(wf_chspec_primary20_chan(chspec))) ||
-#endif /* WL_UNII4_CHAN */
-				FALSE) {
-				/*
-				 * If STA is in DFS/UNII4 channel,
-				 * check for 2G availability in ACS list
-				 */
-				if (!(parameter->freq_bands & WLC_BAND_2G)) {
-					WL_ERR(("STA connected in 5G DFS."
-						" but no 2G channel available. Fail ACS\n"));
-					return -EINVAL;
-				}
-				/* Remove the 5g/6g band from incoming ACS bands */
-				parameter->freq_bands &= ~(WLC_BAND_5G | WLC_BAND_6G);
-			} else if (wl_acs_check_scc(cfg, parameter, chspec, qty, pList)) {
-				scc_case = TRUE;
-			} else if (parameter->freq_bands & WLC_BAND_2G) {
-				parameter->freq_bands = WLC_BAND_2G;
-			} else {
-				WL_ERR(("STA connected in 5G %x, but no channel available "
-					"for ACS %x\n", chspec, parameter->freq_bands));
-				return -EINVAL;
-			}
-		} else if (sta_band == WLC_BAND_6G) {
-			if (wl_acs_check_scc(cfg, parameter, chspec, qty, pList)) {
-				scc_case = TRUE;
-			} else if (parameter->freq_bands & WLC_BAND_2G) {
-				parameter->freq_bands = WLC_BAND_2G;
-			} else {
-				 WL_ERR(("STA connected in 6G %x, but no channel available "
-				"for ACS %x\n", chspec, parameter->freq_bands));
-				 return -EINVAL;
-			}
+		switch (parameter->hw_mode) {
+			case HOSTAPD_MODE_IEEE80211B:
+				parameter->band = WLC_BAND_2G;
+				break;
+			case HOSTAPD_MODE_IEEE80211G:
+				parameter->band = WLC_BAND_2G;
+				break;
+			case HOSTAPD_MODE_IEEE80211A:
+				parameter->band = WLC_BAND_5G | WLC_BAND_6G;
+				break;
+			case HOSTAPD_MODE_IEEE80211ANY:
+				parameter->band = WLC_BAND_AUTO;
+				break;
+			case HOSTAPD_MODE_IEEE80211AD:
+				/* 802.11ad 60G is 'dead' and not supported */
+			default:
+				parameter->band = WLC_BAND_INVALID;
+				break;
+		}
+		WL_INFORM_MEM(("%s: hw_mode=%d, band=%d ht_enabled:%d vht_enabled:%d ch_width:%d "
+			"parameter->he_enabled = %d\n",
+			__FUNCTION__, parameter->hw_mode, parameter->band, parameter->ht_enabled,
+			parameter->vht_enabled, parameter->ch_width, parameter->he_enabled));
+		if (WLC_BAND_INVALID == parameter->band) {
+			ret = BCME_BADARG;
+			WL_ERR(("%s: *Error, hw_mode=%d based band invalid\n",
+			        __FUNCTION__, parameter->hw_mode));
+			break;
+		}
+
+		/* count memory requirement */
+		qty = chan_list_len + freq_list_len;
+		total = sizeof(uint32) * qty *
+		        (/* extra structure 'count' item */
+		           1 +
+		         /* maximum expand quantity of each channel: 20MHZ * 1, 40MHz * 2,
+			  * 80MHz * 4, 160MHz * 8
+			  */
+		         (1 + 2 + 4 + 8));
+		WL_TRACE(("%s: qty=%d+%d=%d, total=%d\n",
+		          __FUNCTION__, chan_list_len, freq_list_len, qty, total));
+
+		if (total <= 0) {
+			ret = BCME_BADARG;
+			WL_ERR(("%s: *Error, total number (%d) is invalid\n",
+					__FUNCTION__, total));
+			break;
+		}
+		pReq = MALLOCZ(cfg->osh, total);
+		if (!pReq) {
+			WL_ERR(("%s: *Error, no memory for %d bytes\n", __FUNCTION__, total));
+			ret = BCME_NOMEM;
+			break;
 		} else {
-			WL_ERR(("Invalid sta band. Fail ACS\n"));
-			return -EINVAL;
+			memset_s(pReq, total, 0, total);
+			pReq->count = req_len = 0;
+			pList = pReq->element;
 		}
 
-		if (!scc_case) {
-			WL_INFORM_MEM(("sta_band:%d chanspec:0x%x."
-					" Attempt rsdb ACS for band/s:0x%x\n",
-					sta_band, chspec, parameter->freq_bands));
+#ifdef WL_ACS_CHANLIST
+		/* process 'ch_list' for select list */
+		pElem_chan = (unsigned char *)nla_data(pChanList);
+		if (pElem_chan) {
+			/* Applicable only for 2g or 5g band */
+			if ((parameter->band == WLC_BAND_AUTO) ||
+					(parameter->band == WLC_BAND_INVALID)) {
+				WL_ERR(("chanlist not applicable for band:%d\n",
+					parameter->band));
+				break;
+			}
+			for (i = 0; i < chan_list_len; i++) {
+				/* TODO chanspec needs to be created */
+				chanspec = pElem_chan[i];
+				wl_cfgscan_acs_parse_parameter(&req_len, pList,
+					chanspec, parameter);
+			}
 		}
-	}
-	return BCME_OK;
+		WL_TRACE(("%s: list_len=%d after ch_list\n", __FUNCTION__, req_len));
+#endif /* WL_ACS_CHANLIST */
+
+		/* process 'freq_list' */
+		pElem_freq = (unsigned int *)nla_data(pFreqList);
+		if (pElem_freq) {
+			ret = wl_convert_freqlist_to_chspeclist(cfg, pElem_freq, freq_list_len,
+					&req_len, pList, parameter);
+			if (ret) {
+				WL_ERR(("Freq conversion failed!\n"));
+				break;
+			}
+		}
+		WL_TRACE(("%s: list_len=%d after freq_list\n", __FUNCTION__, req_len));
+
+		pReq->count = req_len;
+		req_len = pReq->count * (sizeof(pReq->element[0]));
+
+		WL_DBG(("%s: set pReq->count=0x%X, with req_len=%d\n",
+		          __FUNCTION__, pReq->count, req_len));
+		ret = wl_cfgscan_acs_do_apcs(net, parameter->band, &ch_chosen, total,
+				(unsigned char *)pReq, pReq->count, pList);
+		WL_DBG(("%s: do acs ret=%d, ch_chosen=(0x%X)\n",
+		          __FUNCTION__, ret, ch_chosen));
+		if (ret >= 0) {
+			delay_work_acs.ndev = net;
+			delay_work_acs.ch_chosen = ch_chosen;
+			if (delayed_work_pending(&delay_work_acs.acs_delay_work)) {
+				cancel_delayed_work(&delay_work_acs.acs_delay_work);
+			}
+			WL_TRACE(("%s: schedule the acs result event send work\n", __FUNCTION__));
+			schedule_delayed_work(&delay_work_acs.acs_delay_work,
+			                      msecs_to_jiffies((const unsigned int)500));
+			ret = 0;
+		}
+
+		/* free and clean up */
+		if (NULL != pReq) {
+			WL_TRACE(("%s: free the pReq=0x%p with total=%d\n",
+			          __FUNCTION__, pReq, total));
+			MFREE(cfg->osh, pReq, total);
+		}
+	} while (0);
+	return ret;
 }
+#endif /* WL_SOFTAP_ACS */

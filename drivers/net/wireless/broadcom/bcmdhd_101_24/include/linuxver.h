@@ -349,13 +349,11 @@ static inline void *pci_alloc_consistent(struct pci_dev *hwdev, size_t size,
 	}
 	return ret;
 }
-
 static inline void pci_free_consistent(struct pci_dev *hwdev, size_t size,
                                        void *vaddr, dma_addr_t dma_handle)
 {
 	free_pages((unsigned long)vaddr, get_order(size));
 }
-
 #define pci_map_single(cookie, address, size, dir)	virt_to_bus(address)
 #define pci_unmap_single(cookie, address, size, dir)
 
@@ -464,7 +462,6 @@ static inline void tasklet_init(struct tasklet_struct *tasklet,
 	tasklet->routine = (void (*)(void *))func;
 	tasklet->data = (void *)data;
 }
-
 #define tasklet_kill(tasklet)	{ do {} while (0); }
 
 /* 2.4.x introduced del_timer_sync() */
@@ -621,20 +618,10 @@ typedef struct {
 /* requires  tsk_ctl_t tsk  argument, the caller's priv data is passed in owner ptr */
 /* note this macro assumes there may be only one context waiting on thread's completion */
 #ifdef DHD_DEBUG
-#ifndef CUSTOM_PREFIX
 #define DBG_THR(x) printk x
 #else
-extern char* osl_get_rtctime(void);
-#define DBG_THR_PREFIX "[%s]"CUSTOM_PREFIX, osl_get_rtctime()
-#define DBG_THR(x)	\
-do {	\
-	pr_cont(DBG_THR_PREFIX);	\
-	pr_cont x;			\
-} while (0)
-#endif /* !CUSTOM_PREFIX */
-#else
 #define DBG_THR(x)
-#endif /* DHD_DEBUG */
+#endif
 
 extern unsigned long osl_spin_lock(void *lock);
 extern void osl_spin_unlock(void *lock, unsigned long flags);
@@ -953,19 +940,5 @@ static inline void do_gettimeofday(struct timeval *tv)
 	tv->tv_usec = now.tv_nsec/1000;
 }
 #endif /* LINUX_VER >= 5.0 */
-
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0))
-#define GETFS_AND_SETFS_TO_KERNEL_DS(fs) \
-{ \
-	fs = get_fs(); \
-	set_fs(KERNEL_DS); \
-}
-
-#define SETFS(fs) set_fs(fs)
-#else
-/* From 5.10 kernel get/set_fs are obsolete and direct kernel_read/write operations can be used */
-#define GETFS_AND_SETFS_TO_KERNEL_DS(fs) BCM_REFERENCE(fs)
-#define SETFS(fs) BCM_REFERENCE(fs)
-#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0) */
 
 #endif /* _linuxver_h_ */

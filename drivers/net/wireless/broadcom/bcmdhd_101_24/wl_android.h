@@ -187,15 +187,3 @@ extern int wl_android_bcnrecv_event(struct net_device *ndev,
 #define WLC_ACS_BAND_INVALID	0xffffu
 #endif /* WL_SUPPORT_AUTO_CHANNEL */
 #define WL_PRIV_CMD_LEN 64
-#define CHECK_SCNPRINTF_RET_VAL(ret) \
-	{ \
-		if (ret < 0) { \
-				WL_ERR(("scnprintf failed %d\n", ret)); \
-				return BCME_ERROR; \
-		} \
-	}
-
-#if defined(CUSTOM_CONTROL_HE_6G_FEATURES)
-extern int wl_android_set_he_6g_band(struct net_device *dev, bool enable);
-#endif /* CUSTOM_CONTROL_HE_6G_FEATURES */
-extern int wl_android_rcroam_turn_on(struct net_device *dev, int rcroam_enab);

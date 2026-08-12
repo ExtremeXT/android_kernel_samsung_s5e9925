@@ -26,7 +26,6 @@
 #include <sbhnddma.h>
 #include <siutils.h>
 
-#define REV_GE_74(rev) (PCIECOREREV((rev)) >= 74)
 #define REV_GE_73(rev) (PCIECOREREV((rev)) >= 73)
 #define REV_GE_69(rev) (PCIECOREREV((rev)) >= 69)
 #define REV_GE_68(rev) (PCIECOREREV((rev)) >= 68)
@@ -389,9 +388,7 @@ typedef volatile struct sbpcieregs {
 			uint32		erraddr;		/* 0xA64 */
 			uint32		mbox_int;		/* 0xA68 */
 			uint32		fis_ctrl;		/* 0xA6C */
-			uint32		dar_gpio_dbg;		/* 0xA70 */
-			uint32		dar_sec_stat;		/* 0xA74 */
-			uint32		PAD[34];		/* 0xA78-0xAFF */
+			uint32		PAD[36];		/* 0xA70-0xAFF */
 		} dar_64;
 	} u1;
 	uint32		PAD[64];		/* 0xB00-0xBFF */
@@ -427,14 +424,6 @@ typedef volatile struct sbpcieregs {
 /* 10th and 11th 4KB BAR0 windows */
 #define PCIE_TER_BAR0_WIN	0xc50
 #define PCIE_TER_BAR0_WRAPPER	0xc54
-
-#define PCIE_TER_BAR0_WIN_DAR	0xa78
-#define PCIE_TER_BAR0_WRAPPER_DAR	0xa7c
-
-#define PCIE_TER_BAR0_WIN_REG(rev) \
-		REV_GE_74(rev) ? PCIE_TER_BAR0_WIN_DAR : PCIE_TER_BAR0_WIN
-#define PCIE_TER_BAR0_WRAPPER_REG(rev) \
-		REV_GE_74(rev) ? PCIE_TER_BAR0_WRAPPER_DAR : PCIE_TER_BAR0_WRAPPER
 
 /* PCI control */
 #define PCIE_RST_OE	0x01	/* When set, drives PCI_RESET out to pin */
@@ -1144,16 +1133,6 @@ typedef volatile struct sbpcieregs {
 #define DAR_PCIE_DAR_CTRL(rev)	(REV_GE_64(rev) ? \
 						OFFSETOF(sbpcieregs_t, u1.dar_64.dar_ctrl) : \
 						OFFSETOF(sbpcieregs_t, u1.dar.dar_ctrl))
-
-#define DAR_SEC_STATUS(rev)    OFFSETOF(sbpcieregs_t, u1.dar_64.dar_sec_stat)
-
-#define DAR_SEC_JTAG_MASK	0x1u
-#define DAR_SEC_SBOOT_MASK	0x2u
-#define DAR_SEC_SBOOT_SHIFT	1u
-#define DAR_SEC_ARM_DBG_MASK	0x4u
-#define DAR_SEC_ARM_DBG_SHIFT	2u
-#define DAR_SEC_UNLOCK_MASK	0x8u
-#define DAR_SEC_UNLOCK_SHIFT	3u
 
 #define DAR_FIS_CTRL(rev)      OFFSETOF(sbpcieregs_t, u1.dar_64.fis_ctrl)
 

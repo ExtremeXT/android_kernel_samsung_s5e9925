@@ -218,6 +218,7 @@ dhd_parse_board_information_bcm(dhd_bus_t *bus, int *boardtype,
 #define DEFAULT_CIDINFO_FOR_IPA		"r00a_e000_a0_iPA"
 #define DEFAULT_CIDINFO_FOR_A1		"r01a_e30a_a1"
 #define DEFAULT_CIDINFO_FOR_B0		"r01i_e32_b0"
+
 naming_info_t bcm4361_naming_table[] = {
 	{ {""}, {""}, {""} },
 	{ {"r00a_e000_a0_ePA"}, {"_a0_ePA"}, {"_a0_ePA"} },
@@ -282,10 +283,7 @@ naming_info_t bcm4389_naming_table[] = {
 	{ {"e53_es23"}, {"_ES10_semco_b0"}, {"_b0"} },
 	{ {"e53_es24"}, {"_ES20_semco_b0"}, {"_b0"} },
 	{ {"e53_es25"}, {"_ES21_semco_b0"}, {"_b0"} },
-	{ {"e58_es30"}, {"_ES30_semco_c0"}, {"_c0"} },
 	{ {"e53_es31"}, {"_ES30_semco_c0"}, {"_c0"} },
-	{ {"e53_es32"}, {"_ES32_semco_c0"}, {"_c0"} },
-	{ {"e53_es40"}, {"_ES40_semco_c1"}, {"_c1"} },
 	{ {"1wk_es21"}, {"_1wk_es21_b0"}, {"_b0"} },
 	{ {"1wk_es30"}, {"_1wk_es30_b0"}, {"_b0"} },
 	{ {"1wk_es31"}, {"_1wk_es31_b0"}, {"_b0"} },
@@ -293,21 +291,7 @@ naming_info_t bcm4389_naming_table[] = {
 	{ {"1wk_es40"}, {"_1wk_es40_c0"}, {"_c0"} },
 	{ {"1wk_es41"}, {"_1wk_es41_c0"}, {"_c0"} },
 	{ {"1wk_es42"}, {"_1wk_es42_c0"}, {"_c0"} },
-	{ {"1wk_es43"}, {"_1wk_es43_c0"}, {"_c0"} },
-	{ {"1wk_es50"}, {"_1wk_es50_c1"}, {"_c1"} },
-	{ {"1wk_es51"}, {"_1wk_es51_c1"}, {"_c1"} },
-	{ {"1wk_es60"}, {"_1wk_es60_c1"}, {"_c1"} },
-	{ {"1wk_es61"}, {"_1wk_es61_c1"}, {"_c1"} },
-	{ {"1wk_es10"}, {"_1wk_es10_c1"}, {"_c1"} },
-	{ {"1wk_es11"}, {"_1wk_es11_c1"}, {"_c1"} },
-	{ {"usi_es10"}, {"_ES10"}, {"_c0"} },
-	{ {"usi_es11"}, {"_ES11"}, {"_c0"} },
-	{ {"usi_es12"}, {"_ES12"}, {""} },
-	{ {"usi_es13"}, {"_ES13"}, {""} },
-	{ {"usi_es15"}, {"_ES15"}, {""} },
-	{ {"usi_es17"}, {"_ES17"}, {""} },
-	{ {"usi_es19"}, {"_ES19"}, {""} },
-	{ {"usi_es21"}, {"_ES21"}, {""} },
+	{ {"1wk_es43"}, {"_1wk_es43_c0"}, {"_c0"} }
 };
 
 /* select the NVRAM/FW tag naming table */
@@ -463,7 +447,7 @@ dhd_find_naming_info_by_chip_rev(dhd_pub_t *dhdp, bool *is_murata_fem)
 }
 #endif /* USE_CID_CHECK */
 #ifdef USE_DIRECT_VID_TAG
-int
+static int
 concate_nvram_by_vid(dhd_pub_t *dhdp, char *nv_path, char *chipstr)
 {
 	unsigned char vid[MAX_VID_LEN];
@@ -904,99 +888,6 @@ fail:
 	return ret;
 
 }
-
-#if defined(CONFIG_WIFI_BROADCOM_COB) && defined(BCM4389_CHIP_DEF)
-static int
-dhd_otp_packfn_hw_rgnstatus(void *ctx, uint8 *buf, uint16 *buflen)
-{
-	uint8 *pxtlv = buf;
-	int ret = BCME_OK;
-	uint16 len = *buflen;
-	uint8 rgnid = OTP_RGN_HW;
-
-	BCM_REFERENCE(ctx);
-
-	/* pack option <-r region> */
-	ret = bcm_pack_xtlv_entry(&pxtlv, &len, WL_OTP_XTLV_RGN, sizeof(rgnid),
-			&rgnid, BCM_XTLV_OPTION_ALIGN32);
-	if (ret != BCME_OK) {
-		DHD_ERROR(("%s: Failed pack xtlv entry of region: %d\n", __FUNCTION__, ret));
-		return ret;
-	}
-
-	*buflen = len;
-	return ret;
-}
-
-static int
-dhd_otp_packfn_hw_rgndump(void *ctx, uint8 *buf, uint16 *buflen)
-{
-	uint8 *pxtlv = buf;
-	int ret = BCME_OK;
-	uint16 len = *buflen, size = WLC_IOCTL_MAXLEN;
-	uint8 rgnid = OTP_RGN_HW;
-
-	/* pack option <-r region> */
-	ret = bcm_pack_xtlv_entry(&pxtlv, &len, WL_OTP_XTLV_RGN,
-			sizeof(rgnid), &rgnid, BCM_XTLV_OPTION_ALIGN32);
-	if (ret != BCME_OK) {
-		DHD_ERROR(("%s: Failed pack xtlv entry of region: %d\n", __FUNCTION__, ret));
-		goto fail;
-	}
-
-	/* pack option [-s size] */
-	ret = bcm_pack_xtlv_entry(&pxtlv, &len, WL_OTP_XTLV_SIZE,
-			sizeof(size), (uint8 *)&size, BCM_XTLV_OPTION_ALIGN32);
-	if (ret != BCME_OK) {
-		DHD_ERROR(("%s: Failed pack xtlv entry of size: %d\n", __FUNCTION__, ret));
-		goto fail;
-	}
-	*buflen = len;
-fail:
-	return ret;
-}
-
-int
-dhd_read_otp_hw_rgn(dhd_pub_t *dhdp)
-{
-	int ret = BCME_OK;
-	otp_rgn_rw_info_t rw_info;
-	otp_rgn_stat_info_t stat_info;
-
-	memset(&rw_info, 0, sizeof(rw_info));
-	memset(&stat_info, 0, sizeof(stat_info));
-
-	/* initialization */
-	otpinfo_val = -1;
-
-	ret = dhd_otp_get_iov_resp(dhdp, WL_OTP_CMD_RGNSTATUS, &stat_info,
-			dhd_otp_packfn_hw_rgnstatus, dhd_otp_cbfn_rgnstatus);
-	if (ret != BCME_OK) {
-		DHD_ERROR(("%s: otp region status failed, ret=%d\n", __FUNCTION__, ret));
-		goto fail;
-	}
-
-	rw_info.rgnsize = stat_info.rgnsize;
-	ret = dhd_otp_get_iov_resp(dhdp, WL_OTP_CMD_RGNDUMP, &rw_info,
-			dhd_otp_packfn_hw_rgndump, dhd_otp_cbfn_rgndump);
-	if (ret != BCME_OK) {
-		if (ret == BCME_NOTFOUND) {
-			otpinfo_val = 0;
-			DHD_ERROR(("%s: OTP not found otpinfo_val = %d \n",
-				__FUNCTION__, otpinfo_val));
-
-		}
-		DHD_ERROR(("%s: otp region dump failed, ret=%d\n", __FUNCTION__, ret));
-		goto fail;
-	}
-
-	otpinfo_val = 1;
-	DHD_INFO(("%s: OTP written otpinfo_val = %d\n", __FUNCTION__, otpinfo_val));
-fail:
-	return ret;
-
-}
-#endif /* CONFIG_WIFI_BROADCOM_COB && BCM4389_CHIP_DEF */
 
 #if defined(GET_MAC_FROM_OTP) || defined(USE_CID_CHECK)
 static tuple_entry_t*
@@ -1743,10 +1634,7 @@ vid_info_t vid_info[] = {
 	{ 3, { 0x23, 0x33, }, { "semco_sem_e53_es23" } },
 	{ 3, { 0x24, 0x33, }, { "semco_sem_e53_es24" } },
 	{ 3, { 0x25, 0x33, }, { "semco_sem_e53_es25" } },
-	{ 3, { 0x31, 0x38, }, { "semco_sem_e58_es30" } },
 	{ 3, { 0x31, 0x33, }, { "semco_sem_e53_es31" } },
-	{ 3, { 0x32, 0x33, }, { "semco_sem_e53_es32" } },
-	{ 3, { 0x40, 0x33, }, { "semco_sem_e53_es40" } },
 	{ 3, { 0x21, 0x22, }, { "murata_mur_1wk_es21" } },
 	{ 3, { 0x30, 0x22, }, { "murata_mur_1wk_es30" } },
 	{ 3, { 0x31, 0x22, }, { "murata_mur_1wk_es31" } },
@@ -1754,21 +1642,7 @@ vid_info_t vid_info[] = {
 	{ 3, { 0x40, 0x22, }, { "murata_mur_1wk_es40" } },
 	{ 3, { 0x41, 0x22, }, { "murata_mur_1wk_es41" } },
 	{ 3, { 0x42, 0x22, }, { "murata_mur_1wk_es42" } },
-	{ 3, { 0x43, 0x22, }, { "murata_mur_1wk_es43" } },
-	{ 3, { 0x50, 0x22, }, { "murata_mur_1wk_es50" } },
-	{ 3, { 0x51, 0x24, }, { "murata_mur_1wk_es51" } },
-	{ 3, { 0x60, 0x24, }, { "murata_mur_1wk_es60" } },
-	{ 3, { 0x61, 0x24, }, { "murata_mur_1wk_es61" } },
-	{ 3, { 0x10, 0x25, }, { "murata_mur_1wk_es10" } },
-	{ 3, { 0x11, 0x25, }, { "murata_mur_1wk_es11" } },
-	{ 3, { 0x10, 0x99, }, { "USI_WM_usi_es10" } },
-	{ 3, { 0x11, 0x99, }, { "USI_WM_usi_es11" } },
-	{ 3, { 0x12, 0x99, }, { "USI_WM_usi_es12" } },
-	{ 3, { 0x13, 0x99, }, { "USI_WM_usi_es13" } },
-	{ 3, { 0x15, 0x99, }, { "USI_WM_usi_es15" } },
-	{ 3, { 0x17, 0x99, }, { "USI_WM_usi_es17" } },
-	{ 3, { 0x19, 0x99, }, { "USI_WM_usi_es19" } },
-	{ 3, { 0x21, 0x99, }, { "USI_WM_usi_es21" } },
+	{ 3, { 0x43, 0x22, }, { "murata_mur_1wk_es43" } }
 #endif /* SUPPORT_MIXED_MODULES */
 };
 #else
@@ -1777,7 +1651,6 @@ vid_info_t vid_info[] = {
 };
 #endif /* BCM_CHIP_ID */
 
-uint32 cur_vid_info;
 /* CID managment functions */
 
 char *
@@ -1923,7 +1796,6 @@ write_cid:
 #else
 	strlcpy(cidinfostr, cid_info, MAX_VNAME_LEN);
 #endif /* DHD_EXPORT_CNTL_FILE */
-	memcpy_s(&cur_vid_info, sizeof(cur_vid_info), cur_info->vid, sizeof(cur_vid_info));
 
 	return ret;
 }

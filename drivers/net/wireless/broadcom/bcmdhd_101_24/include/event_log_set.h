@@ -74,9 +74,6 @@
 
 /* PHY preserve */
 #define EVENT_LOG_SET_PRSRV_PHY		(14u)
-/* PHY periodic */
-/* Use the newer name in future */
-#define EVENT_LOG_SET_PERIODIC_PHY	(14u)
 
 /* RTE entity */
 #define EVENT_LOG_SET_RTE		(15u)
@@ -123,15 +120,6 @@
 /* For PM alert related logging */
 #define EVENT_LOG_SET_WL_PS_LOG		(30u)
 
-/* For SIB co-ex logging */
-#define EVENT_LOG_SET_WL_SIB_LOG	(31u)
-
-/* For EWP HW Init logging */
-#define EVENT_LOG_SET_EWP_HW_INIT_LOG	(32u)
-
-//For all BCM HAL logging.
-#define EVENT_LOG_SET_BCMHAL		(38u)
-
 #ifndef NUM_EVENT_LOG_SETS
 /* Set a maximum number of sets here.  It is not dynamic for
  * efficiency of the EVENT_LOG calls. Old branches could define
@@ -140,9 +128,9 @@
  */
 #ifdef NUM_EVENT_LOG_SETS_V2
 /* for v2, everything has became unsigned */
-#define NUM_EVENT_LOG_SETS (39u)
+#define NUM_EVENT_LOG_SETS (31u)
 #else /* NUM_EVENT_LOG_SETS_V2 */
-#define NUM_EVENT_LOG_SETS (39)
+#define NUM_EVENT_LOG_SETS (31)
 #endif /* NUM_EVENT_LOG_SETS_V2 */
 #endif /* NUM_EVENT_LOG_SETS */
 

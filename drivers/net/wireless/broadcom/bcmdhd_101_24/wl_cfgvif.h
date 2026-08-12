@@ -73,13 +73,6 @@
 #define WL_HE_FEATURES_HE_P2P		0x20
 #define WL_HE_FEATURES_6G		0x80u
 
-/* LESS BROADCAST */
-#define APLB_BI_STEP	100u	/* Beacon Interval control step in TU */
-#define APLB_BI_MIN	1u	/* Beacon Interval Control MIN = 1 * 100 */
-#define APLB_BI_MAX	9u	/* Beacon Interval Control MAX = 9 * 100 */
-#define APLB_FD_NONE	0u	/* NO FILS DISCO frame TX */
-#define APLB_FD_FOREVER	255u	/* FD TX forever */
-
 extern bool wl_cfg80211_check_vif_in_use(struct net_device *ndev);
 
 extern int wl_cfg80211_set_mgmt_vndr_ies(struct bcm_cfg80211 *cfg,
@@ -123,11 +116,11 @@ void wl_cfg80211_init_ap_rps(struct bcm_cfg80211 *cfg);
 int wl_cfg80211_iface_count(struct net_device *dev);
 struct net_device* wl_get_ap_netdev(struct bcm_cfg80211 *cfg, char *ifname);
 void wl_cfg80211_cleanup_virtual_ifaces(struct bcm_cfg80211 *cfg, bool rtnl_lock_reqd);
-extern wl_iftype_t wl_cfg80211_get_sec_iface(struct bcm_cfg80211 *cfg);
 #ifdef WL_IFACE_MGMT
 extern int wl_cfg80211_set_iface_policy(struct net_device *ndev, char *arg, int len);
 extern uint8 wl_cfg80211_get_iface_policy(struct net_device *ndev);
 extern s32 wl_cfg80211_handle_if_role_conflict(struct bcm_cfg80211 *cfg, wl_iftype_t new_wl_iftype);
+extern wl_iftype_t wl_cfg80211_get_sec_iface(struct bcm_cfg80211 *cfg);
 #endif /* WL_IFACE_MGMT */
 
 extern s32 wl_get_vif_macaddr(struct bcm_cfg80211 *cfg, u16 wl_iftype, u8 *mac_addr);
@@ -247,24 +240,4 @@ extern bool wl_cfg80211_is_tdls_tunneled_frame(void *frame, u32 frame_len);
 #ifdef SUPPORT_AP_BWCTRL
 extern void wl_restore_ap_bw(struct bcm_cfg80211 *cfg);
 #endif /* SUPPORT_AP_BWCTRL */
-extern bool wl_is_sta_connected(struct bcm_cfg80211 *cfg);
-extern void wl_cfgvif_roam_config(struct bcm_cfg80211 *cfg, struct net_device *dev,
-		wl_roam_conf_t state);
-#ifdef SUPPORT_AP_INIT_BWCONF
-extern uint32
-wl_get_configured_ap_bw(dhd_pub_t *dhdp);
-extern uint32
-wl_update_configured_bw(uint32 bw);
-#endif /* SUPPORT_AP_INIT_BWCONF */
-extern uint32 wl_cfgvif_get_iftype_count(struct bcm_cfg80211 *cfg, wl_iftype_t iftype);
-
-#if defined(LIMIT_AP_BW)
-uint32 wl_cfg80211_get_ap_bw_limit_bit(struct bcm_cfg80211 *cfg, uint32 band);
-chanspec_t wl_cfg80211_get_ap_bw_limited_chspec(struct bcm_cfg80211 *cfg,
-	uint32 band, chanspec_t candidate);
-int wl_cfg80211_set_softap_bw(struct bcm_cfg80211 *cfg, uint32 band, uint32 limit);
-#endif /* LIMIT_AP_BW */
-#if defined(AP_LESS_BCAST)
-int wl_cfg80211_set_softap_less_bcast(struct bcm_cfg80211 *cfg, char *ifname, int enable);
-#endif /* AP_LESS_BCAST */
 #endif /* _wl_cfgvif_h_ */

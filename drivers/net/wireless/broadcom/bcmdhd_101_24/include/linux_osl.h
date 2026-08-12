@@ -28,6 +28,12 @@
 #define DECLSPEC_ALIGN(x)	__attribute__ ((aligned(x)))
 
 /* Linux Kernel: File Operations: start */
+#ifdef DHD_SUPPORT_VFS_CALL
+extern void * osl_os_open_image(char * filename);
+extern void osl_os_close_image(void * image);
+extern int osl_os_get_image_block(char * buf, int len, void * image);
+extern int osl_os_image_size(void *image);
+#else
 static INLINE void * osl_os_open_image(char * filename)
 	{ return NULL; }
 static INLINE void osl_os_close_image(void * image)
@@ -36,6 +42,7 @@ static INLINE int osl_os_get_image_block(char * buf, int len, void * image)
 	{ return 0; }
 static INLINE int osl_os_image_size(void *image)
 	{ return 0; }
+#endif /* DHD_SUPPORT_VFS_CALL */
 /* Linux Kernel: File Operations: end */
 
 #ifdef BCMDRIVER
@@ -156,21 +163,17 @@ extern bool osl_is_flag_set(osl_t *osh, uint32 mask);
 	#define MFREE(osh, addr, size) ({osl_mfree((osh), ((void *)addr), (size));(addr) = NULL;})
 	#define VMALLOC(osh, size)	osl_vmalloc((osh), (size))
 	#define VMALLOCZ(osh, size)	osl_vmallocz((osh), (size))
-	#define VMFREE(osh, addr, size)	({osl_vmfree((osh), ((void *)addr), (size));(addr) = NULL;})
+	#define VMFREE(osh, addr, size)	osl_vmfree((osh), (addr), (size))
 	#define MALLOCED(osh)		osl_malloced((osh))
 	#define MEMORY_LEFTOVER(osh) osl_check_memleak(osh)
+	extern void *osl_malloc(osl_t *osh, uint size);
+	extern void *osl_mallocz(osl_t *osh, uint size);
+	extern void osl_mfree(osl_t *osh, void *addr, uint size);
 	extern void *osl_vmalloc(osl_t *osh, uint size);
 	extern void *osl_vmallocz(osl_t *osh, uint size);
 	extern void osl_vmfree(osl_t *osh, void *addr, uint size);
 	extern uint osl_malloced(osl_t *osh);
 	extern uint osl_check_memleak(osl_t *osh);
-
-extern void *osl_malloc(osl_t *osh, uint size);
-extern void *osl_mallocz(osl_t *osh, uint size);
-extern void osl_mfree(osl_t *osh, void *addr, uint size);
-#define MALLOC_NODBG(osh, size)		osl_malloc((osh), (size))
-#define MALLOCZ_NODBG(osh, size)	osl_mallocz((osh), (size))
-#define MFREE_NODBG(osh, addr, size)	({osl_mfree((osh), ((void *)addr), (size));(addr) = NULL;})
 
 extern int memcpy_s(void *dest, size_t destsz, const void *src, size_t n);
 extern int memset_s(void *dest, size_t destsz, int c, size_t n);
@@ -194,12 +197,10 @@ extern void *osl_dma_alloc_consistent(osl_t *osh, uint size, uint16 align,
 	uint *tot, dmaaddr_t *pap);
 extern void osl_dma_free_consistent(osl_t *osh, void *va, uint size, dmaaddr_t pa);
 
-/* map/unmap direction, refer enum dma_data_direction */
-#include <linux/dma-direction.h>
-#define DMA_RXTX	DMA_BIDIRECTIONAL	/* 0, Bidirectional DMA */
-#define DMA_TX		DMA_TO_DEVICE		/* 1, TX direction for DMA */
-#define DMA_RX		DMA_FROM_DEVICE		/* 2, RX direction for DMA */
-#define DMA_NO		DMA_NONE		/* 3, Used to skip cache op */
+/* map/unmap direction */
+#define DMA_NO	0	/* Used to skip cache op */
+#define	DMA_TX	1	/* TX direction for DMA */
+#define	DMA_RX	2	/* RX direction for DMA */
 
 /* map/unmap shared (dma-able) memory */
 #define	DMA_UNMAP(osh, pa, size, direction, p, dmah) \
@@ -279,8 +280,8 @@ extern void osl_bpt_rreg(osl_t *osh, ulong addr, volatile void *v, uint size);
 	#define SELECT_BUS_READ(osh, mmap_op, bus_op) ({BCM_REFERENCE(osh); bus_op;})
 #else /* !AXI_TIMEOUTS_NIC */
 #if defined(BCMSDIO)
-	#define SELECT_BUS_WRITE(osh, mmap_op, bus_op) (((osl_pubinfo_t*)(osh))->mmbus) ? \
-		mmap_op : bus_op
+	#define SELECT_BUS_WRITE(osh, mmap_op, bus_op) if (((osl_pubinfo_t*)(osh))->mmbus) \
+		mmap_op else bus_op
 	#define SELECT_BUS_READ(osh, mmap_op, bus_op) (((osl_pubinfo_t*)(osh))->mmbus) ? \
 		mmap_op : bus_op
 #else
@@ -310,15 +311,10 @@ extern uint64 osl_sysuptime_us(void);
 extern uint64 osl_localtime_ns(void);
 extern void osl_get_localtime(uint64 *sec, uint64 *usec);
 extern uint64 osl_systztime_us(void);
-extern char* osl_get_rtctime(void);
 #define OSL_LOCALTIME_NS()	osl_localtime_ns()
 #define OSL_GET_LOCALTIME(sec, usec)	osl_get_localtime((sec), (usec))
 #define OSL_SYSTZTIME_US()	osl_systztime_us()
-#define OSL_GET_RTCTIME()	osl_get_rtctime()
-/* RTC format %02d:%02d:%02d.%06lu, LEN including the trailing null space */
-#define RTC_TIME_BUF_LEN	16u
 #define	printf(fmt, args...)	printk(fmt , ## args)
-#define	vprintf(fmt, ap)	vprintk(fmt, ap)
 #include <linux/kernel.h>	/* for vsn/printf's */
 #include <linux/string.h>	/* for mem*, str* */
 /* bcopy's: Linux kernel doesn't provide these (anymore) */
@@ -328,6 +324,14 @@ extern char* osl_get_rtctime(void);
 #define	bcopy(src, dst, len)	memcpy((dst), (src), (len))
 #define	bcmp(b1, b2, len)	memcmp((b1), (b2), (len))
 #define	bzero(b, len)		memset((b), '\0', (len))
+
+#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820) || \
+	defined(CONFIG_SOC_EXYNOS9830) || defined(CONFIG_SOC_GS101)
+extern int pcie_ch_num;
+extern int exynos_pcie_l1_exit(int ch_num);
+#endif /* CONFIG_SOC_EXYNOS9810 || CONFIG_SOC_EXYNOS9820
+	* CONFIG_SOC_EXYNOS9830 || CONFIG_SOC_GS101
+	*/
 
 /* register access macros */
 
@@ -350,15 +354,15 @@ extern uint64 regs_addr;
 #define DUMP_W_REG_OFFSET(r, v)
 #endif /* DHD_DEBUG_REG_DUMP */
 
-extern void dhd_plat_l1_exit_io(void);
-
 #ifdef CONFIG_64BIT
 /* readq is defined only for 64 bit platform */
+#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820) || \
+	defined(CONFIG_SOC_EXYNOS9830) || defined(CONFIG_SOC_GS101)
 #define R_REG(osh, r) (\
 	SELECT_BUS_READ(osh, \
 		({ \
 			__typeof(*(r)) __osl_v = 0; \
-			dhd_plat_l1_exit_io(); \
+			exynos_pcie_l1_exit(pcie_ch_num); \
 			BCM_REFERENCE(osh);	\
 			switch (sizeof(*(r))) { \
 				case sizeof(uint8):	__osl_v = \
@@ -374,6 +378,30 @@ extern void dhd_plat_l1_exit_io(void);
 		}), \
 		OSL_READ_REG(osh, r)) \
 )
+#else
+#define R_REG(osh, r) (\
+	SELECT_BUS_READ(osh, \
+		({ \
+			__typeof(*(r)) __osl_v = 0; \
+			DUMP_R_REG_OFFSET(r); \
+			BCM_REFERENCE(osh);	\
+			switch (sizeof(*(r))) { \
+				case sizeof(uint8):	__osl_v = \
+					readb((volatile uint8*)(r)); break; \
+				case sizeof(uint16):	__osl_v = \
+					readw((volatile uint16*)(r)); break; \
+				case sizeof(uint32):	__osl_v = \
+					readl((volatile uint32*)(r)); break; \
+				case sizeof(uint64):	__osl_v = \
+					readq((volatile uint64*)(r)); break; \
+			} \
+			__osl_v; \
+		}), \
+		OSL_READ_REG(osh, r)) \
+)
+#endif /* CONFIG_SOC_EXYNOS9810 || CONFIG_SOC_EXYNOS9820
+	* CONFIG_SOC_EXYNOS9830 || CONFIG_SOC_GS101
+	*/
 #else /* !CONFIG_64BIT */
 #define R_REG(osh, r) (\
 	SELECT_BUS_READ(osh, \
@@ -395,10 +423,12 @@ extern void dhd_plat_l1_exit_io(void);
 
 #ifdef CONFIG_64BIT
 /* writeq is defined only for 64 bit platform */
+#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820) || \
+	defined(CONFIG_SOC_EXYNOS9830) || defined(CONFIG_SOC_GS101)
 #define W_REG(osh, r, v) do { \
 	SELECT_BUS_WRITE(osh, \
 		({ \
-			dhd_plat_l1_exit_io(); \
+			exynos_pcie_l1_exit(pcie_ch_num); \
 			switch (sizeof(*(r))) { \
 				case sizeof(uint8):	writeb((uint8)(v), \
 						(volatile uint8*)(r)); break; \
@@ -412,6 +442,21 @@ extern void dhd_plat_l1_exit_io(void);
 		 }), \
 		(OSL_WRITE_REG(osh, r, v))); \
 	} while (0)
+#else
+#define W_REG(osh, r, v) do { \
+	DUMP_W_REG_OFFSET(r, v); \
+	SELECT_BUS_WRITE(osh, \
+		switch (sizeof(*(r))) { \
+			case sizeof(uint8):	writeb((uint8)(v), (volatile uint8*)(r)); break; \
+			case sizeof(uint16):	writew((uint16)(v), (volatile uint16*)(r)); break; \
+			case sizeof(uint32):	writel((uint32)(v), (volatile uint32*)(r)); break; \
+			case sizeof(uint64):	writeq((uint64)(v), (volatile uint64*)(r)); break; \
+		}, \
+		(OSL_WRITE_REG(osh, r, v))); \
+	} while (0)
+#endif /* CONFIG_SOC_EXYNOS9810 || CONFIG_SOC_EXYNOS9820
+	* CONFIG_SOC_EXYNOS9830 || CONFIG_SOC_GS101
+	*/
 #else /* !CONFIG_64BIT */
 #define W_REG(osh, r, v) do { \
 	SELECT_BUS_WRITE(osh, \
@@ -449,18 +494,9 @@ extern void dhd_plat_l1_exit_io(void);
 /* dereference an address that may cause a bus exception */
 #define	BUSPROBE(val, addr)	({ (val) = R_REG(NULL, (addr)); 0; })
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25)
-/* 'ioremap_nocache' was deprecated in kernels >= 5.6, so instead we use 'ioremap' which
- * is no-cache by default since kernels 2.6.25.
- */
-#define IOREMAP_NO_CACHE(address, size) ioremap(address, size)
-#else /* KERNEL_VERSION < 2.6.25 */
-#define IOREMAP_NO_CACHE(address, size) ioremap_nocache(address, size)
-#endif
-
 /* map/unmap physical to virtual I/O */
 #if !defined(CONFIG_MMC_MSM7X00A)
-#define	REG_MAP(pa, size)	IOREMAP_NO_CACHE((unsigned long)(pa), (unsigned long)(size))
+#define	REG_MAP(pa, size)	ioremap_nocache((unsigned long)(pa), (unsigned long)(size))
 #else
 #define REG_MAP(pa, size)       (void *)(0)
 #endif /* !defined(CONFIG_MMC_MSM7X00A */
@@ -564,18 +600,4 @@ extern void *osl_mutex_lock_init(osl_t *osh);
 extern void osl_mutex_lock_deinit(osl_t *osh, void *lock);
 extern unsigned long osl_mutex_lock(void *lock);
 void osl_mutex_unlock(void *lock, unsigned long flags);
-
-#ifndef CUSTOM_PREFIX
-#define OSL_PRINT(args)	\
-do {			\
-	pr_cont args;	\
-} while (0)
-#else
-#define OSL_PRINT_PREFIX "[%s]"CUSTOM_PREFIX, OSL_GET_RTCTIME()
-#define OSL_PRINT(args)			\
-do {					\
-	pr_cont(OSL_PRINT_PREFIX);	\
-	pr_cont args;			\
-} while (0)
-#endif /* CUSTOM_PREFIX */
 #endif	/* _linux_osl_h_ */

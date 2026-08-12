@@ -47,17 +47,7 @@ static const char *head_log = "";
 		} \
 	} while (0)
 
-#if defined(CUSTOM_PREFIX)
-#define MSCH_EVENT(args) \
-do {	\
-	if (dhd_msg_level & DHD_EVENT_VAL) {	\
-		DBG_PRINT_SYSTEM_TIME;  \
-		pr_cont args;	\
-	}	\
-} while (0)
-#else
 #define MSCH_EVENT(args) do {if (dhd_msg_level & DHD_EVENT_VAL) printf args;} while (0)
-#endif
 
 static uint64 solt_start_time[4], req_start_time[4], profiler_start_time[4];
 static uint32 solt_chanspec[4] = {0, }, req_start[4] = {0, };

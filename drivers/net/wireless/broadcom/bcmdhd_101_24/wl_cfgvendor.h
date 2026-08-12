@@ -161,34 +161,6 @@ typedef enum {
 	ANDROID_NL80211_SUBCMD_MITIGATION_RANGE_START = 0x1920,
 	ANDROID_NL80211_SUBCMD_MITIGATION_RANGE_END =	0x192F,
 
-	/* define all customer related setting command between 0x2000 and 0x20FF */
-	ANDROID_NL80211_SUBCMD_CUSTOM_SETTING_START =	0x2000,
-	ANDROID_NL80211_SUBCMD_CUSTOM_SETTING_END   =	0x20FF,
-
-	/* define all Channel Avoidance related commands between 0x2100 and 0x211F */
-	ANDROID_NL80211_SUBCMD_CELL_AVOID_RANGE_START =	0x2100,
-	ANDROID_NL80211_SUBCMD_CELL_AVOID_RANGE_END   =	0x211F,
-
-	/* define all OTA Download related commands between 0x2120 and 0x212F */
-	ANDROID_NL80211_SUBCMD_OTA_DOWNLOAD_START	= 0x2120,
-	ANDROID_NL80211_SUBCMD_OTA_DOWNLOAD_END		= 0x212F,
-
-	/* define all VOIP mode config related commands between 0x2130 and 0x213F */
-	ANDROID_NL80211_SUBCMD_VIOP_MODE_START	=	0x2130,
-	ANDROID_NL80211_SUBCMD_VIOP_MODE_END	=	0x213F,
-
-	/* define all TWT related commands between 0x2140 and 0x214F */
-	ANDROID_NL80211_SUBCMD_TWT_START	=	0x2140,
-	ANDROID_NL80211_SUBCMD_TWT_END		=	0x214F,
-
-	/* define all Usable Channel related commands between 0x2150 and 0x215F */
-	ANDROID_NL80211_SUBCMD_USABLE_CHAN_RANGE_START = 0x2150,
-	ANDROID_NL80211_SUBCMD_USABLE_CHAN_RANGE_END   = 0x215F,
-
-	/* define all init/deinit related commands between 0x2160 and 0x216F */
-	ANDROID_NL80211_SUBCMD_INIT_DEINIT_RANGE_START = 0x2160,
-	ANDROID_NL80211_SUBCMD_INIT_DEINIT_RANGE_END   = 0x216F,
-
 	/* This is reserved for future usage */
 
 } ANDROID_VENDOR_SUB_COMMAND;
@@ -223,15 +195,6 @@ enum andr_vendor_subcmd {
 	WIFI_SUBCMD_FW_ROAM_POLICY,
 	WIFI_SUBCMD_ROAM_CAPABILITY,
 	WIFI_SUBCMD_SET_LATENCY_MODE,
-	WIFI_SUBCMD_SET_MULTISTA_PRIMARY_CONNECTION,
-	WIFI_SUBCMD_SET_MULTISTA_USE_CASE,
-	WIFI_SUBCMD_SET_DTIM_CONFIG,
-	ANDR_TWT_SUBCMD_GET_CAP = ANDROID_NL80211_SUBCMD_TWT_START,
-	ANDR_TWT_SUBCMD_SETUP,
-	ANDR_TWT_SUBCMD_TEARDOWN,
-	ANDR_TWT_SUBCMD_INFO_FRAME,
-	ANDR_TWT_SUBCMD_GET_STATS,
-	ANDR_TWT_SUBCMD_CLR_STATS,
 	RTT_SUBCMD_SET_CONFIG = ANDROID_NL80211_SUBCMD_RTT_RANGE_START,
 	RTT_SUBCMD_CANCEL_CONFIG,
 	RTT_SUBCMD_GETCAPABILITY,
@@ -289,14 +252,6 @@ enum andr_vendor_subcmd {
 	APF_SUBCMD_READ_FILTER_DATA,
 	WIFI_SUBCMD_TX_POWER_SCENARIO = ANDROID_NL80211_SUBCMD_TX_POWER_RANGE_START,
 	WIFI_SUBCMD_THERMAL_MITIGATION = ANDROID_NL80211_SUBCMD_MITIGATION_RANGE_START,
-	WIFI_SUBCMD_CUSTOM_MAPPING_OF_DSCP = ANDROID_NL80211_SUBCMD_CUSTOM_SETTING_START,
-	WIFI_SUBCMD_CUSTOM_MAPPING_OF_DSCP_RESET,
-	WIFI_SUBCMD_CELL_AVOID_SUBCMD_SET_CONFIG = ANDROID_NL80211_SUBCMD_CELL_AVOID_RANGE_START,
-	WIFI_SUBCMD_CONFIG_VOIP_MODE = ANDROID_NL80211_SUBCMD_VIOP_MODE_START,
-	WIFI_SUBCMD_GET_OTA_CURRUNT_INFO = ANDROID_NL80211_SUBCMD_OTA_DOWNLOAD_START,
-	WIFI_SUBCMD_OTA_UPDATE,
-	WIFI_SUBCMD_USABLE_CHAN = ANDROID_NL80211_SUBCMD_USABLE_CHAN_RANGE_START,
-	WIFI_SUBCMD_TRIGGER_SSR = ANDROID_NL80211_SUBCMD_INIT_DEINIT_RANGE_START,
 	/* Add more sub commands here */
 	VENDOR_SUBCMD_MAX
 };
@@ -547,9 +502,6 @@ typedef enum {
 	DUMP_FILENAME_ATTR_SDTC_ETB_DUMP = 39,
 	DUMP_LEN_ATTR_PKTID_MAP_LOG = 40,
 	DUMP_LEN_ATTR_PKTID_UNMAP_LOG = 41,
-	DUMP_LEN_ATTR_EWP_HW_INIT_LOG = 42,
-	DUMP_LEN_ATTR_EWP_HW_MOD_DUMP = 43,
-	DUMP_LEN_ATTR_EWP_HW_REG_DUMP = 44,
 	/* Please add new attributes from here to sync up old HAL */
 	DUMP_TYPE_ATTR_MAX
 } EWP_DUMP_EVENT_ATTRIBUTE;
@@ -584,9 +536,6 @@ typedef enum {
 	DUMP_BUF_ATTR_SDTC_ETB_DUMP = 25,
 	DUMP_BUF_ATTR_PKTID_MAP_LOG = 26,
 	DUMP_BUF_ATTR_PKTID_UNMAP_LOG = 27,
-	DUMP_BUF_ATTR_EWP_HW_INIT_LOG = 28,
-	DUMP_BUF_ATTR_EWP_HW_MOD_DUMP = 29,
-	DUMP_BUF_ATTR_EWP_HW_REG_DUMP = 30,
 	/* Please add new attributes from here to sync up old HAL */
 	DUMP_BUF_ATTR_MAX
 } EWP_DUMP_CMD_ATTRIBUTE;
@@ -602,42 +551,6 @@ enum mkeep_alive_attributes {
 	MKEEP_ALIVE_ATTRIBUTE_ETHER_TYPE	= 7,
 	MKEEP_ALIVE_ATTRIBUTE_MAX
 };
-
-enum custom_setting_attributes {
-	CUSTOM_SETTING_ATTRIBUTE_INVALID		= 0,
-	CUSTOM_SETTING_ATTRIBUTE_DSCP_START		= 1,
-	CUSTOM_SETTING_ATTRIBUTE_DSCP_END		= 2,
-	CUSTOM_SETTING_ATTRIBUTE_ACCESS_CATEGORY	= 3,
-	CUSTOM_SETTING_ATTRIBUTE_MAX
-};
-
-#ifdef WL_CELLULAR_CHAN_AVOID
-enum wifi_cellavoid_attributes {
-	CELLAVOID_ATTRIBUTE_INVALID   = 0,
-	CELLAVOID_ATTRIBUTE_CNT       = 1,
-	CELLAVOID_ATTRIBUTE_CONFIG    = 2,
-	CELLAVOID_ATTRIBUTE_BAND      = 3,
-	CELLAVOID_ATTRIBUTE_CHANNEL   = 4,
-	CELLAVOID_ATTRIBUTE_PWRCAP    = 5,
-	CELLAVOID_ATTRIBUTE_MANDATORY = 6,
-	/* Add more attributes here */
-	CELLAVOID_ATTRIBUTE_MAX
-};
-#endif /* WL_CELLULAR_CHAN_AVOID */
-
-#ifdef WL_USABLE_CHAN
-enum wifi_usable_channel_attributes {
-	USABLECHAN_ATTRIBUTE_INVALID	= 0,
-	USABLECHAN_ATTRIBUTE_BAND	= 1,
-	USABLECHAN_ATTRIBUTE_IFACE	= 2,
-	USABLECHAN_ATTRIBUTE_FILTER	= 3,
-	USABLECHAN_ATTRIBUTE_MAX_SIZE	= 4,
-	USABLECHAN_ATTRIBUTE_SIZE	= 5,
-	USABLECHAN_ATTRIBUTE_CHANNELS	= 6,
-	USABLECHAN_ATTRIBUTE_MAX
-};
-#endif /* WL_USABLE_CHAN */
-
 #ifdef TPUT_DEBUG_DUMP
 enum tput_debug_attributes {
 	DUMP_TPUT_DEBUG_ATTR_INVALID = 0,
@@ -699,30 +612,34 @@ typedef enum wl_vendor_event {
 	BRCM_VENDOR_EVENT_ACS			= 42,
 	BRCM_VENDOR_EVENT_TWT			= 43,
 	BRCM_VENDOR_EVENT_TPUT_DUMP		= 44,
-	GOOGLE_NAN_EVENT_MATCH_EXPIRY		= 45,
+	GOOGLE_NAN_EVENT_MATCH_EXPIRY           = 45,
 	BRCM_VENDOR_EVENT_RCC_FREQ_INFO		= 46,
-	BRCM_VENDOR_EVENT_CONNECTIVITY_LOG	= 47,
 	BRCM_VENDOR_EVENT_LAST
 } wl_vendor_event_t;
 
 enum andr_wifi_attr {
-	ANDR_WIFI_ATTRIBUTE_INVALID			= 0,
-	ANDR_WIFI_ATTRIBUTE_NUM_FEATURE_SET		= 1,
-	ANDR_WIFI_ATTRIBUTE_FEATURE_SET			= 2,
-	ANDR_WIFI_ATTRIBUTE_RANDOM_MAC_OUI		= 3,
-	ANDR_WIFI_ATTRIBUTE_NODFS_SET			= 4,
-	ANDR_WIFI_ATTRIBUTE_COUNTRY			= 5,
-	ANDR_WIFI_ATTRIBUTE_ND_OFFLOAD_VALUE		= 6,
-	ANDR_WIFI_ATTRIBUTE_TCPACK_SUP_VALUE		= 7,
-	ANDR_WIFI_ATTRIBUTE_LATENCY_MODE		= 8,
-	ANDR_WIFI_ATTRIBUTE_RANDOM_MAC			= 9,
-	ANDR_WIFI_ATTRIBUTE_TX_POWER_SCENARIO		= 10,
-	ANDR_WIFI_ATTRIBUTE_THERMAL_MITIGATION		= 11,
-	ANDR_WIFI_ATTRIBUTE_THERMAL_COMPLETION_WINDOW	= 12,
-	ANDR_WIFI_ATTRIBUTE_VOIP_MODE			= 13,
-	ANDR_WIFI_ATTRIBUTE_DTIM_MULTIPLIER		= 14,
+	ANDR_WIFI_ATTRIBUTE_NUM_FEATURE_SET,
+	ANDR_WIFI_ATTRIBUTE_FEATURE_SET,
+	ANDR_WIFI_ATTRIBUTE_RANDOM_MAC_OUI,
+	ANDR_WIFI_ATTRIBUTE_NODFS_SET,
+	ANDR_WIFI_ATTRIBUTE_COUNTRY,
+	ANDR_WIFI_ATTRIBUTE_ND_OFFLOAD_VALUE,
+	ANDR_WIFI_ATTRIBUTE_TCPACK_SUP_VALUE,
+	ANDR_WIFI_ATTRIBUTE_LATENCY_MODE,
+	ANDR_WIFI_ATTRIBUTE_RANDOM_MAC,
+	ANDR_WIFI_ATTRIBUTE_TX_POWER_SCENARIO,
+	ANDR_WIFI_ATTRIBUTE_THERMAL_MITIGATION,
+	ANDR_WIFI_ATTRIBUTE_THERMAL_COMPLETION_WINDOW,
 	/* Any new ANDR_WIFI attribute add prior to the ANDR_WIFI_ATTRIBUTE_MAX */
 	ANDR_WIFI_ATTRIBUTE_MAX
+};
+enum andr_wifi_stats_attr {
+	ANDR_WIFI_STATS_ATTRIBUTE_INVALID,
+	ANDR_WIFI_STATS_ATTRIBUTE_NUM_RADIO,
+	ANDR_WIFI_STATS_ATTRIBUTE_STATS_INFO,
+	ANDR_WIFI_STATS_ATTRIBUTE_ML_STATS_INFO,
+	/* Any new ANDR_WIFI_STATS attribute add prior to the ANDR_WIFI_STATS_ATTRIBUTE_MAX */
+	ANDR_WIFI_STATS_ATTRIBUTE_MAX
 };
 enum apf_attributes {
 	APF_ATTRIBUTE_VERSION,
@@ -876,84 +793,6 @@ typedef enum {
 #define DUTY_CYCLE_EMERGENCY	10u
 #endif /* WL_THERMAL_MITIGATION */
 
-#ifdef WL_TWT
-typedef enum {
-	WIFI_TWT_EVENT_SETUP	= 1,
-	WIFI_TWT_EVENT_TEARDOWN	= 2,
-	WIFI_TWT_EVENT_INFO_FRM	= 3,
-	WIFI_TWT_EVENT_NOTIFY	= 4
-} wifi_twt_sub_event;
-
-typedef enum {
-	WIFI_TWT_ATTR_NONE		= 0,
-	WIFI_TWT_ATTR_SUB_EVENT		= 1,
-	WIFI_TWT_ATTR_REASON_CODE	= 2,
-	WIFI_TWT_ATTR_STATUS		= 3,
-	WIFI_TWT_ATTR_SETUP_CMD		= 4,
-	WIFI_TWT_ATTR_FLOW_FLAGS	= 5,
-	WIFI_TWT_ATTR_FLOW_ID		= 6,
-	WIFI_TWT_ATTR_CHANNEL		= 7,
-	WIFI_TWT_ATTR_NEGOTIATION_TYPE	= 8,
-	WIFI_TWT_ATTR_WAKETIME_H	= 9,
-	WIFI_TWT_ATTR_WAKETIME_L	= 10,
-	WIFI_TWT_ATTR_WAKE_DURATION	= 11,
-	WIFI_TWT_ATTR_WAKE_INTERVAL	= 12,
-	WIFI_TWT_ATTR_BID		= 13,
-	WIFI_TWT_ATTR_ALLTWT		= 14,
-	WIFI_TWT_ATTR_NEXT_TWT_H	= 15,
-	WIFI_TWT_ATTR_NEXT_TWT_L	= 16,
-	WIFI_TWT_ATTR_CONFIG_ID		= 17,
-	WIFI_TWT_ATTR_NOTIFICATION	= 18,
-	WIFI_TWT_ATTR_FLOW_TYPE		= 19,
-	WIFI_TWT_ATTR_TRIGGER_TYPE	= 20,
-
-	WIFI_TWT_ATTR_MAX
-} wifi_twt_attribute;
-#endif /* WL_TWT */
-
-typedef enum {
-	/**
-	* Usage:
-	* - This will be sent down for make before break use-case.
-	* - Platform is trying to speculatively connect to a second network and evaluate it without
-	*   disrupting the primary connection.
-	*
-	* Requirements for Firmware:
-	* - Do not reduce the number of tx/rx chains of primary connection.
-	* - If using MCC, should set the MCC duty cycle of the primary connection to be higher than
-	*   the secondary connection (maybe 70/30 split).
-	* - Should pick the best BSSID for the secondary STA (disregard the chip mode)
-	*   independent of the primary STA:
-	* - Don't optimize for DBS vs MCC/SCC
-	* - Should not impact the primary connections bssid selection:
-	* - Don't downgrade chains of the existing primary connection.
-	* - Don't optimize for DBS vs MCC/SCC.
-	*/
-	WIFI_DUAL_STA_TRANSIENT_PREFER_PRIMARY = 0,
-	/**
-	* Usage:
-	* - This will be sent down for any app requested peer to peer connections.
-	* - In this case, both the connections needs to be allocated equal resources.
-	* - For the peer to peer use case, BSSID for the secondary connection will be chosen by the
-	*   framework.
-	*
-	* Requirements for Firmware:
-	* - Can choose MCC or DBS mode depending on the MCC efficiency and HW capability.
-	* - If using MCC, set the MCC duty cycle of the primary connection to be equal to the
-	*   secondary connection.
-	* - Prefer BSSID candidates which will help provide the best "overall" performance for
-	*   both the connections.
-	*/
-	WIFI_DUAL_STA_NON_TRANSIENT_UNBIASED = 1
-} wifi_multi_sta_use_case;
-
-enum wifi_multista_attr {
-    MULTISTA_ATTRIBUTE_PRIM_CONN_IFACE,
-    MULTISTA_ATTRIBUTE_USE_CASE,
-    /* Add more attributes here */
-    MULTISTA_ATTRIBUTE_MAX
-};
-
 #ifdef TPUT_DEBUG_DUMP
 typedef enum {
 	TPUT_DEBUG_ATTRIBUTE_CMD_STR = 0x0001,
@@ -962,64 +801,6 @@ typedef enum {
 	TPUT_DEBUG_ATTRIBUTE_MAX
 } TPUT_DEBUG_ATTRIBUTE;
 #endif /* TPUT_DEBUG_DUMP */
-
-#ifdef SUPPORT_OTA_UPDATE
-typedef enum {
-	OTA_DOWNLOAD_CLM_LENGTH_ATTR	= 0x0001,
-	OTA_DOWNLOAD_CLM_ATTR		= 0x0002,
-	OTA_DOWNLOAD_NVRAM_LENGTH_ATTR	= 0x0003,
-	OTA_DOWNLOAD_NVRAM_ATTR		= 0x0004,
-	OTA_SET_FORCE_REG_ON		= 0x0005,
-	OTA_CUR_NVRAM_EXT_ATTR		= 0x0006,
-	OTA_UPDATE_ATTRIBUTE_MAX
-} OTA_UPDATE_ATTRIBUTE;
-#endif /* SUPPORT_OTA_UPDATE */
-
-#ifdef WL_TWT_HAL_IF
-#define BRCM_TWT_HAL_VENDOR_EVENT_BUF_LEN   500
-
-typedef enum {
-	ANDR_TWT_ATTR_NONE		= 0,
-	ANDR_TWT_ATTR_CONFIG_ID		= 1,
-	ANDR_TWT_ATTR_NEGOTIATION_TYPE	= 2,
-	ANDR_TWT_ATTR_TRIGGER_TYPE	= 3,
-	ANDR_TWT_ATTR_WAKE_DURATION	= 4,
-	ANDR_TWT_ATTR_WAKE_INTERVAL	= 5,
-	ANDR_TWT_ATTR_WAKE_INTERVAL_MIN	= 6,
-	ANDR_TWT_ATTR_WAKE_INTERVAL_MAX	= 7,
-	ANDR_TWT_ATTR_WAKE_DURATION_MIN	= 8,
-	ANDR_TWT_ATTR_WAKE_DURATION_MAX	= 9,
-	ANDR_TWT_ATTR_AVG_PKT_SIZE	= 10,
-	ANDR_TWT_ATTR_AVG_PKT_NUM	= 11,
-	ANDR_TWT_ATTR_WAKETIME_OFFSET	= 12,
-	ANDR_TWT_ATTR_ALL_TWT		= 13,
-	ANDR_TWT_ATTR_RESUME_TIME	= 14,
-	ANDR_TWT_ATTR_AVG_EOSP_DUR	= 15,
-	ANDR_TWT_ATTR_EOSP_CNT		= 16,
-	ANDR_TWT_ATTR_NUM_SP		= 17,
-	ANDR_TWT_ATTR_DEVICE_CAP	= 18,
-	ANDR_TWT_ATTR_PEER_CAP		= 19,
-	ANDR_TWT_ATTR_STATUS		= 20,
-	ANDR_TWT_ATTR_REASON_CODE	= 21,
-	ANDR_TWT_ATTR_TWT_RESUMED	= 22,
-	ANDR_TWT_ATTR_TWT_NOTIFICATION	= 23,
-	ANDR_TWT_ATTR_SUB_EVENT		= 24,
-	ANDR_TWT_ATTR_NUM_PEER_STATS	= 25,
-	ANDR_TWT_ATTR_AVG_PKT_NUM_TX	= 26,
-	ANDR_TWT_ATTR_AVG_PKT_SIZE_TX	= 27,
-	ANDR_TWT_ATTR_AVG_PKT_NUM_RX	= 28,
-	ANDR_TWT_ATTR_AVG_PKT_SIZE_RX	= 29,
-	ANDR_TWT_ATTR_MAX
-} andr_twt_attribute;
-
-typedef enum {
-	ANDR_TWT_EVENT_SETUP	= 1,
-	ANDR_TWT_EVENT_TEARDOWN	= 2,
-	ANDR_TWT_EVENT_INFO_FRM	= 3,
-	ANDR_TWT_EVENT_NOTIFY	= 4
-} andr_twt_sub_event;
-#endif /* WL_TWT_HAL_IF */
-
 /* Capture the BRCM_VENDOR_SUBCMD_PRIV_STRINGS* here */
 #define BRCM_VENDOR_SCMD_CAPA	"cap"
 #define MEMDUMP_PATH_LEN	128
@@ -1054,15 +835,6 @@ int wl_cfgvendor_notify_supp_event_str(const char *evt_name, const char *fmt, ..
 #define SUPP_EVT_LOG(evt_name, fmt, ...) \
     wl_cfgvendor_notify_supp_event_str(evt_name, fmt, ##__VA_ARGS__);
 #define SUPP_EVENT(args) SUPP_EVT_LOG args
-
-#ifdef WL_CFGVENDOR_CUST_ADVLOG
-extern int wl_cfgvendor_send_supp_advlog(const char *fmt, ...);
-#define PRINT_SUPP_ADVLOG(fmt, ...) \
-	 wl_cfgvendor_send_supp_advlog(fmt, ##__VA_ARGS__);
-#define SUPP_ADVLOG(args) PRINT_SUPP_ADVLOG args;
-#else
-#define SUPP_ADVLOG(x)
-#endif /* WL_CFGVENDOR_CUST_ADVLOG */
 #else
 #define SUPP_LOG(x)
 #define SUPP_EVENT(x)
@@ -1140,6 +912,11 @@ int wl_cfgvendor_connect_params_handler(struct wiphy *wiphy, struct wireless_dev
 	const void  *data, int len);
 int wl_cfgvendor_start_ap_params_handler(struct wiphy *wiphy, struct wireless_dev *wdev,
 	const void  *data, int len);
+#ifdef WL_SOFTAP_ACS
+int
+wl_cfgscan_acs(struct wiphy *wiphy,
+        struct wireless_dev *wdev, const void *data, int len);
+#endif /* WL_SOFTAP_ACS */
 #ifdef WL_CFGVENDOR_SEND_ALERT_EVENT
 void wl_cfgvendor_send_alert_event(struct net_device *dev, uint32 reason);
 #endif /* WL_CFGVENDOR_SEND_ALERT_EVENT */
@@ -1149,10 +926,4 @@ void wl_cfgdbg_tput_debug_work(struct work_struct *work);
 int wl_cfgdbg_tput_debug_get_cmd(struct wiphy *wiphy,
 	struct wireless_dev *wdev, const void *data, int len);
 #endif /* TPUT_DEBUG_DUMP */
-extern int wl_cfgvendor_multista_set_primary_connection(struct wiphy *wiphy,
-	struct wireless_dev *wdev, const void  *data, int len);
-
-#ifdef WL_CFGVENDOR_CUST_ADVLOG
-void wl_cfgvendor_custom_advlog_roam_log(void *plog, uint32 armcycle);
-#endif /* WL_CFGVENDOR_CUST_ADVLOG */
 #endif /* _wl_cfgvendor_h_ */

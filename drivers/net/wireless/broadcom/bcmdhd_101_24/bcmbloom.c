@@ -32,7 +32,6 @@
 #else /* !BCMDRIVER */
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
 #ifndef ASSERT
 #define ASSERT(exp)
 #endif
@@ -70,7 +69,7 @@ bcm_bloom_create(bcm_bloom_alloc_t alloc_cb,
 		err = BCME_NOMEM;
 		goto done;
 	}
-	bzero(bp, sizeof(*bp));
+	memset(bp, 0, sizeof(*bp));
 
 	bp->cb_ctx = cb_ctx;
 	bp->max_hash = max_hash;
@@ -79,7 +78,7 @@ bcm_bloom_create(bcm_bloom_alloc_t alloc_cb,
 		err = BCME_NOMEM;
 		goto done;
 	}
-	bzero(bp->hash, sizeof(*bp->hash) * max_hash);
+	memset(bp->hash, 0, sizeof(*bp->hash) * max_hash);
 
 	if (filter_size > 0) {
 		bp->filter = (*alloc_cb)(cb_ctx, filter_size);
@@ -88,7 +87,7 @@ bcm_bloom_create(bcm_bloom_alloc_t alloc_cb,
 			goto done;
 		}
 		bp->filter_size = filter_size;
-		bzero(bp->filter, filter_size);
+		memset(bp->filter, 0, filter_size);
 	}
 
 	*bloom = bp;

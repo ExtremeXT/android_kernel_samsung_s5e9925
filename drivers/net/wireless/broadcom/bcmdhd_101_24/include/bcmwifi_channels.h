@@ -662,7 +662,7 @@ chanspec_t wf_create_320MHz_chspec(uint primary_channel, uint center_channel,
  * the center channel numbers for each frequency segment, and the band.
  */
 chanspec_t wf_create_8080MHz_chspec(uint primary_channel, uint chan0, uint chan1,
-	chanspec_band_t band);
+                                    chanspec_band_t band);
 
 /**
  * Returns the chanspec for an 160+160MHz channel given the primary 20MHz channel number,
@@ -733,11 +733,6 @@ chanspec_t wf_chspec_primary20_chspec(chanspec_t chspec);
  * Return the primary 40MHz chanspec for a 40MHz or wider channel
  */
 chanspec_t wf_chspec_primary40_chspec(chanspec_t chspec);
-
-/**
- * Return the chanspec band for a given frequency.
- */
-chanspec_band_t wf_mhz2chanspec_band(uint freq);
 
 /**
  * Return the channel number for a given frequency and base frequency

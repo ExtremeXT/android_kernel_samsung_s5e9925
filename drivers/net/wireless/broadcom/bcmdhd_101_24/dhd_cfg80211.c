@@ -52,6 +52,10 @@ static int dhd_dongle_up = FALSE;
 #include <brcm_nl80211.h>
 #include <dhd_cfg80211.h>
 
+#if !defined(PCIE_FULL_DONGLE) && defined(P2P_IF_STATE_EVENT_CTRL)
+#include <dhd_wlfc.h>
+#endif /* !PCIE_FULL_DONGLE & P2P_IF_STATE_EVENT_CTRL */
+
 static s32 wl_dongle_up(struct net_device *ndev);
 static s32 wl_dongle_down(struct net_device *ndev);
 
@@ -93,6 +97,10 @@ s32 dhd_cfg80211_set_p2p_info(struct bcm_cfg80211 *cfg, int val)
 	dhd_pub_t *dhd =  (dhd_pub_t *)(cfg->pub);
 	dhd->op_mode |= val;
 	WL_ERR(("Set : op_mode=0x%04x\n", dhd->op_mode));
+
+#if !defined(PCIE_FULL_DONGLE) && defined(P2P_IF_STATE_EVENT_CTRL)
+	dhd_reset_p2p_interface_event(dhd);
+#endif /* !PCIE_FULL_DONGLE & P2P_IF_STATE_EVENT_CTRL */
 
 	return 0;
 }
@@ -311,35 +319,3 @@ done:
 	DHD_OS_WAKE_UNLOCK(dhd);
 	return ret;
 }
-
-int
-dhd_set_wsec_info(dhd_pub_t *dhd, uint32 data, int tag)
-{
-	struct net_device *ndev;
-	uint32  wsec_info = data;
-	int ret = BCME_OK;
-
-	ndev = dhd_linux_get_primary_netdev(dhd);
-	if (!ndev) {
-		WL_ERR(("Cannot find primary netdev\n"));
-		return -ENODEV;
-	}
-	BCM_REFERENCE(wsec_info);
-#if defined(WL_CFG80211)
-	ret = wl_cfg80211_set_wsec_info(ndev, &wsec_info, sizeof(wsec_info), tag);
-	if (unlikely(ret)) {
-		WL_ERR(("Set wsec_info tag 0x%04x failed \n", tag));
-	}
-#endif /* WL_CFG80211 */
-
-	return ret;
-}
-
-#ifdef RPM_FAST_TRIGGER
-void
-dhd_trigger_rpm_fast(struct bcm_cfg80211 *cfg)
-{
-	dhd_pub_t *dhd = (dhd_pub_t *)cfg->pub;
-	dhdpcie_trigger_rpm_fast(dhd);
-}
-#endif /* RPM_FAST_TRIGGER */

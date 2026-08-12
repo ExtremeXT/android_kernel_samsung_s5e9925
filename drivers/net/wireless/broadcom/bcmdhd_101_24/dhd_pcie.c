@@ -39,7 +39,6 @@
 #include <hnd_debug.h>
 #include <sbchipc.h>
 #include <sbhndarm.h>
-#include <sbsysmem.h>
 #include <hnd_armtrap.h>
 #if defined(DHD_DEBUG)
 #include <hnd_cons.h>
@@ -52,17 +51,13 @@
 #include <dhd_proto.h>
 #include <dhd_dbg.h>
 #include <dhd_debug.h>
-#if defined(__linux__)
 #include <dhd_daemon.h>
-#include <dhd_plat.h>
-#endif /* __linux__ */
 #include <dhdioctl.h>
 #include <sdiovar.h>
 #include <bcmmsgbuf.h>
 #include <pcicfg.h>
 #include <dhd_pcie.h>
 #include <bcmpcie.h>
-#include <bcmutils.h>
 #include <bcmendian.h>
 #include <bcmstdlib_s.h>
 #ifdef DHDTCPACK_SUPPRESS
@@ -78,10 +73,9 @@
 #include <debugger.h>
 #endif /* DEBUGGER || DHD_DSCOPE */
 
-#include <dngl_rtlv.h>
 #if defined(FW_SIGNATURE)
-#include <bootrommem.h>
-#include <fwpkg_utils.h>
+#include <dngl_rtlv.h>
+#include <bcm_fwsign.h>
 #endif /* FW_SIGNATURE */
 
 #ifdef DNGL_AXI_ERROR_LOGGING
@@ -144,15 +138,8 @@
 #define DHD_RING_MEM_MEMBER_ADDR(bus, ringid, member) \
 	(bus)->ring_sh[ringid].ring_mem_addr + OFFSETOF(ring_mem_t, member)
 
-/* Mpu conntrol */
-#define MPU_REG(regs, reg)	(&((sysmemregs_t *)regs)->reg)
-#define BUS_MPU_ENABLE_MASK	0x1u
-#define BUS_MPU_ROM_PR_MASK	0x2u
-#define BUS_MPU_VEC_PR_MASK	0x4u
-#define BUS_MPU_LOCK_MASK	0x8u
-
 #if defined(SUPPORT_MULTIPLE_BOARD_REV)
-extern unsigned int system_rev;
+	extern unsigned int system_rev;
 #endif /* SUPPORT_MULTIPLE_BOARD_REV */
 
 #ifdef EWP_EDL
@@ -197,7 +184,6 @@ static int dhdpcie_download_firmware(dhd_bus_t *bus, osl_t *osh);
 
 #if defined(FW_SIGNATURE)
 static int dhdpcie_bus_download_fw_signature(dhd_bus_t *bus, bool *do_write);
-static int dhdpcie_bus_write_fw_signature(dhd_bus_t *bus);
 static int dhdpcie_bus_download_ram_bootloader(dhd_bus_t *bus);
 static int dhdpcie_bus_write_fws_status(dhd_bus_t *bus);
 static int dhdpcie_bus_write_fws_mem_info(dhd_bus_t *bus);
@@ -206,7 +192,6 @@ static int dhdpcie_download_rtlv_end(dhd_bus_t *bus);
 static int dhdpcie_bus_save_download_info(dhd_bus_t *bus, uint32 download_addr,
 	uint32 download_size, const char *signature_fname,
 	const char *bloader_fname, uint32 bloader_download_addr);
-static int dhdpcie_read_fwstatus(dhd_bus_t *bus, bl_verif_status_t *status);
 #endif /* FW_SIGNATURE */
 
 static int dhdpcie_bus_write_vars(dhd_bus_t *bus);
@@ -242,14 +227,6 @@ static uint64 dhdpcie_bus_rtcm64(dhd_bus_t *bus, ulong offset) __attribute__ ((u
 static void dhdpcie_bus_cfg_set_bar0_win(dhd_bus_t *bus, uint32 data);
 static void dhdpcie_bus_reg_unmap(osl_t *osh, volatile char *addr, int size);
 static int dhdpcie_cc_nvmshadow(dhd_bus_t *bus, struct bcmstrbuf *b);
-static void dhd_bus_dump_rxlat_info(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf);
-static void dhd_bus_dump_rxlat_histo(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf);
-static void dhd_bus_dump_txcpl_info(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf);
-static void dhd_bus_dump_mdring_info(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf);
-static bool dhd_bus_support_dar_sec_status(dhd_bus_t *bus);
-static int dhd_bus_security_info(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf);
-static int dhd_bus_sboot_disable(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf);
-static int dhd_bus_get_security_status(dhd_bus_t *bus, uint32 *status);
 static void dhdpcie_fw_trap(dhd_bus_t *bus);
 static void dhd_fillup_ring_sharedptr_info(dhd_bus_t *bus, ring_info_t *ring_info);
 static void dhdpcie_handle_mb_data(dhd_bus_t *bus);
@@ -263,12 +240,19 @@ static void dhd_bus_ds_trace(dhd_bus_t *bus, uint32 dsval, bool d2h);
 #ifdef DHD_MMIO_TRACE
 static void dhd_bus_mmio_trace(dhd_bus_t *bus, uint32 addr, uint32 value, bool set);
 #endif /* defined(DHD_MMIO_TRACE) */
+extern void dhd_dpc_kill(dhd_pub_t *dhdp);
 
 #ifdef IDLE_TX_FLOW_MGMT
 static void dhd_bus_check_idle_scan(dhd_bus_t *bus);
 static void dhd_bus_idle_scan(dhd_bus_t *bus);
 #endif /* IDLE_TX_FLOW_MGMT */
 
+#ifdef EXYNOS_PCIE_DEBUG
+extern void exynos_pcie_register_dump(int ch_num);
+#endif /* EXYNOS_PCIE_DEBUG */
+#ifdef PRINT_WAKEUP_GPIO_STATUS
+extern void exynos_pin_dbg_show(unsigned int pin, const char* str);
+#endif /* PRINT_WAKEUP_GPIO_STATUS */
 #if defined(DHD_H2D_LOG_TIME_SYNC)
 static void dhdpci_bus_rte_log_time_sync_poll(dhd_bus_t *bus);
 #endif /* DHD_H2D_LOG_TIME_SYNC */
@@ -291,23 +275,17 @@ static int dhdpcie_init_d11status(struct dhd_bus *bus);
 
 static int dhdpcie_wrt_rnd(struct dhd_bus *bus);
 
-#if !defined(DHD_FW_MEM_CORRUPTION) && defined(BCM4375_CHIP)
-#define NUM_PATTERNS 6
-#else
+#ifdef DHD_FW_MEM_CORRUPTION
 #define NUM_PATTERNS 2
-#endif /* !DHD_FW_MEM_CORRUPTION && BCM4375_CHIP */
+#else
+#define NUM_PATTERNS 6
+#endif /* DHD_FW_MEM_CORRUPTION */
 static bool dhd_bus_tcm_test(struct dhd_bus *bus);
 
 #if defined(FW_SIGNATURE)
 static int dhd_bus_dump_fws(dhd_bus_t *bus, struct bcmstrbuf *strbuf);
 #endif
 static void dhdpcie_pme_stat_clear(dhd_bus_t *bus);
-
-static int dhdpcie_download_rtlv(dhd_bus_t *bus, dngl_rtlv_type_t type, dngl_rtlv_len_t len,
-	uint8 *value);
-#if defined(SUPPORT_MULTIPLE_BOARD_REVISION)
-extern void concate_custom_board_revision(char *nv_path);
-#endif /* SUPPORT_MULTIPLE_BOARD_REVISION */
 
 /* IOVar table */
 enum {
@@ -347,16 +325,10 @@ enum {
 	IOV_INFORINGS,
 	IOV_H2D_PHASE,
 	IOV_H2D_ENABLE_TRAP_BADPHASE,
-	IOV_RING_SIZE_VER,
 	IOV_H2D_TXPOST_MAX_ITEM,
+#if defined(DHD_HTPUT_TUNABLES)
 	IOV_H2D_HTPUT_TXPOST_MAX_ITEM,
-	IOV_D2H_TXCPL_MAX_ITEM,
-	IOV_H2D_RXPOST_MAX_ITEM,
-	IOV_D2H_RXCPL_MAX_ITEM,
-	IOV_H2D_CTRLPOST_MAX_ITEM,
-	IOV_D2H_CTRLCPL_MAX_ITEM,
-	IOV_RX_BUF_BURST,
-	IOV_RX_BUFPOST_THRESHOLD,
+#endif /* DHD_HTPUT_TUNABLES */
 	IOV_TRAPDATA,
 	IOV_TRAPDATA_RAW,
 	IOV_CTO_PREVENTION,
@@ -389,17 +361,6 @@ enum {
 	IOV_EXTDTXS_IN_TXCPL,
 	IOV_HOSTRDY_AFTER_INIT,
 	IOV_HP2P_MF_ENABLE,
-
-	IOV_DONGLE_RXLAT_INFO,
-	IOV_DONGLE_RXLAT_HISTO,
-	IOV_DONGLE_TXCPL_INFO,
-	IOV_DONGLE_SEC_INFO,
-	IOV_DONGLE_SBOOT_DIS,
-	IOV_LPM_MODE,
-	IOV_MDRING_LINK,
-	IOV_MDRING_UNLINK,
-	IOV_MDRING_DUMP,
-
 	IOV_PCIE_LAST /**< unused IOVAR */
 };
 
@@ -441,16 +402,10 @@ const bcm_iovar_t dhdpcie_iovars[] = {
 	{"h2d_phase",   IOV_H2D_PHASE,    0, 0,      IOVT_UINT32,    0 },
 	{"force_trap_bad_h2d_phase", IOV_H2D_ENABLE_TRAP_BADPHASE,    0, 0,
 	IOVT_UINT32,    0 },
-	{"ring_size_ver",   IOV_RING_SIZE_VER,    0, 0,      IOVT_UINT32,    0 },
 	{"h2d_max_txpost",   IOV_H2D_TXPOST_MAX_ITEM,    0, 0,      IOVT_UINT32,    0 },
+#if defined(DHD_HTPUT_TUNABLES)
 	{"h2d_htput_max_txpost", IOV_H2D_HTPUT_TXPOST_MAX_ITEM,    0, 0,      IOVT_UINT32,    0 },
-	{"d2h_max_txcpl",   IOV_D2H_TXCPL_MAX_ITEM,    0, 0,      IOVT_UINT32,    0 },
-	{"h2d_max_rxpost",   IOV_H2D_RXPOST_MAX_ITEM,    0, 0,      IOVT_UINT32,    0 },
-	{"d2h_max_rxcpl",   IOV_D2H_RXCPL_MAX_ITEM,    0, 0,      IOVT_UINT32,    0 },
-	{"h2d_max_ctrlpost",   IOV_H2D_CTRLPOST_MAX_ITEM,    0, 0,      IOVT_UINT32,    0 },
-	{"d2h_max_ctrlcpl",   IOV_D2H_CTRLCPL_MAX_ITEM,    0, 0,      IOVT_UINT32,    0 },
-	{"rx_buf_burst",   IOV_RX_BUF_BURST,    0, 0,      IOVT_UINT32,    0 },
-	{"rx_bufpost_threshold",   IOV_RX_BUFPOST_THRESHOLD,    0, 0,      IOVT_UINT32,    0 },
+#endif /* DHD_HTPUT_TUNABLES */
 	{"trap_data",	IOV_TRAPDATA,	0, 0,	IOVT_BUFFER,	0 },
 	{"trap_data_raw",	IOV_TRAPDATA_RAW,	0, 0,	IOVT_BUFFER,	0 },
 	{"cto_prevention",	IOV_CTO_PREVENTION,	0, 0,	IOVT_UINT32,	0 },
@@ -479,27 +434,6 @@ const bcm_iovar_t dhdpcie_iovars[] = {
 	{"extdtxs_in_txcpl", IOV_EXTDTXS_IN_TXCPL,	0,	0, IOVT_UINT32,	0 },
 	{"hostrdy_after_init", IOV_HOSTRDY_AFTER_INIT,	0,	0, IOVT_UINT32,	0 },
 	{"hp2p_mf_enable", IOV_HP2P_MF_ENABLE,	0,	0, IOVT_UINT32,	0 },
-
-	{"dump_rxlat", IOV_DONGLE_RXLAT_INFO, 0, 0, IOVT_BUFFER,
-	sizeof(rx_cpl_history_t) * MAX_RXCPL_HISTORY + 128 },
-	{"dump_rxlat_hist", IOV_DONGLE_RXLAT_HISTO, 0, 0, IOVT_BUFFER,
-	(MAX_RX_LAT_PRIO * MAX_RX_LAT_HIST_BIN * 2) + 128 },
-	{"lpm_mode",	IOV_LPM_MODE,	0,      0,	IOVT_UINT32,	0 },
-
-	{"dump_txcpl", IOV_DONGLE_TXCPL_INFO, 0, 0, IOVT_BUFFER,
-	sizeof(tx_cpl_history_t) * MAX_TXCPL_HISTORY + 128 },
-
-	{"security_status", IOV_DONGLE_SEC_INFO, 0, 0, IOVT_BUFFER,
-	sizeof(tx_cpl_history_t) * MAX_TXCPL_HISTORY + 128 },
-
-	{"sboot_disable", IOV_DONGLE_SBOOT_DIS, 0, 0, IOVT_BUFFER,
-	sizeof(tx_cpl_history_t) * MAX_TXCPL_HISTORY + 128 },
-
-	{"mdring_link", IOV_MDRING_LINK,	0,	0, IOVT_UINT32,	0 },
-	{"mdring_unlink", IOV_MDRING_UNLINK,	0,	0, IOVT_UINT32,	0 },
-	{"dump_mdring", IOV_MDRING_DUMP,	0,	0, IOVT_BUFFER,
-	MAX_MDRING_ITEM_DUMP * D2HRING_MDCMPLT_ITEMSIZE },
-
 	{NULL, 0, 0, 0, 0, 0 }
 };
 
@@ -578,29 +512,25 @@ dhd_bus_db0_addr_get(struct dhd_bus *bus)
 	uint addr = PCIH2D_MailBox;
 	uint dar_addr = DAR_PCIH2D_DB0_0(bus->sih->buscorerev);
 
-	/* Note: For DAR doorbell registers, the values is invalid. */
 	return ((DAR_ACTIVE(bus->dhd)) ? dar_addr : addr);
 }
 
 static INLINE uint
 dhd_bus_db0_addr_2_get(struct dhd_bus *bus)
 {
-	/* Note: For DAR doorbell registers, the values is invalid. */
 	return ((DAR_ACTIVE(bus->dhd)) ? DAR_PCIH2D_DB2_0(bus->sih->buscorerev) : PCIH2D_MailBox_2);
 }
 
 static INLINE uint
 dhd_bus_db1_addr_get(struct dhd_bus *bus)
 {
-	/* Note: For DB1, don't use DAR register */
-	return PCIH2D_DB1;
+	return ((DAR_ACTIVE(bus->dhd)) ? DAR_PCIH2D_DB0_1(bus->sih->buscorerev) : PCIH2D_DB1);
 }
 
 static INLINE uint
 dhd_bus_db1_addr_3_get(struct dhd_bus *bus)
 {
-	/* Note: For DB7, don't use DAR register */
-	return PCIH2D_DB1_3;
+	return ((DAR_ACTIVE(bus->dhd)) ? DAR_PCIH2D_DB3_1(bus->sih->buscorerev) : PCIH2D_DB1_3);
 }
 
 static void
@@ -817,7 +747,7 @@ dhdpcie_chip_support_msi(dhd_bus_t *bus)
 	DHD_ERROR(("%s: buscorerev=%d chipid=0x%x\n",
 		__FUNCTION__, bus->sih->buscorerev, si_chipid(bus->sih)));
 	if (bus->sih->buscorerev <= 14 ||
-		si_chipid(bus->sih) == BCM4381_CHIP_ID ||
+		si_chipid(bus->sih) == BCM4389_CHIP_ID ||
 		si_chipid(bus->sih) == BCM4385_CHIP_ID ||
 		si_chipid(bus->sih) == BCM4375_CHIP_ID ||
 		si_chipid(bus->sih) == BCM4376_CHIP_ID ||
@@ -917,13 +847,6 @@ int dhdpcie_bus_attach(osl_t *osh, dhd_bus_t **bus_ptr,
 #else
 		bus->d2h_intr_method = PCIE_INTX;
 #endif /* DHD_MSI_SUPPORT */
-
-		/* For MSI, use host irq based control and for INTX use D2H INTMASK based control */
-		if (bus->d2h_intr_method == PCIE_MSI) {
-			bus->d2h_intr_control = PCIE_HOST_IRQ_CTRL;
-		} else {
-			bus->d2h_intr_control = PCIE_D2H_INTMASK_CTRL;
-		}
 
 		DHD_TRACE(("%s: EXIT SUCCESS\n",
 			__FUNCTION__));
@@ -1290,32 +1213,15 @@ dhdpcie_bus_isr(dhd_bus_t *bus)
 			break;
 		}
 
-		/* Do not process any ISR after receiving D3_ACK */
-		if (__DHD_CHK_BUS_LPS_D3_ACKED(bus)) {
-			DHD_LOG_MEM(("%s: D3 Ack Received, skip\n", __FUNCTION__));
-			break;
-		}
-
 		if (PCIECTO_ENAB(bus)) {
 			/* read pci_intstatus */
 			intstatus = dhdpcie_bus_cfg_read_dword(bus, PCI_INT_STATUS, 4);
 
-			if (intstatus == (uint32)-1 ||
-				bus->dhd->dhd_induce_error == DHD_INDUCE_PCIE_LINK_DOWN_IN_ISR) {
-				DHD_ERROR(("%s: Invalid cfg intstatus(0x%x):0x%x, pcie link down,"
-					"induce %u\n", __FUNCTION__, PCI_INT_STATUS, intstatus,
-					bus->dhd->dhd_induce_error));
+			if (intstatus == (uint32)-1) {
+				DHD_ERROR(("%s: Invalid cfg intstatus(0x%x):0x%x, pcie link down\n",
+					__FUNCTION__, PCI_INT_STATUS, intstatus));
 				bus->is_linkdown = 1;
 				dhdpcie_disable_irq_nosync(bus);
-				dhd_pcie_debug_info_dump(bus->dhd);
-#if defined(CONFIG_ARCH_MSM) && defined(SUPPORT_LINKDOWN_RECOVERY)
-				bus->no_cfg_restore = 1;
-#endif /* CONFIG_ARCH_MSM && SUPPORT_LINKDOWN_RECOVERY */
-				bus->dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN_EP_DETECT;
-#ifdef WL_CFGVENDOR_SEND_HANG_EVENT
-				copy_hang_info_linkdown(bus->dhd);
-#endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
-				dhd_os_send_hang_message(bus->dhd);
 				break;
 			}
 
@@ -1382,18 +1288,14 @@ skip_intstatus_read:
 
 		bus->ipend = TRUE;
 
-		/* Due to irq mismatch WARNING in linux, currently keeping it disabled and
-		 * using dongle intmask to control INTR enable/disable
-		 */
-		if (bus->d2h_intr_control == PCIE_HOST_IRQ_CTRL) {
-			if (!dhdpcie_irq_disabled(bus)) {
-				bus->host_irq_disable_count++;
-				dhdpcie_disable_irq_nosync(bus); /* Disable interrupt!! */
-			}
-		} else {
-			dhdpcie_bus_intr_disable(bus); /* Disable interrupt using IntMask!! */
-			bus->dngl_intmask_disable_count++;
-		}
+		bus->isr_intr_disable_count++;
+
+		/* For Linux, Macos etc (otherthan NDIS) instead of disabling
+		* dongle interrupt by clearing the IntMask, disable directly
+		* interrupt from the host side, so that host will not recieve
+		* any interrupts at all, even though dongle raises interrupts
+		*/
+		dhdpcie_disable_irq_nosync(bus); /* Disable interrupt!! */
 
 		bus->intdis = TRUE;
 #ifdef DHD_FLOW_RING_STATUS_TRACE
@@ -1689,92 +1591,6 @@ dhdpcie_bus_mpu_disable(dhd_bus_t *bus)
 	}
 }
 
-uint32 pcie_slave_wrapper_offsets[] = {
-	AI_ERRLOGCTRL,
-	AI_ERRLOGDONE,
-	AI_ERRLOGSTATUS,
-	AI_ERRLOGADDRLO,
-	AI_ERRLOGADDRHI,
-	AI_ERRLOGID,
-	AI_ERRLOGUSER,
-	AI_ERRLOGFLAGS
-};
-
-#define PCIE_SLAVER_WRAPPER_BASE	0x18102000u
-
-static INLINE void dhd_sbreg_op(dhd_pub_t *dhd, uint addr, uint *val, bool read);
-
-static uint32
-dhd_get_pcie_slave_wrapper(si_t *sih)
-{
-	uint32 pcie_slave_wrapper = 0;
-	uint16 chipid = si_chipid(sih);
-
-	switch (chipid) {
-		case BCM4389_CHIP_ID:
-		case BCM4387_CHIP_ID:
-			pcie_slave_wrapper = PCIE_SLAVER_WRAPPER_BASE;
-			break;
-		default:
-			pcie_slave_wrapper = 0;
-			break;
-	}
-
-	return pcie_slave_wrapper;
-}
-
-static void
-dhd_dump_pcie_slave_wrapper_regs(dhd_bus_t *bus)
-{
-	uint32 i, val;
-	uint32 pcie_slave_wrapper_base = 0;
-	uint32 total_wrapper_regs;
-
-	if (bus->dhd == NULL) {
-		return;
-	}
-
-	pcie_slave_wrapper_base = dhd_get_pcie_slave_wrapper(bus->sih);
-	if (!pcie_slave_wrapper_base) {
-		DHD_ERROR(("%s pcie slave wrapper base not populated\n", __FUNCTION__));
-		return;
-	}
-
-	DHD_ERROR(("%s: ##### Dumping PCIe slave wrapper regs #####\n", __FUNCTION__));
-
-	total_wrapper_regs =
-		sizeof(pcie_slave_wrapper_offsets) / sizeof(pcie_slave_wrapper_offsets[0]);
-
-	for (i = 0; i < total_wrapper_regs; i++) {
-		dhd_sbreg_op(bus->dhd, (pcie_slave_wrapper_base + pcie_slave_wrapper_offsets[i]),
-			&val, TRUE);
-	}
-
-	DHD_ERROR(("%s: ##### ##### #####\n", __FUNCTION__));
-}
-
-bool
-dhd_check_htput_chip(dhd_bus_t *bus)
-{
-	bool htput_support = FALSE;
-	uint16 chipid = si_chipid(bus->sih);
-
-	switch (chipid) {
-		/* Enable htput support for all 160Mhz chips */
-		case BCM4388_CHIP_ID:
-		case BCM4389_CHIP_ID:
-		case BCM4397_CHIP_ID:
-			htput_support = TRUE;
-			break;
-		default:
-			htput_support = FALSE;
-	}
-
-	DHD_ERROR(("%s: htput_support:%d\n", __FUNCTION__, htput_support));
-
-	return htput_support;
-}
-
 static bool
 dhdpcie_dongle_attach(dhd_bus_t *bus)
 {
@@ -1790,13 +1606,9 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 
 	DHD_TRACE(("%s: ENTER\n", __FUNCTION__));
 
-	chipid = dhd_get_chipid(bus);
-
-	if (chipid == (uint16)-1)
-		goto fail;
-
 	/* Configure CTO Prevention functionality */
 #if defined(BCMPCIE_CTO_PREVENTION)
+	chipid = dhd_get_chipid(bus);
 
 	if (BCM4349_CHIP(chipid) || BCM4350_CHIP(chipid) || BCM4345_CHIP(chipid)) {
 		DHD_ERROR(("Disable CTO\n"));
@@ -1811,10 +1623,7 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 #endif /* BCMPCIE_CTO_PREVENTION */
 
 	if (PCIECTO_ENAB(bus)) {
-		/* WAR - Delay the CTO init in 4397A0. */
-		if (!(BCM4397_CHIP(chipid) && dhd_get_chiprev(bus) == 0)) {
-			dhdpcie_cto_init(bus, TRUE);
-		}
+		dhdpcie_cto_init(bus, TRUE);
 	}
 
 #ifdef CONFIG_ARCH_EXYNOS
@@ -1878,9 +1687,6 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 		dhd_bus_pcie_pwr_req_nolock(bus);
 	}
 
-	/* Calling after requesting dm1 (Wl) power as there are mac wrapper regs */
-	dhd_dump_pcie_slave_wrapper_regs(bus);
-
 	/* Get info on the ARM and SOCRAM cores... */
 	/* Should really be qualified by device id */
 	if ((si_setcore(bus->sih, ARM7S_CORE_ID, 0)) ||
@@ -1942,10 +1748,9 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 		dongle_reset_needed = !(bus->dhd->dongle_isolation);
 	}
 
-	/* Fix for FLR reset & CTO init specific to 4397a0. Write a value 0x1E in PMU CC reg18 */
-	if (BCM4397_CHIP(bus->sih->chip) && (bus->sih->chiprev == 0)) {
+	/* Fix for FLR reset specific to 4397a0. Write a value 0x1E in PMU CC reg18 */
+	if (BCM4397_CHIP(dhd_get_chipid(bus)) && (bus->sih->chiprev == 0)) {
 		uint origidx = 0;
-		chipcregs_t *cc;
 
 		origidx = si_coreidx(bus->sih);
 		pmu_corereg(bus->sih, SI_CC_IDX, chipcontrol_addr, ~0, PMU_CHIPCTL18);
@@ -1954,22 +1759,16 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 			(PMU_CC18_WL_BOOKER_FORCEPWRDWN_EN |
 			((PMU_CC18_WL_P_CHAN_TIMER_SEL_8ms << PMU_CC18_WL_P_CHAN_TIMER_SEL_OFF) &
 			PMU_CC18_WL_P_CHAN_TIMER_SEL_MASK)));
-
-		/* 4397A0 WAR. Set max rsrc mask to 0x7fffffff and force HT before CTO init */
-		pmu_corereg(bus->sih, SI_CC_IDX, max_res_mask, ~0, 0x7fffffff);
-
-		cc = (chipcregs_t*)si_setcore(bus->sih, CC_CORE_ID, 0);
-		if (cc) {
-			OR_REG(osh, &cc->clk_ctl_st, CCS_FORCEHT);
-			SPINWAIT(((R_REG(osh, &cc->clk_ctl_st) & CCS_HTAVAIL) == 0),
-				PMU_MAX_TRANSITION_DLY);
-		} else {
-			DHD_ERROR(("CC is NULL\n"));
-		}
 		si_setcore(bus->sih, origidx, 0);
-		if (PCIECTO_ENAB(bus)) {
-			dhdpcie_cto_init(bus, TRUE);
-		}
+	}
+
+	/*
+	 * Issue dongle to reset all the cores on the chip - similar to rmmod dhd
+	 * This is required to avoid spurious interrupts to the Host and bring back
+	 * dongle to a sane state (on host soft-reboot / watchdog-reboot).
+	 */
+	if (dongle_reset_needed) {
+		dhdpcie_dongle_reset(bus);
 	}
 
 	/* need to set the force_bt_quiesce flag here
@@ -1982,15 +1781,6 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 	 */
 	if (bus->sih->buscorerev >= 66) {
 		bus->force_bt_quiesce = FALSE;
-	}
-
-	/*
-	 * Issue dongle to reset all the cores on the chip - similar to rmmod dhd
-	 * This is required to avoid spurious interrupts to the Host and bring back
-	 * dongle to a sane state (on host soft-reboot / watchdog-reboot).
-	 */
-	if (dongle_reset_needed) {
-		dhdpcie_dongle_reset(bus);
 	}
 
 	dhdpcie_dongle_flr_or_pwr_toggle(bus);
@@ -2099,9 +1889,6 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 		case BCM4377_CHIP_ID:
 			bus->dongle_ram_base = CR4_4377_RAM_BASE;
 			break;
-		case BCM4381_CHIP_ID:
-			bus->dongle_ram_base = CR4_4381_RAM_BASE;
-			break;
 		case BCM4387_CHIP_GRPID:
 			bus->dongle_ram_base = CR4_4387_RAM_BASE;
 			break;
@@ -2150,15 +1937,8 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 	bus->deep_sleep = TRUE;
 #endif
 
-	/*
-	 * This check is to prevent to go back to enable during fw download
-	 * after forced to disable by dhd commend(eg. "dhd dar_enable 0") after insmod
-	 */
-	if ((bus->dhd == NULL) || (bus->dhd->dongle_reset == FALSE)) {
-		bus->dar_enabled = TRUE;
-		bus->idma_enabled = TRUE;
-		bus->ifrm_enabled = TRUE;
-	}
+	bus->idma_enabled = TRUE;
+	bus->ifrm_enabled = TRUE;
 
 	dhdpcie_pme_stat_clear(bus);
 
@@ -2209,7 +1989,6 @@ fail:
 				"intstat=0x%x enab=%d\n", __FUNCTION__,
 				pci_intstatus, bus->cto_enable));
 		}
-		dhd_bus_dump_dar_registers(bus);
 	}
 	dhd_deinit_pwr_req_lock(bus);
 	dhd_deinit_bus_lp_state_lock(bus);
@@ -2249,8 +2028,8 @@ dhdpcie_bus_intr_enable(dhd_bus_t *bus)
 	DHD_TRACE(("%s Enter\n", __FUNCTION__));
 	if (bus) {
 		if (bus->sih && !bus->is_linkdown) {
-			/* Skip after receiving D3 ACK */
-			if (__DHD_CHK_BUS_LPS_D3_ACKED(bus)) {
+			/* Skip after recieving D3 ACK */
+			if (bus->bus_low_power_state == DHD_BUS_D3_ACK_RECIEVED) {
 				return;
 			}
 			if ((bus->sih->buscorerev == 2) || (bus->sih->buscorerev == 6) ||
@@ -2277,8 +2056,8 @@ dhdpcie_bus_intr_disable(dhd_bus_t *bus)
 {
 	DHD_TRACE(("%s Enter\n", __FUNCTION__));
 	if (bus && bus->sih && !bus->is_linkdown) {
-		/* Skip after receiving D3 ACK */
-		if (__DHD_CHK_BUS_LPS_D3_ACKED(bus)) {
+		/* Skip after recieving D3 ACK */
+		if (DHD_CHK_BUS_LPS_D3_ACKED(bus)) {
 			return;
 		}
 
@@ -2332,15 +2111,6 @@ dhdpcie_advertise_bus_cleanup(dhd_pub_t *dhdp)
 			dhdp->db7_trap.fw_db7w_trap_inprogress = TRUE;
 			dhdpcie_fw_trap(dhdp->bus);
 			OSL_DELAY(100 * 1000); // wait 100 msec
-			if (!dhdp->db7_trap.fw_db7w_trap_recieved) {
-				DHD_ERROR(("%s : Did not receive DB7 Ack\n", __FUNCTION__));
-#ifdef WBRC
-				if (dhdp->fw_mode_changed == FALSE) {
-					DHD_ERROR(("%s : Set do_chip_bighammer\n", __FUNCTION__));
-					dhdp->do_chip_bighammer = TRUE;
-				}
-#endif /* WBRC */
-			}
 			dhdp->db7_trap.fw_db7w_trap_inprogress = FALSE;
 		} else {
 			DHD_ERROR(("%s: DB7 Not sent!!!\n",
@@ -2363,41 +2133,6 @@ dhdpcie_advertise_bus_cleanup(dhd_pub_t *dhdp)
 		ASSERT(0);
 	}
 
-	return;
-}
-
-/*
- * dhdpcie_busbusy_wait mark busstate as DHD_BUS_DOWN_IN_PROGRESS and waits
- * for all the contexts to garacefully exit. All the bus usage contexts before
- * marking busstate as busy, will check for whether the busstate is DHD_BUS_DOWN
- * or DHD_BUS_DOWN_IN_PROGRESS, if so they will exit from there itself without
- * marking dhd_bus_busy_state as BUSY.
- */
-void
-dhdpcie_busbusy_wait(dhd_pub_t *dhdp)
-{
-	unsigned long flags;
-	int timeleft;
-
-	dhdp->dhd_watchdog_ms_backup = dhd_watchdog_ms;
-	if (dhdp->dhd_watchdog_ms_backup) {
-		DHD_ERROR(("%s: Disabling wdtick\n", __FUNCTION__));
-		dhd_os_wd_timer(dhdp, 0);
-	}
-
-	DHD_GENERAL_LOCK(dhdp, flags);
-	dhdp->busstate = DHD_BUS_DOWN_IN_PROGRESS;
-	DHD_GENERAL_UNLOCK(dhdp, flags);
-
-	timeleft = dhd_os_busbusy_wait_negation(dhdp, &dhdp->dhd_bus_busy_state);
-	if ((timeleft == 0) || (timeleft == 1)) {
-		DHD_ERROR(("%s : Timeout due to dhd_bus_busy_state=0x%x\n",
-				__FUNCTION__, dhdp->dhd_bus_busy_state));
-	}
-
-	DHD_GENERAL_LOCK(dhdp, flags);
-	dhdp->busstate = DHD_BUS_DOWN;
-	DHD_GENERAL_UNLOCK(dhdp, flags);
 	return;
 }
 
@@ -2491,9 +2226,6 @@ dhdpcie_bus_release(dhd_bus_t *bus)
 {
 	bool dongle_isolation = FALSE;
 	osl_t *osh = NULL;
-#if defined(__linux__)
-	int bcmerror = 0;
-#endif /* __linux__ */
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
@@ -2530,20 +2262,6 @@ dhdpcie_bus_release(dhd_bus_t *bus)
 			 */
 			dhd_detach(bus->dhd);
 			dhdpcie_bus_release_dongle(bus, osh, dongle_isolation, TRUE);
-#if defined(__linux__)
-			DHD_ERROR(("%s: disable pcie dev\n", __FUNCTION__));
-			bcmerror = dhdpcie_bus_disable_device(bus);
-			if (bcmerror) {
-				DHD_ERROR(("%s: dhdpcie_bus_disable_device: %d\n",
-					__FUNCTION__, bcmerror));
-			}
-			DHD_ERROR(("%s: stop host dev dev\n", __FUNCTION__));
-			bcmerror = dhdpcie_bus_stop_host_dev(bus);
-			if (bcmerror) {
-				DHD_ERROR(("%s: dhdpcie_bus_stop_host_dev failed: %d\n",
-					__FUNCTION__, bcmerror));
-			}
-#endif /* __linux__ */
 			dhd_free(bus->dhd);
 			bus->dhd = NULL;
 		}
@@ -2923,10 +2641,6 @@ static int concate_revision_bcm4359(dhd_bus_t *bus, char *fw_path, char *nv_path
 }
 
 #define NVRAM_FEM_MURATA	"_murata"
-#if defined(DHD_FW_COREDUMP) && defined(DHD_COREDUMP)
-extern char map_path[PATH_MAX];
-#endif /* DHD_FW_COREDUMP && DHD_COREDUMP */
-
 static int
 concate_revision_from_cisinfo(dhd_bus_t *bus, char *fw_path, char *nv_path)
 {
@@ -2960,14 +2674,7 @@ concate_revision_from_cisinfo(dhd_bus_t *bus, char *fw_path, char *nv_path)
 		}
 #endif /* BCM4361_CHIP */
 		strncat(nv_path, info->nvram_ext, strlen(info->nvram_ext));
-#if defined(SUPPORT_MULTIPLE_NVRAM) || defined(SUPPORT_MULTIPLE_CLMBLOB)
-		dhd_set_platform_ext_name_for_chip_version(info->nvram_ext);
-#endif /* SUPPORT_MULTIPLE_NVRAM || SUPPORT_MULTIPLE_CLMBLOB */
 		strncat(fw_path, info->fw_ext, strlen(info->fw_ext));
-#if defined(DHD_COREDUMP) && defined(SUPPORT_MULTIPLE_REVISION_MAP)
-		if (!bcmstrnstr(map_path, PATH_MAX, info->fw_ext, strlen(info->fw_ext)))
-			strncat(map_path, info->fw_ext, strlen(info->fw_ext));
-#endif /* DHD_COREDUMP  && SUPPORT_MULTIPLE_REVISION_MAP */
 	} else {
 		DHD_ERROR(("%s:failed to find extension for nvram and firmware\n", __FUNCTION__));
 		ret = BCME_ERROR;
@@ -2981,19 +2688,15 @@ concate_revision_from_cisinfo(dhd_bus_t *bus, char *fw_path, char *nv_path)
 	snprintf(chipstr, sizeof(chipstr), "_4389");
 
 	/* write chipstr/vid into nvram tag */
-	ret = concate_nvram_by_vid(bus->dhd, nv_path, chipstr);
+	ret = concate_nvram_by_vid(bus, nv_path, chipstr);
 	/* write chiprev into FW tag */
 	if (ret == BCME_OK) {
-		if (revid == 1) {
+		if (revid == 3) {
+			strncat(fw_path, A0_REV, strlen(fw_path));
+			DHD_ERROR(("%s: fw_path : %s\n", __FUNCTION__, fw_path));
+		} else if (revid == 1) {
 			strncat(fw_path, B0_REV, strlen(fw_path));
 			DHD_ERROR(("%s: fw_path : %s\n", __FUNCTION__, fw_path));
-		} else if (revid == 2) {
-			strncat(fw_path, C0_REV, strlen(fw_path));
-			DHD_ERROR(("%s: fw_path : %s\n", __FUNCTION__, fw_path));
-		} else if (revid == 3) {
-			strncat(fw_path, C1_REV, strlen(fw_path));
-			DHD_ERROR(("%s: fw_path : %s\n", __FUNCTION__, fw_path));
-
 		} else {
 			DHD_ERROR(("%s: INVALID CHIPREV %d\n", __FUNCTION__, revid));
 		}
@@ -3008,27 +2711,6 @@ concate_revision_from_cisinfo(dhd_bus_t *bus, char *fw_path, char *nv_path)
 
 	return ret;
 }
-
-#ifdef CONCAT_DEF_REV_FOR_NOMATCH_VID
-#define DEF_REVISION "_c0"
-static int
-vendor_concat_revision(dhd_bus_t *bus, char *fw_path, char *nv_path)
-{
-	int ret = BCME_OK;
-	char *tag = DEF_REVISION;
-
-	DHD_ERROR(("%s:failed to find extension, use %s as default\n", __FUNCTION__, DEF_REVISION));
-	/* Failed to find info, use _c0 as default */
-	strlcat(nv_path, tag, PATH_MAX);
-	strlcat(fw_path, tag, PATH_MAX);
-#if defined(DHD_COREDUMP) && defined(SUPPORT_MULTIPLE_REVISION_MAP)
-	if (!bcmstrnstr(map_path, PATH_MAX, tag, strlen(tag))) {
-		strlcat(map_path, tag, PATH_MAX);
-	}
-#endif /* DHD_COREDUMP && SUPPORT_MULTIPLE_REVISION_MAP */
-	return ret;
-}
-#endif /* CONCAT_DEF_REV_FOR_NOMATCH_VID */
 
 int
 concate_revision(dhd_bus_t *bus, char *fw_path, char *nv_path)
@@ -3066,11 +2748,6 @@ concate_revision(dhd_bus_t *bus, char *fw_path, char *nv_path)
 		return res;
 	}
 
-#ifdef CONCAT_DEF_REV_FOR_NOMATCH_VID
-	if (res != BCME_OK) {
-		res = vendor_concat_revision(bus, fw_path, nv_path);
-	}
-#endif /* CONCAT_DEF_REV_FOR_NOMATCH_VID */
 	return res;
 }
 #endif /* SUPPORT_MULTIPLE_REVISION */
@@ -3093,27 +2770,6 @@ dhd_get_chipid(struct dhd_bus *bus)
 		return (uint16)chipid;
 	} else {
 		return 0;
-	}
-}
-
-uint16
-dhd_get_chiprev(struct dhd_bus *bus)
-{
-	if (bus && bus->sih) {
-		return bus->sih->chiprev;
-	} else if (bus && bus->regs) {
-		chipcregs_t *cc = (chipcregs_t *)bus->regs;
-		uint w, chiprev;
-
-		/* Set bar0 window to si_enum_base */
-		dhdpcie_bus_cfg_set_bar0_win(bus, si_enum_base(0));
-
-		w = R_REG(bus->osh, &cc->chipid);
-		chiprev = (w & CID_REV_MASK) >> CID_REV_SHIFT;
-
-		return (uint16)chiprev;
-	} else {
-		return 0xffff;
 	}
 }
 
@@ -3149,17 +2805,6 @@ dhd_bus_download_firmware(struct dhd_bus *bus, osl_t *osh,
 #endif /* !SUPPORT_MULTIPLE_CHIPS */
 	}
 #endif /* SUPPORT_MULTIPLE_REVISION */
-
-#if defined(SUPPORT_MULTIPLE_NVRAM)
-	if (dhd_get_platform_naming_for_nvram_clmblob_file(NVRAM, bus->nv_path) != BCME_OK) {
-		DHD_ERROR(("%s: Platform's NVRAMs file don't exist."
-			" Download default NVRAM file.\n", __FUNCTION__));
-	}
-#endif /* SUPPORT_MULTIPLE_NVRAM */
-
-#if defined(SUPPORT_MULTIPLE_BOARD_REVISION)
-	concate_custom_board_revision(bus->nv_path);
-#endif /* SUPPORT_MULTIPLE_BOARD_REVISION */
 
 #if defined(DHD_BLOB_EXISTENCE_CHECK)
 	dhd_set_blob_support(bus->dhd, bus->fw_path);
@@ -3245,25 +2890,19 @@ dhdpcie_download_code_file(struct dhd_bus *bus, char *pfw_path)
 	int buf_offset = 0, residual_len = 0;
 
 #if defined(DHD_FW_MEM_CORRUPTION)
-	if (dhd_bus_get_fw_mode(bus->dhd) == DHD_FLAG_MFG_MODE) {
-		dhd_tcm_test_enable = TRUE;
-	} else {
-		dhd_tcm_test_enable = FALSE;
-	}
+		if (dhd_bus_get_fw_mode(bus->dhd) == DHD_FLAG_MFG_MODE) {
+			dhd_tcm_test_enable = TRUE;
+		} else {
+			dhd_tcm_test_enable = FALSE;
+		}
 #endif /* DHD_FW_MEM_CORRUPTION */
-	DHD_ERROR(("%s: dhd_tcm_test_enable %u, dhd_tcm_test_status %u\n", __FUNCTION__,
-		dhd_tcm_test_enable, dhd_tcm_test_status));
-	/* run TCM test if not passed yet */
-	if (dhd_tcm_test_enable && dhd_tcm_test_status != TCM_TEST_PASSED) {
-		if (dhd_bus_tcm_test(bus) == FALSE) {
+		DHD_ERROR(("%s: dhd_tcm_test_enable %u\n", __FUNCTION__, dhd_tcm_test_enable));
+		/* TCM check */
+		if (dhd_tcm_test_enable && !dhd_bus_tcm_test(bus)) {
 			DHD_ERROR(("dhd_bus_tcm_test failed\n"));
-			dhd_tcm_test_status = TCM_TEST_FAILED;
 			bcmerror = BCME_ERROR;
 			goto err;
-		} else {
-			dhd_tcm_test_status = TCM_TEST_PASSED;
 		}
-	}
 
 	DHD_ERROR(("%s: download firmware %s\n", __FUNCTION__, pfw_path));
 
@@ -3332,11 +2971,10 @@ dhdpcie_download_code_file(struct dhd_bus *bus, char *pfw_path)
 	int offset = 0;
 	int len = 0;
 	bool store_reset;
-	void *filep = NULL;
+	char *imgbuf = NULL; /**< XXX a file pointer, contradicting its name and type */
 	uint8 *memblock = NULL, *memptr = NULL;
 	int offset_end = bus->ramsize;
 	uint32 file_size = 0, read_len = 0;
-	fwpkg_info_t *fwpkg;
 
 #if defined(DHD_FW_MEM_CORRUPTION)
 	if (dhd_bus_get_fw_mode(bus->dhd) == DHD_FLAG_MFG_MODE) {
@@ -3345,46 +2983,28 @@ dhdpcie_download_code_file(struct dhd_bus *bus, char *pfw_path)
 		dhd_tcm_test_enable = FALSE;
 	}
 #endif /* DHD_FW_MEM_CORRUPTION */
-	DHD_ERROR(("%s: dhd_tcm_test_enable %u, dhd_tcm_test_status %u\n", __FUNCTION__,
-		dhd_tcm_test_enable, dhd_tcm_test_status));
-	/* run TCM test if not passed yet */
-	if (dhd_tcm_test_enable && dhd_tcm_test_status != TCM_TEST_PASSED) {
-		if (dhd_bus_tcm_test(bus) == FALSE) {
-			DHD_ERROR(("dhd_bus_tcm_test failed\n"));
-			dhd_tcm_test_status = TCM_TEST_FAILED;
-			bcmerror = BCME_ERROR;
-			goto err;
-		} else {
-			dhd_tcm_test_status = TCM_TEST_PASSED;
-		}
-	}
-	DHD_ERROR_MEM(("%s: download firmware %s\n", __FUNCTION__, pfw_path));
-
-	bcmerror = fwpkg_init(&bus->fwpkg, pfw_path);
-	if (bcmerror == BCME_ERROR) {
+	DHD_ERROR(("%s: dhd_tcm_test_enable %u\n", __FUNCTION__, dhd_tcm_test_enable));
+	/* TCM check */
+	if (dhd_tcm_test_enable && !dhd_bus_tcm_test(bus)) {
+		DHD_ERROR(("dhd_bus_tcm_test failed\n"));
+		bcmerror = BCME_ERROR;
 		goto err;
 	}
-	fwpkg = &bus->fwpkg;
+	DHD_ERROR(("%s: download firmware %s\n", __FUNCTION__, pfw_path));
+
 	/* Should succeed in opening image if it is actually given through registry
 	 * entry or in module param.
 	 */
-	bcmerror = fwpkg_open_firmware_img(fwpkg, pfw_path, &filep);
-	if (bcmerror == BCME_ERROR) {
+	imgbuf = dhd_os_open_image1(bus->dhd, pfw_path);
+	if (imgbuf == NULL) {
 		goto err;
 	}
 
-	if (bcmerror == BCME_UNSUPPORTED) {
-		file_size = fwpkg->file_size;
-		DHD_INFO(("%s Using SINGLE image (size %d)\n",
-			__FUNCTION__, file_size));
-	} else {
-		file_size = fwpkg_get_firmware_img_size(fwpkg);
-		strlcpy(bus->fwsig_filename, pfw_path, sizeof(bus->fwsig_filename));
-		DHD_INFO(("%s Using COMBINED image (size %d)\n",
-			__FUNCTION__, file_size));
+	file_size = dhd_os_get_image_size(imgbuf);
+	if (!file_size) {
+		DHD_ERROR(("%s: get file size fails ! \n", __FUNCTION__));
+		goto err;
 	}
-	bus->fw_download_len = file_size;
-	bus->fw_download_addr = bus->dongle_ram_base;
 
 	memptr = memblock = MALLOC(bus->dhd->osh, MEMBLOCK + DHD_SDALIGN);
 	if (memblock == NULL) {
@@ -3400,7 +3020,7 @@ dhdpcie_download_code_file(struct dhd_bus *bus, char *pfw_path)
 	store_reset = (si_setcore(bus->sih, ARMCR4_CORE_ID, 0) ||
 			si_setcore(bus->sih, ARMCA7_CORE_ID, 0));
 	/* Download image with MEMBLOCK size */
-	while ((len = dhd_os_get_image_block((char*)memptr, MEMBLOCK, filep))) {
+	while ((len = dhd_os_get_image_block((char*)memptr, MEMBLOCK, imgbuf))) {
 		if (len < 0) {
 			DHD_ERROR(("%s: dhd_os_get_image_block failed (%d)\n", __FUNCTION__, len));
 			bcmerror = BCME_ERROR;
@@ -3449,8 +3069,8 @@ err:
 		MFREE(bus->dhd->osh, memblock, MEMBLOCK + DHD_SDALIGN);
 	}
 
-	if (filep) {
-		dhd_os_close_image1(bus->dhd, filep);
+	if (imgbuf) {
+		dhd_os_close_image1(bus->dhd, imgbuf);
 	}
 
 	return bcmerror;
@@ -3472,9 +3092,6 @@ dhdpcie_download_nvram(struct dhd_bus *bus)
 	bool nvram_file_exists;
 	bool nvram_uefi_exists = FALSE;
 	bool local_alloc = FALSE;
-#ifdef SUPPORT_OTA_UPDATE
-	ota_update_info_t *ota_info = &bus->dhd->ota_update_info;
-#endif /* SUPPORT_OTA_UPDATE */
 	pnv_path = bus->nv_path;
 
 	nvram_file_exists = ((pnv_path != NULL) && (pnv_path[0] != '\0'));
@@ -3507,7 +3124,7 @@ dhdpcie_download_nvram(struct dhd_bus *bus)
 	memblock_len = MAX_NVRAMBUF_SIZE;
 #endif /* DHD_LINUX_STD_FW_API */
 
-	DHD_ERROR_MEM(("%s: dhd_get_download_buffer len %d\n", __FUNCTION__, len));
+	DHD_ERROR(("%s: dhd_get_download_buffer len %d\n", __FUNCTION__, len));
 
 	if (len > 0 && len < MAX_NVRAMBUF_SIZE && memblock != NULL) {
 		bufp = (char *) memblock;
@@ -3519,7 +3136,7 @@ dhdpcie_download_nvram(struct dhd_bus *bus)
 			}
 		}
 
-		DHD_ERROR_MEM(("%s: process_nvram_vars len %d\n", __FUNCTION__, len));
+		DHD_ERROR(("%s: process_nvram_vars len %d\n", __FUNCTION__, len));
 #ifdef CUSTOMER_HW4_DEBUG
 		if (len < MIN_NVRAMVARS_SIZE) {
 			DHD_ERROR(("%s: invalid nvram size in process_nvram_vars \n",
@@ -3544,19 +3161,10 @@ dhdpcie_download_nvram(struct dhd_bus *bus)
 
 err:
 	if (memblock) {
-#ifdef SUPPORT_OTA_UPDATE
-		if (ota_info->nvram_len) {
-			MFREE(bus->dhd->osh, ota_info->nvram_buf, ota_info->nvram_len);
-			ota_info->nvram_len = 0;
-		}
-		else
-#endif /* SUPPORT_OTA_UPDATE */
-		{
-			if (local_alloc) {
-				MFREE(bus->dhd->osh, memblock, MAX_NVRAMBUF_SIZE);
-			} else {
-				dhd_free_download_buffer(bus->dhd, memblock, memblock_len);
-			}
+		if (local_alloc) {
+			MFREE(bus->dhd->osh, memblock, MAX_NVRAMBUF_SIZE);
+		} else {
+			dhd_free_download_buffer(bus->dhd, memblock, memblock_len);
 		}
 	}
 
@@ -3821,114 +3429,6 @@ dhdpcie_schedule_log_dump(dhd_bus_t *bus)
 #endif /* DHD_DUMP_FILE_WRITE_FROM_KERNEL && DHD_LOG_DUMP */
 }
 
-#ifdef DHD_SSSR_DUMP
-extern uint fis_enab;
-#endif /* DHD_SSSR_DUMP */
-
-dhd_pcie_link_state_type_t
-dhdpcie_get_link_state(dhd_bus_t *bus)
-{
-	uint32 intstatus;
-	uint origidx;
-	dhd_pcie_link_state_type_t link_state = DHD_PCIE_ALL_GOOD;
-	uint32 status_cmd = dhd_pcie_config_read(bus, PCIECFGREG_STATUS_CMD, sizeof(uint32));
-	if (status_cmd == (uint32) -1) {
-		DHD_ERROR(("%s: pcie link down: status_cmd:0x%x\n", __FUNCTION__, status_cmd));
-		link_state = DHD_PCIE_LINK_DOWN;
-#ifdef SUPPORT_LINKDOWN_RECOVERY
-#ifdef CONFIG_ARCH_MSM
-		bus->no_cfg_restore = 1;
-#endif /* CONFIG_ARCH_MSM */
-#endif /* SUPPORT_LINKDOWN_RECOVERY */
-		bus->is_linkdown = 1;
-		goto exit;
-	}
-
-	/* Check the common backplane status */
-	intstatus = si_corereg(bus->sih, bus->sih->buscoreidx, bus->pcie_mailbox_int, 0, 0);
-	if (intstatus == (uint32) -1) {
-		DHD_ERROR(("%s: common backplane is down, intstatus:0x%x\n",
-			__FUNCTION__, intstatus));
-		link_state = DHD_PCIE_COMMON_BP_DOWN;
-		goto exit;
-	}
-
-	if (MULTIBP_ENAB(bus->sih)) {
-		dhd_bus_pcie_pwr_req(bus);
-	}
-
-	origidx = si_coreidx(bus->sih);
-
-	/* Switch to SYSMEM core and check for wlan backplane status */
-	if (si_setcore(bus->sih, SYSMEM_CORE_ID, 0)) {
-		uint32 ioctrl = si_wrapperreg(bus->sih, AI_IOCTRL, 0, 0);
-		uint32 resetctrl = si_wrapperreg(bus->sih, AI_RESETCTRL, 0, 0);
-		DHD_ERROR(("%s: sysmem ioctrl:0x%x resetctrl:0x%x\n",
-			__FUNCTION__, ioctrl, resetctrl));
-		if (ioctrl == (uint32) -1) {
-			DHD_ERROR(("%s: wlan backplane is down ioctrl:0x%x\n",
-				__FUNCTION__, ioctrl));
-			link_state = DHD_PCIE_WLAN_BP_DOWN;
-		}
-	} else {
-		DHD_ERROR(("%s: Failed to find SYSMEM core!\n", __FUNCTION__));
-	}
-
-	/* Restore back to original core */
-	si_setcoreidx(bus->sih, origidx);
-
-	if (MULTIBP_ENAB(bus->sih)) {
-		dhd_bus_pcie_pwr_req_clear(bus);
-	}
-
-exit:
-	return link_state;
-}
-
-void
-dhd_validate_pcie_link_cbp_wlbp(dhd_bus_t *bus)
-{
-	bus->link_state = dhdpcie_get_link_state(bus);
-
-	if (bus->link_state == DHD_PCIE_ALL_GOOD) {
-		dhd_bus_dump_imp_cfg_registers(bus);
-		dhd_bus_dump_dar_registers(bus);
-	} else if (bus->link_state == DHD_PCIE_LINK_DOWN) {
-		DHD_ERROR(("%s: pcie link down\n", __FUNCTION__));
-#ifdef SUPPORT_LINKDOWN_RECOVERY
-#ifdef CONFIG_ARCH_MSM
-		bus->no_cfg_restore = 1;
-#endif /* CONFIG_ARCH_MSM */
-#endif /* SUPPORT_LINKDOWN_RECOVERY */
-		bus->is_linkdown = 1;
-	} else if (bus->link_state == DHD_PCIE_COMMON_BP_DOWN) {
-		dhd_bus_dump_imp_cfg_registers(bus);
-		dhd_bus_dump_dar_registers(bus);
-#ifdef SUPPORT_LINKDOWN_RECOVERY
-#ifdef CONFIG_ARCH_MSM
-		bus->no_cfg_restore = 1;
-#endif /* CONFIG_ARCH_MSM */
-#endif /* SUPPORT_LINKDOWN_RECOVERY */
-		bus->is_linkdown = 1;
-	} else if (bus->link_state == DHD_PCIE_WLAN_BP_DOWN) {
-		dhd_bus_dump_imp_cfg_registers(bus);
-		dhd_bus_dump_dar_registers(bus);
-#if defined(DHD_FW_COREDUMP)
-#ifdef DHD_SSSR_DUMP
-			DHD_ERROR(("%s : Set collect_sssr and fis_enab as TRUE\n", __FUNCTION__));
-			bus->dhd->collect_sssr = TRUE;
-			fis_enab = TRUE;
-#endif /* DHD_SSSR_DUMP */
-			/* save core dump or write to a file */
-			if (bus->dhd->memdump_enabled) {
-				bus->dhd->memdump_type = DUMP_TYPE_READ_SHM_FAIL;
-				dhdpcie_mem_dump(bus);
-			}
-#endif /* DHD_FW_COREDUMP */
-	}
-	return;
-}
-
 /**
  * Opens the file given by bus->fw_path, reads part of the file into a buffer and closes the file.
  *
@@ -3949,7 +3449,7 @@ dhdpcie_checkdied(dhd_bus_t *bus, char *data, uint size)
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
-	if (DHD_NOCHECKDIED_ON() || dhd_query_bus_erros(bus->dhd)) {
+	if (DHD_NOCHECKDIED_ON()) {
 		return 0;
 	}
 
@@ -4055,25 +3555,19 @@ dhdpcie_checkdied(dhd_bus_t *bus, char *data, uint size)
 		dhd_bus_dump_console_buffer(bus);
 		dhd_prot_debug_info_print(bus->dhd);
 
-#ifdef DHD_FW_COREDUMP
-		if (bus->dhd->up == 0) {
-			DHD_ERROR(("%s: socram will be collected in dhd_net_bus_devreset failure\n",
-				__FUNCTION__));
-		} else
-		{
-			/* save core dump or write to a file */
-			if (bus->dhd->memdump_enabled) {
+#if defined(DHD_FW_COREDUMP)
+		/* save core dump or write to a file */
+		if (bus->dhd->memdump_enabled) {
 #ifdef DHD_SSSR_DUMP
-				DHD_ERROR(("%s : Set collect_sssr as TRUE\n", __FUNCTION__));
-				bus->dhd->collect_sssr = TRUE;
+			DHD_ERROR(("%s : Set collect_sssr as TRUE\n", __FUNCTION__));
+			bus->dhd->collect_sssr = TRUE;
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_SDTC_ETB_DUMP
-				DHD_ERROR(("%s : Set collect_sdtc as TRUE\n", __FUNCTION__));
-				bus->dhd->collect_sdtc = TRUE;
+			DHD_ERROR(("%s : Set collect_sdtc as TRUE\n", __FUNCTION__));
+			bus->dhd->collect_sdtc = TRUE;
 #endif /* DHD_SDTC_ETB_DUMP */
-				bus->dhd->memdump_type = DUMP_TYPE_DONGLE_TRAP;
-				dhdpcie_mem_dump(bus);
-			}
+			bus->dhd->memdump_type = DUMP_TYPE_DONGLE_TRAP;
+			dhdpcie_mem_dump(bus);
 		}
 #endif /* DHD_FW_COREDUMP */
 
@@ -4109,37 +3603,9 @@ dhdpcie_checkdied(dhd_bus_t *bus, char *data, uint size)
 #ifdef WL_CFGVENDOR_SEND_HANG_EVENT
 		copy_hang_info_trap(bus->dhd);
 #endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
-#ifdef WL_CFGVENDOR_SEND_ALERT_EVENT
-		bus->dhd->alert_reason = ALERT_DONGLE_TRAP;
-		dhd_os_send_alert_message(bus->dhd);
-#endif /* WL_CFGVENDOR_SEND_ALERT_EVENT */
+
 		dhd_schedule_reset(bus->dhd);
 
-	} else if (bus->dhd->dongle_trap_data) {
-		DHD_ERROR(("%s: TRAP/ASSERT flag not set in shared flags:0x%x\n",
-			__FUNCTION__, bus->pcie_sh->flags));
-		bus->dhd->dongle_trap_occured = TRUE;
-#ifdef DHD_FW_COREDUMP
-		if (bus->dhd->up == 0) {
-			DHD_ERROR(("%s: socram will be collected in dhd_net_bus_devreset failure\n",
-				__FUNCTION__));
-		} else
-		{
-			/* save core dump or write to a file */
-			if (bus->dhd->memdump_enabled) {
-#ifdef DHD_SSSR_DUMP
-				DHD_ERROR(("%s : Set collect_sssr as TRUE\n", __FUNCTION__));
-				bus->dhd->collect_sssr = TRUE;
-#endif /* DHD_SSSR_DUMP */
-#ifdef DHD_SDTC_ETB_DUMP
-				DHD_ERROR(("%s : Set collect_sdtc as TRUE\n", __FUNCTION__));
-				bus->dhd->collect_sdtc = TRUE;
-#endif /* DHD_SDTC_ETB_DUMP */
-				bus->dhd->memdump_type = DUMP_TYPE_DONGLE_TRAP;
-				dhdpcie_mem_dump(bus);
-			}
-		}
-#endif /* DHD_FW_COREDUMP */
 	}
 
 done1:
@@ -4225,9 +3691,9 @@ dhdpcie_get_mem_dump(dhd_bus_t *bus)
 #ifdef BOARD_HIKEY
 	unsigned long flags_bus;
 #endif /* BOARD_HIKEY */
-#if defined(DHD_FILE_DUMP_EVENT) && defined(DHD_FW_COREDUMP)
+#ifdef DHD_FILE_DUMP_EVENT
 	dhd_dongledump_status_t dump_status;
-#endif /* DHD_FILE_DUMP_EVENT && DHD_FW_COREDUMP */
+#endif /* DHD_FILE_DUMP_EVENT */
 
 	if (!bus) {
 		DHD_ERROR(("%s: bus is NULL\n", __FUNCTION__));
@@ -4238,13 +3704,6 @@ dhdpcie_get_mem_dump(dhd_bus_t *bus)
 	if (!bus->dhd) {
 		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
 		ret = BCME_ERROR;
-		goto exit;
-	}
-
-	if (bus->link_state == DHD_PCIE_WLAN_BP_DOWN) {
-		DHD_ERROR(("%s: DHD_PCIE_WLAN_BP_DOWN return success and collect only FIS if set\n",
-			__FUNCTION__));
-		ret = BCME_OK;
 		goto exit;
 	}
 
@@ -4260,12 +3719,12 @@ dhdpcie_get_mem_dump(dhd_bus_t *bus)
 		goto exit;
 	}
 
-#if defined(DHD_FILE_DUMP_EVENT) && defined(DHD_FW_COREDUMP)
+#ifdef DHD_FILE_DUMP_EVENT
 	dump_status = dhd_get_dump_status(bus->dhd);
 	if (dump_status != DUMP_IN_PROGRESS) {
 		dhd_set_dump_status(bus->dhd, DUMP_IN_PROGRESS);
 	}
-#endif /* DHD_FILE_DUMP_EVENT && DHD_FW_COREDUMP */
+#endif /* DHD_FILE_DUMP_EVENT */
 
 	/* Read mem content */
 	DHD_TRACE_HW4(("Dump dongle memory\n"));
@@ -4295,12 +3754,13 @@ dhdpcie_get_mem_dump(dhd_bus_t *bus)
 		start += read_size;
 		databuf += read_size;
 	}
+
 exit:
-#if defined(DHD_FILE_DUMP_EVENT) && defined(DHD_FW_COREDUMP)
+#ifdef DHD_FILE_DUMP_EVENT
 	if (ret != BCME_OK) {
 		dhd_set_dump_status(bus->dhd, DUMP_FAILURE);
 	}
-#endif /* DHD_FILE_DUMP_EVENT && DHD_FW_COREDUMP */
+#endif /* DHD_FILE_DUMP_EVENT */
 
 	return ret;
 }
@@ -4312,9 +3772,6 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 	int ret;
 	uint32 dhd_console_ms_prev = 0;
 
-#ifdef GDB_PROXY
-	bus->gdb_proxy_mem_dump_count++;
-#endif /* GDB_PROXY */
 	dhdp = bus->dhd;
 	if (!dhdp) {
 		DHD_ERROR(("%s: dhdp is NULL\n", __FUNCTION__));
@@ -4327,10 +3784,9 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 			__FUNCTION__, dhd_console_ms_prev));
 		dhdp->dhd_console_ms = 0;
 	}
-
-#if defined(__linux__)
-	dhd_plat_pcie_register_dump(dhdp->plat_info);
-#endif /* __linux__ */
+#ifdef EXYNOS_PCIE_DEBUG
+	exynos_pcie_register_dump(1);
+#endif /* EXYNOS_PCIE_DEBUG */
 
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 	if (bus->is_linkdown) {
@@ -4364,63 +3820,20 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 			/* intentional fall through */
 		case DUMP_TYPE_BY_LIVELOCK:
 			/* intentional fall through */
-		case DUMP_TYPE_TRANS_ID_MISMATCH:
-			/* intentional fall through */
 		case DUMP_TYPE_IFACE_OP_FAILURE:
 			/* intentional fall through */
 		case DUMP_TYPE_PKTID_POOL_DEPLETED:
 			/* intentional fall through */
 		case DUMP_TYPE_ESCAN_SYNCID_MISMATCH:
 			/* intentional fall through */
-		case DUMP_TYPE_PROXD_TIMEOUT:
-			/* intentional fall through */
-		case DUMP_TYPE_INBAND_DEVICE_WAKE_FAILURE:
-			/* intentional fall through */
 		case DUMP_TYPE_INVALID_SHINFO_NRFRAGS:
 			/* intentional fall through */
 		case DUMP_TYPE_P2P_DISC_BUSY:
-			/* intentional fall through */
 			if (dhdp->db7_trap.fw_db7w_trap) {
 				/* Set fw_db7w_trap_inprogress here and clear from DPC */
 				dhdp->db7_trap.fw_db7w_trap_inprogress = TRUE;
 				dhdpcie_fw_trap(dhdp->bus);
 				OSL_DELAY(100 * 1000); // wait 100 msec
-				/*
-				 * Since dpc may have triggered db7, it will not pre-empt itself
-				 * so if trap_data is 0, re-read trap_data before giving up
-				 */
-				if (dhdp->dongle_trap_data == 0) {
-					dhdp->dongle_trap_data = dhd_prot_process_trapbuf(dhdp);
-				}
-				if (dhdp->db7_trap.fw_db7w_trap_recieved) {
-					/* Collect SSSR dump for all non trap cases
-					 * only after DB7 ack
-					 */
-#ifdef DHD_SSSR_DUMP
-					DHD_ERROR(("%s : Set collect_sssr as TRUE after DB7\n",
-						__FUNCTION__));
-					dhdp->collect_sssr = TRUE;
-#endif /* DHD_SSSR_DUMP */
-#ifdef DHD_SDTC_ETB_DUMP
-					DHD_ERROR(("%s : Set collect_sdtc as TRUE after DB7\n",
-						__FUNCTION__));
-					dhdp->collect_sdtc = TRUE;
-#endif /* DHD_SDTC_ETB_DUMP */
-				} else {
-					DHD_ERROR(("%s : Did not receive DB7 Ack\n", __FUNCTION__));
-#ifdef WBRC
-					DHD_ERROR(("%s : Set do_chip_bighammer\n", __FUNCTION__));
-					bus->dhd->do_chip_bighammer = TRUE;
-#endif /* WBRC */
-				}
-				DHD_ERROR(("Function_Intstatus(0x%x)=0x%x "
-					"Function_Intmask(0x%x)=0x%x\n",
-					PCIFunctionIntstatus(bus->sih->buscorerev),
-					si_corereg(bus->sih, bus->sih->buscoreidx,
-					PCIFunctionIntstatus(bus->sih->buscorerev), 0, 0),
-					PCIFunctionIntmask(bus->sih->buscorerev),
-					si_corereg(bus->sih, bus->sih->buscoreidx,
-					PCIFunctionIntmask(bus->sih->buscorerev), 0, 0)));
 			} else {
 				DHD_ERROR(("%s: DB7 Not supported!!!\n",
 					__FUNCTION__));
@@ -4459,7 +3872,6 @@ exit:
 			__FUNCTION__, dhd_console_ms_prev));
 		dhdp->dhd_console_ms = dhd_console_ms_prev;
 	}
-
 	return ret;
 }
 
@@ -4528,7 +3940,7 @@ dhdpcie_bus_membytes(dhd_bus_t *bus, bool write, ulong address, uint8 *data, uin
 	int detect_endian_flag = 0x01;
 	bool little_endian;
 
-	if (bus->is_linkdown) {
+	if (write && bus->is_linkdown) {
 		DHD_ERROR(("%s: PCIe link was down\n", __FUNCTION__));
 		return BCME_ERROR;
 	}
@@ -4605,7 +4017,6 @@ dhdpcie_bus_membytes(dhd_bus_t *bus, bool write, ulong address, uint8 *data, uin
 	return BCME_OK;
 } /* dhdpcie_bus_membytes */
 
-extern bool agg_h2d_db_enab;
 /**
  * Transfers one transmit (ethernet) packet that was queued in the (flow controlled) flow ring queue
  * to the (non flow controlled) flow ring.
@@ -4618,7 +4029,7 @@ BCMFASTPATH(dhd_bus_schedule_queue)(struct dhd_bus  *bus, uint16 flow_id, bool t
 	int ret = BCME_OK;
 #ifdef DHD_LOSSLESS_ROAMING
 	dhd_pub_t *dhdp = bus->dhd;
-#endif /* DHD_LOSSLESS_ROAMING */
+#endif
 
 	DHD_INFO(("%s: flow_id is %d\n", __FUNCTION__, flow_id));
 
@@ -4659,11 +4070,6 @@ BCMFASTPATH(dhd_bus_schedule_queue)(struct dhd_bus  *bus, uint16 flow_id, bool t
 			return BCME_NOTREADY;
 		}
 
-		if (queue->len == 0) {
-			DHD_FLOWRING_UNLOCK(flow_ring_node->lock, flags);
-			return BCME_NOTREADY;
-		}
-
 		while ((txp = dhd_flow_queue_dequeue(bus->dhd, queue)) != NULL) {
 			PKTORPHAN(txp);
 
@@ -4690,13 +4096,10 @@ BCMFASTPATH(dhd_bus_schedule_queue)(struct dhd_bus  *bus, uint16 flow_id, bool t
 			if (ret != BCME_OK) { /* may not have resources in flow ring */
 				DHD_INFO(("%s: Reinserrt %d\n", __FUNCTION__, ret));
 #ifdef AGG_H2D_DB
-				if (agg_h2d_db_enab) {
-					dhd_prot_schedule_aggregate_h2d_db(bus->dhd, flow_id);
-				} else
+				dhd_prot_schedule_aggregate_h2d_db(bus->dhd, flow_id);
+#else
+				dhd_prot_txdata_write_flush(bus->dhd, flow_id);
 #endif /* AGG_H2D_DB */
-				{
-					dhd_prot_txdata_write_flush(bus->dhd, flow_id);
-				}
 				/* reinsert at head */
 				dhd_flow_queue_reinsert(bus->dhd, queue, txp);
 				DHD_FLOWRING_UNLOCK(flow_ring_node->lock, flags);
@@ -4716,13 +4119,10 @@ BCMFASTPATH(dhd_bus_schedule_queue)(struct dhd_bus  *bus, uint16 flow_id, bool t
 
 		{
 #ifdef AGG_H2D_DB
-			if (agg_h2d_db_enab) {
-				dhd_prot_schedule_aggregate_h2d_db(bus->dhd, flow_id);
-			} else
+			dhd_prot_schedule_aggregate_h2d_db(bus->dhd, flow_id);
+#else
+			dhd_prot_txdata_write_flush(bus->dhd, flow_id);
 #endif /* AGG_H2D_DB */
-			{
-				dhd_prot_txdata_write_flush(bus->dhd, flow_id);
-			}
 		}
 
 		DHD_FLOWRING_UNLOCK(flow_ring_node->lock, flags);
@@ -5015,7 +4415,7 @@ dhdpcie_bar1_window_switch_enab(dhd_bus_t *bus)
 		bus->bar1_switch_enab = TRUE;
 	}
 
-	DHD_ERROR_MEM(("%s: bar1_switch_enab=%d ramstart=0x%x ramend=0x%x bar1_size=0x%x\n",
+	DHD_ERROR(("%s: bar1_switch_enab=%d ramstart=0x%x ramend=0x%x bar1_size=0x%x\n",
 		__FUNCTION__, bus->bar1_switch_enab, ramstart, ramend, bus->bar1_size));
 }
 
@@ -5249,11 +4649,16 @@ dhdpcie_update_ring_ptrs_in_tcm_with_req_pwr(dhd_bus_t *bus, void *data, uint8 t
 		DHD_ERROR(("%s: invalid type:%d\n", __FUNCTION__, type));
 		return;
 	}
-
+#ifdef MSB_BIT_ABOVE_22_SET
+	if (addr >> 22) {
+		DHD_ERROR(("%s TCM address above 22nd bit is set. addr: 0x%lx\n",
+			__FUNCTION__, addr));
+		ASSERT(0);
+	}
+#endif /* MSB_BIT_ABOVE_22_SET */
 	if (req_pwr && MULTIBP_ENAB(bus->sih)) {
 		dhd_bus_pcie_pwr_req(bus);
 	}
-
 	if (read) {
 		/* Read */
 		*(uint16*)data = LTOH16(dhdpcie_bus_rtcm16(bus, addr));
@@ -5439,14 +4844,6 @@ dhd_bus_cmn_writeshared(dhd_bus_t *bus, void *data, uint32 len, uint8 type, uint
 				(uint32) HTOL32(*(uint32 *)data)));
 			break;
 
-#ifdef DHD_PCIE_PTM
-		case HOST_CAP2:
-			addr = DHD_PCIE_SHARED_MEMBER_ADDR(bus, host_cap2);
-			dhdpcie_bus_wtcm32(bus, addr, (uint32) HTOL32(*(uint32 *)data));
-			DHD_INFO(("Wrote host_cap2 0x%x\n", (uint32) HTOL32(*(uint32 *)data)));
-			break;
-#endif /* DHD_PCIE_PTM */
-
 		default:
 			break;
 	}
@@ -5524,12 +4921,9 @@ uint32 dhd_bus_get_sharedflags(dhd_bus_t *bus)
 	return ((pciedev_shared_t*)bus->pcie_sh)->flags;
 }
 
-void dhd_prot_clearcounts(dhd_pub_t *dhd);
-
 void
 dhd_bus_clearcounts(dhd_pub_t *dhdp)
 {
-	dhd_prot_clearcounts(dhdp);
 }
 
 /**
@@ -5768,7 +5162,7 @@ dhd_buzzz_dump_log(char *p, uint32 *core, uint32 *log, bcm_buzzz_t *buzzz)
 			break;
 		}
 		default:
-			DHD_CONS_ONLY(("Maximum one argument supported\n"));
+			printf("Maximum one argument supported\n");
 			break;
 	}
 
@@ -5800,11 +5194,11 @@ void dhd_buzzz_dump(bcm_buzzz_t *buzzz_p, void *buffer_p, char *p)
 	}
 
 	if (total == 0U) {
-		DHD_CONS_ONLY(("bcm_buzzz_dump total<%u> done\n", total));
+		printf("bcm_buzzz_dump total<%u> done\n", total);
 		return;
 	} else {
-		DHD_CONS_ONLY(("bcm_buzzz_dump total<%u> : part2<%u> + part1<%u>\n",
-		       total, part2, part1));
+		printf("bcm_buzzz_dump total<%u> : part2<%u> + part1<%u>\n",
+		       total, part2, part1);
 	}
 
 	if (part2) {   /* with wrap */
@@ -5825,7 +5219,7 @@ void dhd_buzzz_dump(bcm_buzzz_t *buzzz_p, void *buffer_p, char *p)
 		log = (void*)((size_t)log + buzzz_p->log_sz);
 	}
 
-	DHD_CONS_ONLY(("bcm_buzzz_dump done.\n"));
+	printf("bcm_buzzz_dump done.\n");
 }
 
 int dhd_buzzz_dump_dngl(dhd_bus_t *bus)
@@ -5840,11 +5234,11 @@ int dhd_buzzz_dump_dngl(dhd_bus_t *bus)
 		return BCME_UNSUPPORTED;
 	}
 	if ((page_p = (char *)MALLOC(bus->dhd->osh, 4096)) == NULL) {
-		DHD_CONS_ONLY(("Page memory allocation failure\n"));
+		printf("Page memory allocation failure\n");
 		goto done;
 	}
 	if ((buzzz_p = MALLOC(bus->dhd->osh, sizeof(bcm_buzzz_t))) == NULL) {
-		DHD_CONS_ONLY(("BCM BUZZZ memory allocation failure\n"));
+		printf("BCM BUZZZ memory allocation failure\n");
 		goto done;
 	}
 
@@ -5863,24 +5257,24 @@ int dhd_buzzz_dump_dngl(dhd_bus_t *bus)
 		dhdpcie_bus_membytes(bus, FALSE, (ulong)sh->buzz_dbg_ptr,
 		                     (uint8 *)buzzz_p, sizeof(bcm_buzzz_t));
 
-		DHD_CONS_ONLY(("BUZZZ[0x%08x]: log<0x%08x> cur<0x%08x> end<0x%08x> "
+		printf("BUZZZ[0x%08x]: log<0x%08x> cur<0x%08x> end<0x%08x> "
 			"count<%u> status<%u> wrap<%u>\n"
 			"cpu<0x%02X> counters<%u> group<%u> buffer_sz<%u> log_sz<%u>\n",
 			(int)sh->buzz_dbg_ptr,
 			(int)buzzz_p->log, (int)buzzz_p->cur, (int)buzzz_p->end,
 			buzzz_p->count, buzzz_p->status, buzzz_p->wrap,
 			buzzz_p->cpu_idcode, buzzz_p->counters, buzzz_p->group,
-			buzzz_p->buffer_sz, buzzz_p->log_sz));
+			buzzz_p->buffer_sz, buzzz_p->log_sz);
 
 		if (buzzz_p->count == 0) {
-			DHD_CONS_ONLY(("Empty dongle BUZZZ trace\n\n"));
+			printf("Empty dongle BUZZZ trace\n\n");
 			goto done;
 		}
 
 		/* Allocate memory for trace buffer and format strings */
 		buffer_p = MALLOC(bus->dhd->osh, buzzz_p->buffer_sz);
 		if (buffer_p == NULL) {
-			DHD_CONS_ONLY(("Buffer memory allocation failure\n"));
+			printf("Buffer memory allocation failure\n");
 			goto done;
 		}
 
@@ -5895,12 +5289,12 @@ int dhd_buzzz_dump_dngl(dhd_bus_t *bus)
 			for (ctr = 0; ctr < buzzz_p->counters; ctr++) {
 				printf("<Evt[%02X]> ", buzzz_p->eventid[ctr]);
 			}
-			DHD_CONS_ONLY(("<code execution point>\n"));
+			printf("<code execution point>\n");
 		}
 
 		dhd_buzzz_dump(buzzz_p, buffer_p, page_p);
 
-		DHD_CONS_ONLY(("----- End of dongle BCM BUZZZ Trace -----\n\n"));
+		printf("----- End of dongle BCM BUZZZ Trace -----\n\n");
 
 		MFREE(bus->dhd->osh, buffer_p, buzzz_p->buffer_sz); buffer_p = NULL;
 	}
@@ -5972,7 +5366,6 @@ dhd_bus_perform_flr(dhd_bus_t *bus, bool force_fail)
 	uint flr_capab;
 	uint val;
 	int retry = 0;
-	bool in_flr_already = FALSE;
 
 	DHD_ERROR(("******** Perform FLR ********\n"));
 
@@ -6000,70 +5393,44 @@ dhd_bus_perform_flr(dhd_bus_t *bus, bool force_fail)
 	       DHD_ERROR(("Chip does not support FLR\n"));
 	       return BCME_UNSUPPORTED;
 	}
-	/* Check if we are already in FLR, if we are then just go to restore part of it  */
-	val = OSL_PCI_READ_CONFIG(bus->osh, PCIE_CFG_SUBSYSTEM_CONTROL, sizeof(val));
-	DHD_ERROR(("config space 0x88 is 0x%x\n", val));
-	if (val & (1 << PCIE_SSRESET_STATUS_BIT)) {
-		DHD_ERROR(("******** device already in FLR, so clear only ********\n"));
-		in_flr_already = TRUE;
-	}
-	else {
-		DHD_ERROR(("******** device not in FLR ********\n"));
-	}
-	if (!in_flr_already) {
 
-		bus->ptm_ctrl_reg = dhdpcie_bus_cfg_read_dword(bus, PCI_CFG_PTM_CTRL, 4);
+	/* Save pcie config space */
+	DHD_INFO(("Save Pcie Config Space\n"));
+	DHD_PCIE_CONFIG_SAVE(bus);
 
-		/* Save pcie config space */
-		DHD_INFO(("Save Pcie Config Space\n"));
-		DHD_PCIE_CONFIG_SAVE(bus);
+	/* Set bit 15 of PCIE_CFG_DEVICE_CONTROL */
+	DHD_INFO(("Set PCIE_FUNCTION_LEVEL_RESET_BIT(%d) of PCIE_CFG_DEVICE_CONTROL(0x%x)\n",
+		PCIE_FUNCTION_LEVEL_RESET_BIT, PCIE_CFG_DEVICE_CONTROL));
+	val = OSL_PCI_READ_CONFIG(bus->osh, PCIE_CFG_DEVICE_CONTROL, sizeof(val));
+	DHD_INFO(("read_config: reg=0x%x read val=0x%x\n", PCIE_CFG_DEVICE_CONTROL, val));
+	val = val | (1 << PCIE_FUNCTION_LEVEL_RESET_BIT);
+	DHD_INFO(("write_config: reg=0x%x write val=0x%x\n", PCIE_CFG_DEVICE_CONTROL, val));
+	OSL_PCI_WRITE_CONFIG(bus->osh, PCIE_CFG_DEVICE_CONTROL, sizeof(val), val);
 
-		/* Set bit 15 of PCIE_CFG_DEVICE_CONTROL */
-		DHD_INFO(("Set PCIE_FUNCTION_LEVEL_RESET_BIT(%d) of"
-			" PCIE_CFG_DEVICE_CONTROL(0x%x)\n",
-			PCIE_FUNCTION_LEVEL_RESET_BIT, PCIE_CFG_DEVICE_CONTROL));
-		val = OSL_PCI_READ_CONFIG(bus->osh, PCIE_CFG_DEVICE_CONTROL, sizeof(val));
-		DHD_INFO(("read_config: reg=0x%x read val=0x%x\n", PCIE_CFG_DEVICE_CONTROL, val));
-		val = val | (1 << PCIE_FUNCTION_LEVEL_RESET_BIT);
-		DHD_INFO(("write_config: reg=0x%x write val=0x%x\n", PCIE_CFG_DEVICE_CONTROL, val));
-		OSL_PCI_WRITE_CONFIG(bus->osh, PCIE_CFG_DEVICE_CONTROL, sizeof(val), val);
-		if (bus->lpm_keep_in_reset) {
-			/* Keep the device in FLR */
-			DHD_ERROR(("******** device force FLR only ********\n"));
-			return BCME_OK;
-		}
-		else {
-			DHD_ERROR(("******** device force FLR only not set ********\n"));
-		}
+	/* wait for DHD_FUNCTION_LEVEL_RESET_DELAY msec */
+	DHD_INFO(("Delay of %d msec\n", DHD_FUNCTION_LEVEL_RESET_DELAY));
 
-		/* wait for DHD_FUNCTION_LEVEL_RESET_DELAY msec */
-		DHD_ERROR_MEM(("Delay of %d msec\n", DHD_FUNCTION_LEVEL_RESET_DELAY));
+	CAN_SLEEP() ? OSL_SLEEP(DHD_FUNCTION_LEVEL_RESET_DELAY) :
+		OSL_DELAY(DHD_FUNCTION_LEVEL_RESET_DELAY * USEC_PER_MSEC);
 
-		CAN_SLEEP() ? OSL_SLEEP(DHD_FUNCTION_LEVEL_RESET_DELAY) :
-			OSL_DELAY(DHD_FUNCTION_LEVEL_RESET_DELAY * USEC_PER_MSEC);
 #ifdef USE_ISB_IN_FLR
-		OSL_ISB();
+	OSL_ISB();
 #endif /* USE_ISB_IN_FLR */
 
-		if (force_fail) {
-			DHD_ERROR(("Set PCIE_SSRESET_DISABLE_BIT(%d) of"
-				" PCIE_CFG_SUBSYSTEM_CONTROL(0x%x)\n",
-				PCIE_SSRESET_DISABLE_BIT, PCIE_CFG_SUBSYSTEM_CONTROL));
-			val = OSL_PCI_READ_CONFIG(bus->osh, PCIE_CFG_SUBSYSTEM_CONTROL,
-				sizeof(val));
-			DHD_ERROR(("read_config: reg=0x%x read val=0x%x\n",
-				PCIE_CFG_SUBSYSTEM_CONTROL, val));
-			val = val | (1 << PCIE_SSRESET_DISABLE_BIT);
-			DHD_ERROR(("write_config: reg=0x%x write val=0x%x\n",
-				PCIE_CFG_SUBSYSTEM_CONTROL, val));
-			OSL_PCI_WRITE_CONFIG(bus->osh, PCIE_CFG_SUBSYSTEM_CONTROL,
-				sizeof(val), val);
+	if (force_fail) {
+		DHD_ERROR(("Set PCIE_SSRESET_DISABLE_BIT(%d) of PCIE_CFG_SUBSYSTEM_CONTROL(0x%x)\n",
+			PCIE_SSRESET_DISABLE_BIT, PCIE_CFG_SUBSYSTEM_CONTROL));
+		val = OSL_PCI_READ_CONFIG(bus->osh, PCIE_CFG_SUBSYSTEM_CONTROL, sizeof(val));
+		DHD_ERROR(("read_config: reg=0x%x read val=0x%x\n", PCIE_CFG_SUBSYSTEM_CONTROL,
+			val));
+		val = val | (1 << PCIE_SSRESET_DISABLE_BIT);
+		DHD_ERROR(("write_config: reg=0x%x write val=0x%x\n", PCIE_CFG_SUBSYSTEM_CONTROL,
+			val));
+		OSL_PCI_WRITE_CONFIG(bus->osh, PCIE_CFG_SUBSYSTEM_CONTROL, sizeof(val), val);
 
-			val = OSL_PCI_READ_CONFIG(bus->osh, PCIE_CFG_SUBSYSTEM_CONTROL,
-				sizeof(val));
-			DHD_ERROR(("read_config: reg=0x%x read val=0x%x\n",
-				PCIE_CFG_SUBSYSTEM_CONTROL, val));
-		}
+		val = OSL_PCI_READ_CONFIG(bus->osh, PCIE_CFG_SUBSYSTEM_CONTROL, sizeof(val));
+		DHD_ERROR(("read_config: reg=0x%x read val=0x%x\n", PCIE_CFG_SUBSYSTEM_CONTROL,
+			val));
 	}
 
 	/* Clear bit 15 of PCIE_CFG_DEVICE_CONTROL */
@@ -6087,7 +5454,7 @@ dhd_bus_perform_flr(dhd_bus_t *bus, bool force_fail)
 	} while (val && (retry++ < DHD_SSRESET_STATUS_RETRIES));
 
 	if (val) {
-		DHD_ERROR_MEM(("ERROR: reg=0x%x bit %d is not cleared\n",
+		DHD_ERROR(("ERROR: reg=0x%x bit %d is not cleared\n",
 			PCIE_CFG_SUBSYSTEM_CONTROL, PCIE_SSRESET_STATUS_BIT));
 		/* User has to fire the IOVAR again, if force_fail is needed */
 		if (force_fail) {
@@ -6096,8 +5463,6 @@ dhd_bus_perform_flr(dhd_bus_t *bus, bool force_fail)
 		}
 		return BCME_DONGLE_DOWN;
 	}
-
-	dhdpcie_bus_cfg_write_dword(bus, PCI_CFG_PTM_CTRL, 4, bus->ptm_ctrl_reg);
 
 	/* Restore pcie config space */
 	DHD_INFO(("Restore Pcie Config Space\n"));
@@ -6454,7 +5819,7 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 			do {
 				bcmerror = dhdpcie_bus_start_host_dev(bus);
 				if (!bcmerror) {
-					DHD_ERROR_MEM(("%s: dhdpcie_bus_start_host_dev OK\n",
+					DHD_ERROR(("%s: dhdpcie_bus_start_host_dev OK\n",
 						__FUNCTION__));
 					break;
 				} else {
@@ -6647,9 +6012,9 @@ BCMRAMFN(dhd_cap_bcmstrbuf)(dhd_pub_t *dhd, struct bcmstrbuf *b)
 	bcm_bprintf(b, "lbtxp ");
 #endif /* DHD_LB_TXP_DEFAULT_ENAB */
 #endif /* DHD_LB_TXP */
-	if (dhd->htput_support) {
-		bcm_bprintf(b, "htput ");
-	}
+#ifdef DHD_HTPUT_TUNABLES
+	bcm_bprintf(b, "htput ");
+#endif /* DHD_HTPUT_TUNABLES */
 }
 
 /** Return dhd capability string */
@@ -6975,8 +6340,6 @@ dhdpcie_bus_doiovar(dhd_bus_t *bus, const bcm_iovar_t *vi, uint32 actionid, cons
 				PCIEDEV_TRANS_WIN_HOSTMEM);
 			ret.hostmem_code_win_length = bus->hostfw_buf.len;
 		}
-		ret.flags |= DHD_GDB_PROXY_PROBE_MEMDUMP_COUNT;
-		ret.mem_dump_count = bus->gdb_proxy_mem_dump_count;
 		if (plen && int_val) {
 			bus->gdb_proxy_last_id = (uint32)int_val;
 		}
@@ -7278,21 +6641,6 @@ dhdpcie_bus_doiovar(dhd_bus_t *bus, const bcm_iovar_t *vi, uint32 actionid, cons
 		bcopy(&int_val, arg, val_size);
 		break;
 
-	case IOV_SVAL(IOV_RING_SIZE_VER):
-		if (bus->dhd->busstate != DHD_BUS_DOWN) {
-			DHD_ERROR(("%s: Can change only when bus down (before FW download)\n",
-				__FUNCTION__));
-			bcmerror = BCME_NOTDOWN;
-			break;
-		}
-		dhd_prot_set_ring_size_ver(bus->dhd, int_val);
-		break;
-
-	case IOV_GVAL(IOV_RING_SIZE_VER):
-		int_val = ring_size_version;
-		bcopy(&int_val, arg, val_size);
-		break;
-
 	case IOV_SVAL(IOV_H2D_TXPOST_MAX_ITEM):
 		if (bus->dhd->busstate != DHD_BUS_DOWN) {
 			DHD_ERROR(("%s: Can change only when bus down (before FW download)\n",
@@ -7300,14 +6648,15 @@ dhdpcie_bus_doiovar(dhd_bus_t *bus, const bcm_iovar_t *vi, uint32 actionid, cons
 			bcmerror = BCME_NOTDOWN;
 			break;
 		}
-		h2d_max_txpost = (uint16)int_val;
+		dhd_prot_set_h2d_max_txpost(bus->dhd, (uint16)int_val);
 		break;
 
 	case IOV_GVAL(IOV_H2D_TXPOST_MAX_ITEM):
-		int_val = h2d_max_txpost;
+		int_val = dhd_prot_get_h2d_max_txpost(bus->dhd);
 		bcopy(&int_val, arg, val_size);
 		break;
 
+#if defined(DHD_HTPUT_TUNABLES)
 	case IOV_SVAL(IOV_H2D_HTPUT_TXPOST_MAX_ITEM):
 		if (bus->dhd->busstate != DHD_BUS_DOWN) {
 			DHD_ERROR(("%s: Can change only when bus down (before FW download)\n",
@@ -7315,118 +6664,14 @@ dhdpcie_bus_doiovar(dhd_bus_t *bus, const bcm_iovar_t *vi, uint32 actionid, cons
 			bcmerror = BCME_NOTDOWN;
 			break;
 		}
-		h2d_htput_max_txpost = (uint16)int_val;
+		dhd_prot_set_h2d_htput_max_txpost(bus->dhd, (uint16)int_val);
 		break;
 
 	case IOV_GVAL(IOV_H2D_HTPUT_TXPOST_MAX_ITEM):
-		int_val = h2d_htput_max_txpost;
+		int_val = dhd_prot_get_h2d_htput_max_txpost(bus->dhd);
 		bcopy(&int_val, arg, val_size);
 		break;
-
-	case IOV_SVAL(IOV_D2H_TXCPL_MAX_ITEM):
-		if (bus->dhd->busstate != DHD_BUS_DOWN) {
-			DHD_ERROR(("%s: Can change only when bus down (before FW download)\n",
-				__FUNCTION__));
-			bcmerror = BCME_NOTDOWN;
-			break;
-		}
-		d2h_max_txcpl = (uint16)int_val;
-		break;
-
-	case IOV_GVAL(IOV_D2H_TXCPL_MAX_ITEM):
-		int_val = d2h_max_txcpl;
-		bcopy(&int_val, arg, val_size);
-		break;
-
-	case IOV_SVAL(IOV_H2D_RXPOST_MAX_ITEM):
-		if (bus->dhd->busstate != DHD_BUS_DOWN) {
-			DHD_ERROR(("%s: Can change only when bus down (before FW download)\n",
-				__FUNCTION__));
-			bcmerror = BCME_NOTDOWN;
-			break;
-		}
-		h2d_max_rxpost = (uint16)int_val;
-		break;
-
-	case IOV_GVAL(IOV_H2D_RXPOST_MAX_ITEM):
-		int_val = h2d_max_rxpost;
-		bcopy(&int_val, arg, val_size);
-		break;
-
-	case IOV_SVAL(IOV_D2H_RXCPL_MAX_ITEM):
-		if (bus->dhd->busstate != DHD_BUS_DOWN) {
-			DHD_ERROR(("%s: Can change only when bus down (before FW download)\n",
-				__FUNCTION__));
-			bcmerror = BCME_NOTDOWN;
-			break;
-		}
-		d2h_max_rxcpl = (uint16)int_val;
-		break;
-
-	case IOV_GVAL(IOV_D2H_RXCPL_MAX_ITEM):
-		int_val = d2h_max_rxcpl;
-		bcopy(&int_val, arg, val_size);
-		break;
-
-	case IOV_SVAL(IOV_H2D_CTRLPOST_MAX_ITEM):
-		if (bus->dhd->busstate != DHD_BUS_DOWN) {
-			DHD_ERROR(("%s: Can change only when bus down (before FW download)\n",
-				__FUNCTION__));
-			bcmerror = BCME_NOTDOWN;
-			break;
-		}
-		h2d_max_ctrlpost = (uint16)int_val;
-		break;
-
-	case IOV_GVAL(IOV_H2D_CTRLPOST_MAX_ITEM):
-		int_val = h2d_max_ctrlpost;
-		bcopy(&int_val, arg, val_size);
-		break;
-
-	case IOV_SVAL(IOV_D2H_CTRLCPL_MAX_ITEM):
-		if (bus->dhd->busstate != DHD_BUS_DOWN) {
-			DHD_ERROR(("%s: Can change only when bus down (before FW download)\n",
-				__FUNCTION__));
-			bcmerror = BCME_NOTDOWN;
-			break;
-		}
-		d2h_max_ctrlcpl = (uint16)int_val;
-		break;
-
-	case IOV_GVAL(IOV_D2H_CTRLCPL_MAX_ITEM):
-		int_val = d2h_max_ctrlcpl;
-		bcopy(&int_val, arg, val_size);
-		break;
-
-	case IOV_SVAL(IOV_RX_BUF_BURST):
-		if (bus->dhd->busstate != DHD_BUS_DOWN) {
-			DHD_ERROR(("%s: Can change only when bus down (before FW download)\n",
-				__FUNCTION__));
-			bcmerror = BCME_NOTDOWN;
-			break;
-		}
-		rx_buf_burst = (uint16)int_val;
-		break;
-
-	case IOV_GVAL(IOV_RX_BUF_BURST):
-		int_val = rx_buf_burst;
-		bcopy(&int_val, arg, val_size);
-		break;
-
-	case IOV_SVAL(IOV_RX_BUFPOST_THRESHOLD):
-		if (bus->dhd->busstate != DHD_BUS_DOWN) {
-			DHD_ERROR(("%s: Can change only when bus down (before FW download)\n",
-				__FUNCTION__));
-			bcmerror = BCME_NOTDOWN;
-			break;
-		}
-		rx_bufpost_threshold = (uint16)int_val;
-		break;
-
-	case IOV_GVAL(IOV_RX_BUFPOST_THRESHOLD):
-		int_val = rx_bufpost_threshold;
-		bcopy(&int_val, arg, val_size);
-		break;
+#endif /* DHD_HTPUT_TUNABLES */
 
 	case IOV_GVAL(IOV_RXBOUND):
 		int_val = (int32)dhd_rxbound;
@@ -7567,131 +6812,6 @@ dhdpcie_bus_doiovar(dhd_bus_t *bus, const bcm_iovar_t *vi, uint32 actionid, cons
 		bcopy(&int_val, arg, val_size);
 		break;
 
-	case IOV_GVAL(IOV_DONGLE_RXLAT_INFO):
-	{
-		unsigned long flags = 0;
-		struct bcmstrbuf strbuf;
-
-		bcm_binit(&strbuf, arg, len);
-		DHD_GENERAL_LOCK(bus->dhd, flags);
-		dhd_bus_dump_rxlat_info(bus->dhd, &strbuf);
-		DHD_GENERAL_UNLOCK(bus->dhd, flags);
-		break;
-	}
-
-	case IOV_GVAL(IOV_DONGLE_RXLAT_HISTO):
-	{
-		unsigned long flags = 0;
-		struct bcmstrbuf strbuf;
-
-		bcm_binit(&strbuf, arg, len);
-		DHD_GENERAL_LOCK(bus->dhd, flags);
-		dhd_bus_dump_rxlat_histo(bus->dhd, &strbuf);
-		DHD_GENERAL_UNLOCK(bus->dhd, flags);
-		break;
-	}
-
-	case IOV_GVAL(IOV_DONGLE_TXCPL_INFO):
-	{
-		unsigned long flags = 0;
-		struct bcmstrbuf strbuf;
-
-		bcm_binit(&strbuf, arg, len);
-		DHD_GENERAL_LOCK(bus->dhd, flags);
-		dhd_bus_dump_txcpl_info(bus->dhd, &strbuf);
-		DHD_GENERAL_UNLOCK(bus->dhd, flags);
-		break;
-	}
-
-	case IOV_GVAL(IOV_DONGLE_SEC_INFO):
-	{
-		unsigned long flags = 0;
-		struct bcmstrbuf strbuf;
-
-		bcm_binit(&strbuf, arg, len);
-		DHD_GENERAL_LOCK(bus->dhd, flags);
-		bcmerror = dhd_bus_security_info(bus->dhd, &strbuf);
-		DHD_GENERAL_UNLOCK(bus->dhd, flags);
-		break;
-	}
-
-	case IOV_GVAL(IOV_DONGLE_SBOOT_DIS):
-	{
-		unsigned long flags = 0;
-		struct bcmstrbuf strbuf;
-
-		bcm_binit(&strbuf, arg, len);
-		DHD_GENERAL_LOCK(bus->dhd, flags);
-		bcmerror = dhd_bus_sboot_disable(bus->dhd, &strbuf);
-		DHD_GENERAL_UNLOCK(bus->dhd, flags);
-		break;
-	}
-	case IOV_GVAL(IOV_LPM_MODE):
-		int_val = bus->lpm_mode;
-		if (bus->lpm_mode) {
-			if (!bus->lpm_mem_kill) {
-				int_val |= LPM_MODE_NO_MEMKILL;
-			}
-			if (!bus->lpm_force_flr) {
-				int_val |= LPM_MODE_NO_FLR;
-			}
-		}
-		(void)memcpy_s(arg, val_size, &int_val, sizeof(int_val));
-		break;
-	case IOV_SVAL(IOV_LPM_MODE):
-		if (int_val) {
-			bus->lpm_mode = TRUE;
-			if (int_val & LPM_MODE_NO_MEMKILL) {
-				bus->lpm_mem_kill = FALSE;
-			}
-			else {
-				bus->lpm_mem_kill = TRUE;
-			}
-			if (int_val & LPM_MODE_NO_FLR) {
-				bus->lpm_force_flr = FALSE;
-			}
-			else {
-				bus->lpm_force_flr = TRUE;
-			}
-		}
-		else {
-			bus->lpm_mode = FALSE;
-			bus->lpm_mem_kill = FALSE;
-			bus->lpm_force_flr = FALSE;
-		}
-		break;
-	case IOV_GVAL(IOV_MDRING_DUMP):
-	{
-		struct bcmstrbuf strbuf;
-
-		if (bus->dhd->mdring_capable) {
-			bcm_binit(&strbuf, arg, len);
-			dhd_bus_dump_mdring_info(bus->dhd, &strbuf);
-		}
-		break;
-	}
-	case IOV_SVAL(IOV_MDRING_LINK):
-		if (bus->dhd->mdring_capable && int_val) {
-			dhd_prot_mdring_link_unlink(bus->dhd, int_val, TRUE);
-		}
-		break;
-	case IOV_GVAL(IOV_MDRING_LINK):
-		if (bus->dhd->mdring_capable) {
-			int_val = dhd_prot_mdring_linked_ring(bus->dhd);
-			bcopy(&int_val, arg, val_size);
-		}
-		break;
-	case IOV_SVAL(IOV_MDRING_UNLINK):
-		if (bus->dhd->mdring_capable) {
-			dhd_prot_mdring_link_unlink(bus->dhd, int_val, FALSE);
-		}
-		break;
-	case IOV_GVAL(IOV_MDRING_UNLINK):
-		if (bus->dhd->mdring_capable) {
-			int_val = dhd_prot_mdring_linked_ring(bus->dhd);
-			bcopy(&int_val, arg, val_size);
-		}
-		break;
 	default:
 		bcmerror = BCME_UNSUPPORTED;
 		break;
@@ -7766,13 +6886,11 @@ dhd_bus_dump_dar_registers(struct dhd_bus *bus)
 	dar_erraddr_val = si_corereg(bus->sih, bus->sih->buscoreidx, dar_erraddr_reg, 0, 0);
 	dar_pcie_mbint_val = si_corereg(bus->sih, bus->sih->buscoreidx, dar_pcie_mbint_reg, 0, 0);
 
-	DHD_RPM(("%s: dar_clk_ctrl(0x%x:0x%x) dar_pwr_ctrl(0x%x:0x%x) "
-		"dar_intstat(0x%x:0x%x)\n",
+	DHD_ERROR(("%s: dar_clk_ctrl(0x%x:0x%x) dar_pwr_ctrl(0x%x:0x%x) dar_intstat(0x%x:0x%x)\n",
 		__FUNCTION__, dar_clk_ctrl_reg, dar_clk_ctrl_val,
 		dar_pwr_ctrl_reg, dar_pwr_ctrl_val, dar_intstat_reg, dar_intstat_val));
 
-	DHD_RPM(("%s: dar_errlog(0x%x:0x%x) dar_erraddr(0x%x:0x%x) "
-		"dar_pcie_mbint(0x%x:0x%x)\n",
+	DHD_ERROR(("%s: dar_errlog(0x%x:0x%x) dar_erraddr(0x%x:0x%x) dar_pcie_mbint(0x%x:0x%x)\n",
 		__FUNCTION__, dar_errlog_reg, dar_errlog_val,
 		dar_erraddr_reg, dar_erraddr_val, dar_pcie_mbint_reg, dar_pcie_mbint_val));
 
@@ -7795,7 +6913,7 @@ dhd_bus_hostready(struct  dhd_bus *bus)
 		return;
 	}
 
-	DHD_ERROR_MEM(("%s : Read PCICMD Reg: 0x%08X\n", __FUNCTION__,
+	DHD_ERROR(("%s : Read PCICMD Reg: 0x%08X\n", __FUNCTION__,
 		dhd_pcie_config_read(bus, PCI_CFG_CMD, sizeof(uint32))));
 
 	dhd_bus_dump_dar_registers(bus);
@@ -7810,7 +6928,7 @@ dhd_bus_hostready(struct  dhd_bus *bus)
 #endif /* defined(DHD_MMIO_TRACE) */
 	si_corereg(bus->sih, bus->sih->buscoreidx, dhd_bus_db1_addr_get(bus), ~0, 0x12345678);
 	bus->hostready_count ++;
-	DHD_ERROR_MEM(("%s: Ring Hostready:%d\n", __FUNCTION__, bus->hostready_count));
+	DHD_ERROR(("%s: Ring Hostready:%d\n", __FUNCTION__, bus->hostready_count));
 }
 
 /* Clear INTSTATUS */
@@ -7818,7 +6936,7 @@ void
 dhdpcie_bus_clear_intstatus(struct dhd_bus *bus)
 {
 	uint32 intstatus = 0;
-	/* Skip after receiving D3 ACK */
+	/* Skip after recieving D3 ACK */
 	if (DHD_CHK_BUS_LPS_D3_ACKED(bus)) {
 		return;
 	}
@@ -7833,45 +6951,6 @@ dhdpcie_bus_clear_intstatus(struct dhd_bus *bus)
 		si_corereg(bus->sih, bus->sih->buscoreidx, bus->pcie_mailbox_int, bus->def_intmask,
 			intstatus);
 	}
-}
-
-#ifdef PWRSTATS_SYSFS
-uint64
-dhdpcie_get_last_suspend_time(dhd_pub_t *dhdp)
-{
-	return dhdp->bus->last_suspend_end_time;
-}
-#endif /* PWRSTATS_SYSFS */
-
-#define BCM4387_WLAN_SYS_MEMDOWN_FORCE_PMU      0x444
-#define BCM4378_WLAN_SYS_MEMDOWN_FORCE_PMU      0x133
-
-static void
-dhd_pcie_handle_lpm_memkill(struct dhd_bus *bus)
-{
-	uint16 chipid = si_chipid(bus->sih);
-
-	if (bus->lpm_mem_kill == FALSE) {
-		DHD_ERROR(("LPM MODE: MEM Kill not enabled\n"));
-		return;
-	}
-	if (chipid == BCM4378_CHIP_ID) {
-		pmu_corereg(bus->sih, SI_CC_IDX, chipcontrol_addr, ~0, PMU_CHIPCTL13);
-		pmu_corereg(bus->sih, SI_CC_IDX, chipcontrol_data,
-			BCM4378_WLAN_SYS_MEMDOWN_FORCE_PMU, BCM4378_WLAN_SYS_MEMDOWN_FORCE_PMU);
-	}
-	else if (chipid == BCM4387_CHIP_ID) {
-		pmu_corereg(bus->sih, SI_CC_IDX, chipcontrol_addr, ~0, PMU_CHIPCTL13);
-		pmu_corereg(bus->sih, SI_CC_IDX, chipcontrol_data,
-			BCM4387_WLAN_SYS_MEMDOWN_FORCE_PMU, BCM4387_WLAN_SYS_MEMDOWN_FORCE_PMU);
-	}
-	else {
-		DHD_ERROR(("LPM MODE: Mem kill support not added for chip %d\n", chipid));
-		return;
-	}
-	DHD_ERROR(("PMU chipcontrol addr %d value is 0x%04x\n",
-		pmu_corereg(bus->sih, SI_CC_IDX, chipcontrol_addr, 0, 0),
-		pmu_corereg(bus->sih, SI_CC_IDX, chipcontrol_data, 0, 0)));
 }
 
 int
@@ -7938,7 +7017,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		}
 
 		/* Suspend */
-		DHD_RPM(("%s: Entering suspend state\n", __FUNCTION__));
+		DHD_ERROR(("%s: Entering suspend state\n", __FUNCTION__));
 
 		bus->dhd->dhd_watchdog_ms_backup = dhd_watchdog_ms;
 		if (bus->dhd->dhd_watchdog_ms_backup) {
@@ -7986,9 +7065,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		/* As D3_INFORM will be sent after De-assert,
 		 * skip sending DS-ACK for DS-REQ.
 		 */
-	DHD_BUS_INB_DW_LOCK(bus->inb_lock, flags);
-	bus->skip_ds_ack = TRUE;
-	DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
+		bus->skip_ds_ack = TRUE;
 #endif /* PCIE_INB_DW */
 
 #if defined(PCIE_INB_DW)
@@ -8042,6 +7119,11 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 				dhd_prot_ctrl_info_print(bus->dhd);
 				/* Clear Interrupts */
 				dhdpcie_bus_clear_intstatus(bus);
+				/* Enable back interrupt from Host side if disabled */
+				if (dhdpcie_irq_disabled(bus)) {
+					dhdpcie_enable_irq(bus);
+					bus->resume_intr_enable_count++;
+				}
 				if (dhd_prot_check_pending_ctrl_cmpls(bus->dhd)) {
 					DHD_ERROR(("##### %s: D3 ack timeout trying again #####\n",
 						__FUNCTION__));
@@ -8065,7 +7147,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		}
 
 		if (bus->wait_for_d3_ack) {
-			DHD_RPM(("%s: Got D3 Ack \n", __FUNCTION__));
+			DHD_ERROR(("%s: Got D3 Ack \n", __FUNCTION__));
 			/* Got D3 Ack. Suspend the bus */
 			if (active) {
 				DHD_ERROR(("%s():Suspend failed because of wakelock"
@@ -8106,16 +7188,25 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 						DW_DEVICE_HOST_WAKE_WAIT);
 					dhd_bus_ds_trace(bus, 0, TRUE,
 						dhdpcie_bus_get_pcie_inband_dw_state(bus));
-					bus->skip_ds_ack = FALSE;
 					DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 				}
+				bus->skip_ds_ack = FALSE;
 #endif /* PCIE_INB_DW */
-				/* Enable back the intmask which was cleared in DPC
-				 * after getting D3_ACK.
+				/* For Linux, Macos etc (otherthan NDIS) enable back the dongle
+				 * interrupts using intmask and host interrupts
+				 * which were disabled in the dhdpcie_bus_isr()->
+				 * dhd_bus_handle_d3_ack().
 				 */
+				/* Enable back interrupt using Intmask!! */
 				dhdpcie_bus_intr_enable(bus);
-				bus->dngl_intmask_enable_count++;
-
+				/* Defer enabling host irq after RPM suspend failure */
+				if (!DHD_BUS_BUSY_CHECK_RPM_SUSPEND_IN_PROGRESS(bus->dhd)) {
+					/* Enable back interrupt from Host side!! */
+					if (dhdpcie_irq_disabled(bus)) {
+						dhdpcie_enable_irq(bus);
+						bus->resume_intr_enable_count++;
+					}
+				}
 				if (bus->use_d0_inform) {
 					DHD_OS_WAKE_LOCK_WAIVE(bus->dhd);
 					dhdpcie_send_mb_data(bus,
@@ -8134,7 +7225,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			} else {
 				/* Actual Suspend after no wakelock */
 				/* At this time bus->bus_low_power_state will be
-				 * made to DHD_BUS_D3_ACK_RECIEVED after receiving D3_ACK
+				 * made to DHD_BUS_D3_ACK_RECIEVED after recieving D3_ACK
 				 * in dhd_bus_handle_d3_ack()
 				 */
 #ifdef PCIE_INB_DW
@@ -8183,43 +7274,9 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 				bus->dhd->busstate = DHD_BUS_SUSPEND;
 				DHD_GENERAL_UNLOCK(bus->dhd, flags);
 				dhdpcie_dump_resource(bus);
-				DHD_INFO(("lpm_mode %d, fw_lpm_support %d\n", bus->lpm_mode,
-					bus->dhd->fw_lpm_support));
-				/* Once LPM mode is entered, recovery is only through WL_REG_ON */
-				if (bus->lpm_mode && bus->dhd->fw_lpm_support) {
-					/* send DB7 with PCIE_DB7_MAGIC_NUMBER_DPC_LPM */
-					int trap_data = 0;
-					uint32 addr = dhd_bus_db1_addr_3_get(bus);
-
-					DHD_ERROR(("forcing LPM mode\n"));
-					si_corereg(bus->sih, bus->sih->buscoreidx, addr, ~0,
-						PCIE_DB7_MAGIC_NUMBER_DPC_LPM);
-					/* wait 500ms */
-					OSL_DELAY(500000);
-					/* read trap data to confirm */
-					trap_data = dhd_prot_process_trapbuf(bus->dhd);
-					DHD_ERROR(("trap data in response to LPM mode entry"
-						" is 0x%x\n", trap_data));
-					/* force memory bits down */
-					if (trap_data) {
-						dhd_pcie_handle_lpm_memkill(bus);
-					}
-				}
-				DHD_INFO(("Doing the D3\n"));
 				rc = dhdpcie_pci_suspend_resume(bus, state);
 				if (!rc) {
 					bus->last_suspend_end_time = OSL_LOCALTIME_NS();
-				}
-				DHD_INFO(("Doing the FLR, lpm_mode %d, lpm_force_flr %d,"
-					" fwsupport %d\n",
-					bus->lpm_mode, bus->lpm_force_flr,
-					bus->dhd->fw_lpm_support));
-				if (bus->lpm_mode && bus->dhd->fw_lpm_support &&
-					bus->lpm_force_flr) {
-					bus->lpm_keep_in_reset = TRUE;
-					dhd_bus_perform_flr(bus, FALSE);
-					bus->lpm_keep_in_reset = FALSE;
-					DHD_ERROR(("FLR done\n"));
 				}
 			}
 		} else if (timeleft == 0) { /* D3 ACK Timeout */
@@ -8230,6 +7287,9 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			/* check if the D3 ACK timeout due to scheduling issue */
 			bus->dhd->is_sched_error = !dhd_query_bus_erros(bus->dhd) &&
 				dhd_bus_query_dpc_sched_errors(bus->dhd);
+			bus->dhd->d3ack_timeout_occured = TRUE;
+			/* If the D3 Ack has timeout */
+			bus->dhd->d3ackcnt_timeout++;
 			DHD_ERROR(("%s: resumed on timeout for D3 ACK%s d3_inform_cnt %d\n",
 				__FUNCTION__, bus->dhd->is_sched_error ?
 				" due to scheduling problem" : "", bus->dhd->d3ackcnt_timeout));
@@ -8257,8 +7317,6 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			/* resume all interface network queue. */
 			dhd_bus_start_queue(bus);
 			DHD_GENERAL_UNLOCK(bus->dhd, flags);
-			/* Dump important config space registers */
-			dhd_bus_dump_imp_cfg_registers(bus);
 			/* XXX : avoid multiple socram dump from dongle trap and
 			 * invalid PCIe bus assceess due to PCIe link down
 			 */
@@ -8266,20 +7324,6 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 				DHD_ERROR(("Check dongle trap in the case of d3 ack timeout\n"));
 				dhdpcie_checkdied(bus, NULL, 0);
 			}
-			/* Set d3_ack_timeout_occurred after checkdied,
-			 * as checkdied returns for any bus error
-			 */
-			bus->dhd->d3ack_timeout_occured = TRUE;
-			/* If the D3 Ack has timeout */
-			bus->dhd->d3ackcnt_timeout++;
-
-			dhd_validate_pcie_link_cbp_wlbp(bus);
-			if (bus->link_state != DHD_PCIE_ALL_GOOD) {
-				DHD_ERROR(("%s: bus->link_state:%d\n",
-					__FUNCTION__, bus->link_state));
-				dhd_os_check_hang(bus->dhd, 0, -ETIMEDOUT);
-			}
-
 			if (bus->dhd->dongle_trap_occured) {
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 #ifdef CONFIG_ARCH_MSM
@@ -8288,7 +7332,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 #endif /* SUPPORT_LINKDOWN_RECOVERY */
 				dhd_os_check_hang(bus->dhd, 0, -EREMOTEIO);
 			} else if (!bus->is_linkdown &&
-				!bus->cto_triggered && (bus->link_state == DHD_PCIE_ALL_GOOD)) {
+				!bus->cto_triggered) {
 				uint32 intstatus = 0;
 
 				/* Check if PCIe bus status is valid */
@@ -8325,7 +7369,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		}
 	} else {
 		/* Resume */
-		DHD_RPM(("%s: Entering resume state\n", __FUNCTION__));
+		DHD_ERROR(("%s: Entering resume state\n", __FUNCTION__));
 		bus->last_resume_start_time = OSL_LOCALTIME_NS();
 
 		/**
@@ -8354,9 +7398,9 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 				dhd_bus_ds_trace(bus, 0, TRUE);
 #endif /* PCIE_INB_DW */
 			}
-			bus->skip_ds_ack = FALSE;
 			DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 		}
+		bus->skip_ds_ack = FALSE;
 #endif /* PCIE_INB_DW */
 		rc = dhdpcie_pci_suspend_resume(bus, state);
 		dhdpcie_dump_resource(bus);
@@ -8385,11 +7429,18 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		/* resume all interface network queue. */
 		dhd_bus_start_queue(bus);
 
-		/* Enable back the intmask which was cleared in DPC
-		 * after getting D3_ACK.
+		/* For Linux, Macos etc (otherthan NDIS) enable back the dongle interrupts
+		 * using intmask and host interrupts
+		 * which were disabled in the dhdpcie_bus_isr()->dhd_bus_handle_d3_ack().
 		 */
-		dhdpcie_bus_intr_enable(bus);
-		bus->dngl_intmask_enable_count++;
+		dhdpcie_bus_intr_enable(bus); /* Enable back interrupt using Intmask!! */
+		/* Defer enabling host interrupt until RPM resume done */
+		if (!DHD_BUS_BUSY_CHECK_RPM_RESUME_IN_PROGRESS(bus->dhd)) {
+			if (dhdpcie_irq_disabled(bus)) {
+				dhdpcie_enable_irq(bus);
+				bus->resume_intr_enable_count++;
+			}
+		}
 
 		DHD_GENERAL_UNLOCK(bus->dhd, flags);
 
@@ -8671,7 +7722,7 @@ dhdpcie_bus_download_state(dhd_bus_t *bus, bool enter)
 #endif /* FW_SIGNATURE */
 
 			if (do_wr_flops) {
-				uint32 resetinstr_data = 0;
+				uint32 resetinstr_data;
 
 				/* switch back to arm core again */
 				if (!(si_setcore(bus->sih, ARMCA7_CORE_ID, 0))) {
@@ -8681,22 +7732,20 @@ dhdpcie_bus_download_state(dhd_bus_t *bus, bool enter)
 					goto fail;
 				}
 
-				bcmerror = dhd_bus_get_security_status(bus, &resetinstr_data);
-				if (bcmerror == BCME_UNSUPPORTED) {
-					/*
-					 * read address 0 with reset instruction,
-					 * to validate that is not secured
-					 */
-					bcmerror = dhdpcie_bus_membytes(bus, FALSE, 0,
-						(uint8 *)&resetinstr_data, sizeof(resetinstr_data));
-				}
-				if ((resetinstr_data == 0xFFFFFFFF) ||
-					(resetinstr_data & DAR_SEC_SBOOT_MASK)) {
+				/*
+				 * read address 0 with reset instruction,
+				 * to validate that is not secured
+				 */
+				bcmerror = dhdpcie_bus_membytes(bus, FALSE, 0,
+					(uint8 *)&resetinstr_data, sizeof(resetinstr_data));
+
+				if (resetinstr_data == 0xFFFFFFFF) {
 					DHD_ERROR(("%s: **** FLOPS Vector is secured, "
 						"Signature file is missing! ***\n", __FUNCTION__));
 					bcmerror = BCME_NO_SIG_FILE;
 					goto fail;
 				}
+
 				/* write address 0 with reset instruction */
 				bcmerror = dhdpcie_bus_membytes(bus, TRUE, 0,
 					(uint8 *)&bus->resetinstr, sizeof(bus->resetinstr));
@@ -8818,8 +7867,6 @@ dhdpcie_bus_download_state(dhd_bus_t *bus, bool enter)
 		bus->arm_oor_time = OSL_LOCALTIME_NS();
 		si_core_reset(bus->sih, 0, 0);
 
-		DHD_ERROR(("%s: Took ARM out of Reset\n", __FUNCTION__));
-
 		/* Allow HT Clock now that the ARM is running. */
 		bus->alp_only = FALSE;
 
@@ -8866,35 +7913,6 @@ dhdpcie_bus_download_fw_signature(dhd_bus_t *bus, bool *do_write)
 		goto exit;
 	}
 
-	/* Write FW signature to memory */
-	if ((bcmerror = dhdpcie_bus_write_fw_signature(bus))) {
-		DHD_ERROR(("%s: could not write FWsig , err %d\n",
-			__FUNCTION__, bcmerror));
-		goto exit;
-	}
-
-	/* In case of BL RAM, do write flops */
-	if (bus->bootloader_filename[0] != 0) {
-		*do_write = TRUE;
-	} else {
-		*do_write = FALSE;
-	}
-
-exit:
-	return bcmerror;
-}
-
-/* Complete RAM structure, write the followings
- * signature image
- * signature verification status
- * FW memory map
- * end-of-TLVs marker
- */
-static int
-dhdpcie_bus_write_fw_signature(dhd_bus_t *bus)
-{
-	int bcmerror = BCME_OK;
-
 	/* Write FW signature rTLV to TCM */
 	if ((bcmerror = dhdpcie_bus_write_fwsig(bus, bus->fwsig_filename,
 		NULL))) {
@@ -8924,10 +7942,16 @@ dhdpcie_bus_write_fw_signature(dhd_bus_t *bus)
 		goto exit;
 	}
 
+	/* In case of BL RAM, do write flops */
+	if (bus->bootloader_filename[0] != 0) {
+		*do_write = TRUE;
+	} else {
+		*do_write = FALSE;
+	}
+
 exit:
 	return bcmerror;
 }
-#endif /* defined(FW_SIGNATURE) */
 
 /* Download a reversed-TLV to the top of dongle RAM without overlapping any existing rTLVs */
 static int
@@ -8956,15 +7980,8 @@ dhdpcie_download_rtlv(dhd_bus_t *bus, dngl_rtlv_type_t type, dngl_rtlv_len_t len
 	 *     +-------------+-------------+
 	 *      High 16 bits    Low 16 bits
 	 */
-	if (type == DNGL_RTLV_TYPE_RNG_SIGNATURE) {
-		/* Random number seed TLV (DNGL_RTLV_TYPE_RNG_SIGNATURE) was the very
-		 * first TLV, its length does not have checksum, firmware crashes if
-		 * checksum is present
-		 */
-		dest_raw_size = dest_size & 0x0000FFFF;
-	} else {
-		dest_raw_size = (~dest_size << 16) | (dest_size & 0x0000FFFF);
-	}
+	dest_raw_size = (~dest_size << 16) | (dest_size & 0x0000FFFF);
+
 	/* Write the value block */
 	if (dest_size > 0) {
 		bcmerror = dhdpcie_bus_membytes(bus, TRUE, dest_addr, value, dest_size);
@@ -9049,7 +8066,6 @@ exit:
 	return bcmerror;
 } /* dhdpcie_download_rtlv */
 
-#if defined(FW_SIGNATURE)
 /* Download a reversed-TLV END marker to the top of dongle RAM */
 static int
 dhdpcie_download_rtlv_end(dhd_bus_t *bus)
@@ -9061,7 +8077,7 @@ dhdpcie_download_rtlv_end(dhd_bus_t *bus)
 static int
 dhdpcie_bus_write_fws_status(dhd_bus_t *bus)
 {
-	bl_verif_status_t vstatus;
+	bcm_fwsign_verif_status_t vstatus;
 	int ret;
 
 	bzero(&vstatus, sizeof(vstatus));
@@ -9078,7 +8094,7 @@ dhdpcie_bus_write_fws_status(dhd_bus_t *bus)
 static int
 dhdpcie_bus_write_fws_mem_info(dhd_bus_t *bus)
 {
-	bl_mem_info_t memmap;
+	bcm_fwsign_mem_info_t memmap;
 	int ret;
 
 	bzero(&memmap, sizeof(memmap));
@@ -9140,10 +8156,7 @@ dhdpcie_bus_save_download_info(dhd_bus_t *bus, uint32 download_addr,
 	uint32 download_size, const char *signature_fname,
 	const char *bloader_fname, uint32 bloader_download_addr)
 {
-	/* DHD EXE may not have size of the downloaded FW image in case of swpaging binary */
-	if (download_size) {
-		bus->fw_download_len = download_size;
-	}
+	bus->fw_download_len = download_size;
 	bus->fw_download_addr = download_addr;
 	strlcpy(bus->fwsig_filename, signature_fname, sizeof(bus->fwsig_filename));
 	strlcpy(bus->bootloader_filename, bloader_fname, sizeof(bus->bootloader_filename));
@@ -9156,12 +8169,13 @@ dhdpcie_bus_save_download_info(dhd_bus_t *bus, uint32 download_addr,
 	 * of chips, in which debug cell can't be initialized before ARM CPU
 	 * start
 	 */
-	bus->gdb_proxy_bootloader_mode = bus->fwsig_filename[0] != 0;
+	bus->gdb_proxy_bootloader_mode =
+		(bus->fwsig_filename[0] != 0) && (bus->bootloader_filename[0] == 0);
 #endif /* GDB_PROXY */
 	return BCME_OK;
 } /* dhdpcie_bus_save_download_info */
 
-/* Read a binary file and write it to the specified socram dest address */
+/* Read a small binary file and write it to the specified socram dest address */
 static int
 dhdpcie_download_sig_file(dhd_bus_t *bus, char *path, uint32 type)
 {
@@ -9171,7 +8185,6 @@ dhdpcie_download_sig_file(dhd_bus_t *bus, char *path, uint32 type)
 	int srcsize = 0;
 	int len;
 	uint32 dest_size = 0;	/* dongle RAM dest size */
-	fwpkg_info_t *fwpkg = NULL;
 
 	if (path == NULL || path[0] == '\0') {
 		DHD_ERROR(("%s: no file\n", __FUNCTION__));
@@ -9179,21 +8192,14 @@ dhdpcie_download_sig_file(dhd_bus_t *bus, char *path, uint32 type)
 		goto exit;
 	}
 
-	bcmerror = fwpkg_init(&bus->fwpkg, path);
-	if (bcmerror == BCME_ERROR) {
-		goto exit;
-	}
-	fwpkg = &bus->fwpkg;
-
 	/* Open file, get size */
-	bcmerror = fwpkg_open_signature_img(fwpkg, path, &filep);
-	if (bcmerror == BCME_ERROR) {
+	filep = dhd_os_open_image1(bus->dhd, path);
+	if (filep == NULL) {
 		DHD_ERROR(("%s: error opening file %s\n", __FUNCTION__, path));
+		bcmerror = BCME_NOTFOUND;
 		goto exit;
 	}
-
-	srcsize = fwpkg_get_signature_img_size(fwpkg);
-
+	srcsize = dhd_os_get_image_size(filep);
 	if (srcsize <= 0 || srcsize > MEMBLOCK) {
 		DHD_ERROR(("%s: invalid fwsig size %u\n", __FUNCTION__, srcsize));
 		bcmerror = BCME_BUFTOOSHORT;
@@ -9249,35 +8255,23 @@ exit:
 	return bcmerror;
 } /* dhdpcie_bus_write_fwsig */
 
-static int
-dhdpcie_read_fwstatus(dhd_bus_t *bus, bl_verif_status_t *status)
-{
-	int ret = BCME_OK;
-
-	bzero(status, sizeof(*status));
-	if (bus->fwstat_download_addr != 0) {
-		ret = dhdpcie_bus_membytes(bus, FALSE, bus->fwstat_download_addr,
-			(uint8 *)status, sizeof(*status));
-		if (ret != BCME_OK) {
-			DHD_ERROR(("%s: error %d on reading %zu membytes at 0x%08x\n",
-				__FUNCTION__, ret, sizeof(*status), bus->fwstat_download_addr));
-		}
-	}
-
-	return ret;
-}
-
 /* Dump secure firmware status. */
 static int
 dhd_bus_dump_fws(dhd_bus_t *bus, struct bcmstrbuf *strbuf)
 {
-	bl_verif_status_t status;
-	bl_mem_info_t     meminfo;
-	int               err = BCME_OK;
+	bcm_fwsign_verif_status_t status;
+	bcm_fwsign_mem_info_t     meminfo;
+	int                       err = BCME_OK;
 
-	err = dhdpcie_read_fwstatus(bus, &status);
-	if (err != BCME_OK) {
-		return (err);
+	bzero(&status, sizeof(status));
+	if (bus->fwstat_download_addr != 0) {
+		err = dhdpcie_bus_membytes(bus, FALSE, bus->fwstat_download_addr,
+			(uint8 *)&status, sizeof(status));
+		if (err != BCME_OK) {
+			DHD_ERROR(("%s: error %d on reading %zu membytes at 0x%08x\n",
+				__FUNCTION__, err, sizeof(status), bus->fwstat_download_addr));
+			return (err);
+		}
 	}
 
 	bzero(&meminfo, sizeof(meminfo));
@@ -9340,7 +8334,6 @@ dhdpcie_bus_write_vars(dhd_bus_t *bus)
 	uint32 varaddr;
 	uint8 *vbuffer;
 	uint32 varsizew;
-	uint32 rd_varsizew;
 #ifdef DHD_DEBUG
 	uint8 *nvram_ularray;
 #endif /* DHD_DEBUG */
@@ -9427,19 +8420,11 @@ dhdpcie_bus_write_vars(dhd_bus_t *bus)
 		varsizew = htol32(varsizew);
 	}
 
-	DHD_ERROR(("New varsize is %d, length token(nvram_csm)=0x%08x\n", varsize, varsizew));
+	DHD_INFO(("New varsize is %d, length token=0x%08x\n", varsize, varsizew));
 
 	/* Write the length token to the last word */
 	bcmerror = dhdpcie_bus_membytes(bus, TRUE, (phys_size - 4),
 		(uint8*)&varsizew, 4);
-
-	/* Read back the last word */
-	bcmerror = dhdpcie_bus_membytes(bus, FALSE, (phys_size - 4),
-		(uint8*)&rd_varsizew, 4);
-	if (rd_varsizew != varsizew) {
-		DHD_ERROR(("%s: readback nvram_csm(0x%08x:0x%08x) is wrong at 0x%x\n",
-			__FUNCTION__, rd_varsizew, varsizew, (phys_size - 4)));
-	}
 
 	return bcmerror;
 } /* dhdpcie_bus_write_vars */
@@ -9456,9 +8441,6 @@ dhdpcie_downloadvars(dhd_bus_t *bus, void *arg, int len)
 #ifdef GDB_PROXY
 	const char nodeadman_record[] = "deadman_to=0";
 #endif /* GDB_PROXY */
-#ifdef DHD_SUPPORT_SPMI_MODE
-	char tag_spmi_mode[16] = {0};
-#endif /* DHD_SUPPORT_SPMI_MODE */
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
@@ -9475,13 +8457,6 @@ dhdpcie_downloadvars(dhd_bus_t *bus, void *arg, int len)
 		len += sizeof(nodeadman_record);
 	}
 #endif /* GDB_PROXY */
-#ifdef DHD_SUPPORT_SPMI_MODE
-	if (bus->dhd->dhd_spmi_mode) {
-		snprintf(tag_spmi_mode, sizeof(tag_spmi_mode), "spmi_mode=%d\n",
-			bus->dhd->dhd_spmi_mode);
-		len += sizeof(tag_spmi_mode);
-	}
-#endif /* DHD_SUPPORT_SPMI_MODE */
 
 	bus->vars = MALLOC(bus->dhd->osh, len);
 	bus->varsz = bus->vars ? len : 0;
@@ -9500,27 +8475,6 @@ dhdpcie_downloadvars(dhd_bus_t *bus, void *arg, int len)
 		goto err;
 	}
 #endif /* GDB_PROXY */
-#ifdef DHD_SUPPORT_SPMI_MODE
-	if (bus->dhd->dhd_spmi_mode) {
-		char *pos = NULL;
-		char tag_spmi[] = "spmi=";
-		uint spmi = 0;
-
-		/* check if the spmi feature is enabled */
-		pos = bcmstrnstr(bus->vars, bus->varsz, tag_spmi, strlen(tag_spmi));
-		if (pos) {
-			sscanf(pos, "spmi=%u\n", &spmi);
-			DHD_INFO(("%s: spmi feature is %s\n", __FUNCTION__,
-				spmi ? "enabled" : "disabled"));
-		}
-
-		if (spmi && !replace_nvram_variable(bus->vars,
-			bus->varsz, tag_spmi_mode, NULL)) {
-			bcmerror = BCME_NOMEM;
-			goto err;
-		}
-	}
-#endif /* DHD_SUPPORT_SPMI_MODE */
 
 	/* Re-Calculate htclkratio only for QT, for FPGA it is fixed at 30 */
 
@@ -9774,11 +8728,11 @@ void dhd_dump_intr_counters(dhd_pub_t *dhd, struct bcmstrbuf *strbuf)
 	}
 
 	bcm_bprintf(strbuf, "\n ------- DUMPING INTR enable/disable counters-------\n");
-	bcm_bprintf(strbuf, "host_irq_disable_count=%lu host_irq_enable_count=%lu\n"
-		"dngl_intmask_disable_count=%lu dngl_intmask_enable_count=%lu\n"
+	bcm_bprintf(strbuf, "resume_intr_enable_count=%lu dpc_intr_enable_count=%lu\n"
+		"isr_intr_disable_count=%lu suspend_intr_disable_count=%lu\n"
 		"dpc_return_busdown_count=%lu non_ours_irq_count=%lu\n",
-		bus->host_irq_disable_count, bus->host_irq_enable_count,
-		bus->dngl_intmask_disable_count, bus->dngl_intmask_enable_count,
+		bus->resume_intr_enable_count, bus->dpc_intr_enable_count,
+		bus->isr_intr_disable_count, bus->suspend_intr_disable_count,
 		bus->dpc_return_busdown_count, bus->non_ours_irq_count);
 #ifdef BCMPCIE_OOB_HOST_WAKE
 	bcm_bprintf(strbuf, "oob_intr_count=%lu oob_intr_enable_count=%lu"
@@ -9896,24 +8850,16 @@ void dhd_bus_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 	bcm_bprintf(strbuf, " unicast %u muticast %u broadcast %u arp %u\n",
 		dhdp->bus->wake_counts.rx_ucast, dhdp->bus->wake_counts.rx_mcast,
 		dhdp->bus->wake_counts.rx_bcast, dhdp->bus->wake_counts.rx_arp);
-	bcm_bprintf(strbuf, " multi4 %u multi6 %u icmp %u icmp6 %u multiother %u\n",
+	bcm_bprintf(strbuf, " multi4 %u multi6 %u icmp6 %u multiother %u\n",
 		dhdp->bus->wake_counts.rx_multi_ipv4, dhdp->bus->wake_counts.rx_multi_ipv6,
-		dhdp->bus->wake_counts.rx_icmp, dhdp->bus->wake_counts.rx_icmpv6,
-		dhdp->bus->wake_counts.rx_multi_other);
+		dhdp->bus->wake_counts.rx_icmpv6, dhdp->bus->wake_counts.rx_multi_other);
 	bcm_bprintf(strbuf, " icmp6_ra %u, icmp6_na %u, icmp6_ns %u\n",
 		dhdp->bus->wake_counts.rx_icmpv6_ra, dhdp->bus->wake_counts.rx_icmpv6_na,
 		dhdp->bus->wake_counts.rx_icmpv6_ns);
 #endif /* DHD_WAKE_RX_STATUS */
 #ifdef DHD_WAKE_EVENT_STATUS
-#ifdef CUSTOM_WAKE_REASON_STATS
-	bcm_bprintf(strbuf, "rc_event_idx = %d, which indicates queue head\n",
-		dhdp->bus->wake_counts.rc_event_idx);
-	for (flowid = 0; flowid < MAX_WAKE_REASON_STATS; flowid++)
-		if (dhdp->bus->wake_counts.rc_event[flowid] != -1)
-#else
 	for (flowid = 0; flowid < WLC_E_LAST; flowid++)
 		if (dhdp->bus->wake_counts.rc_event[flowid] != 0)
-#endif /* CUSTOM_WAKE_REASON_STATS */
 			bcm_bprintf(strbuf, " %s = %u\n", bcmevent_get_name(flowid),
 				dhdp->bus->wake_counts.rc_event[flowid]);
 	bcm_bprintf(strbuf, "\n");
@@ -9931,13 +8877,10 @@ void dhd_bus_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 		OSL_ATOMIC_READ(dhdp->osh, &dhdp->multi_client_flow_rings),
 		dhdp->max_multi_client_flow_rings);
 #endif /* DHD_LIMIT_MULTI_CLIENT_FLOWRINGS */
-
-	if (dhdp->htput_support) {
-		bcm_bprintf(strbuf, "htput_flow_ring_start:%d total_htput:%d client_htput=%d\n",
-			dhdp->htput_flow_ring_start, HTPUT_TOTAL_FLOW_RINGS,
-			dhdp->htput_client_flow_rings);
-	}
-
+#if defined(DHD_HTPUT_TUNABLES)
+	bcm_bprintf(strbuf, "htput_flow_ring_start:%d total_htput:%d client_htput=%d\n",
+		dhdp->htput_flow_ring_start, HTPUT_TOTAL_FLOW_RINGS, dhdp->htput_client_flow_rings);
+#endif /* DHD_HTPUT_TUNABLES */
 	bcm_bprintf(strbuf,
 		"%4s %4s %2s %4s %17s %4s %4s %6s %10s %17s %17s %17s %17s %14s %14s %10s ",
 		"Num:", "Flow", "If", "Prio", ":Dest_MacAddress:", "Qlen", "CLen", "L2CLen",
@@ -10032,9 +8975,8 @@ void dhd_bus_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 			dhdp->bus->inband_host_sleep_exit_to_cnt);
 	}
 #endif /* PCIE_INB_DW */
-	bcm_bprintf(strbuf, "d2h_intr_method -> %s d2h_intr_control -> %s\n",
-		dhdp->bus->d2h_intr_method ? "PCIE_MSI" : "PCIE_INTX",
-		dhdp->bus->d2h_intr_control ? "HOST_IRQ" : "D2H_INTMASK");
+	bcm_bprintf(strbuf, "d2h_intr_method -> %s\n",
+		dhdp->bus->d2h_intr_method ? "PCIE_MSI" : "PCIE_INTX");
 
 	bcm_bprintf(strbuf, "\n\nDB7 stats - db7_send_cnt: %d, db7_trap_cnt: %d, "
 		"max duration: %lld (%lld - %lld), db7_timing_error_cnt: %d\n",
@@ -10044,225 +8986,6 @@ void dhd_bus_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 		dhdp->db7_trap.debug_max_db7_trap_time,
 		dhdp->db7_trap.debug_max_db7_send_time,
 		dhdp->db7_trap.debug_db7_timing_error_cnt);
-}
-
-static void
-dhd_bus_dump_txcpl_info(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
-{
-	tx_cpl_info_t *txcpl_info = &dhdp->txcpl_info;
-	int i;
-
-	bcm_bprintf(strbuf, "\nTx Completion History\n");
-	bcm_bprintf(strbuf, "Host(us)\t\tPTM_high(ns)\t\tPTM_low(ns)\t\t"
-		"Latency(ms)\t\tTID\t\tFlowID\n");
-	for (i = 0; i < MAX_TXCPL_HISTORY; i ++) {
-		bcm_bprintf(strbuf, "0x%x\t\t0x%x\t\t0x%x\t\t%u\t\t%u\t\t%u\n",
-			txcpl_info->tx_history[i].host_time,
-			txcpl_info->tx_history[i].ptm_high,
-			txcpl_info->tx_history[i].ptm_low,
-			txcpl_info->tx_history[i].latency,
-			txcpl_info->tx_history[i].tid,
-			txcpl_info->tx_history[i].flowid);
-	}
-	bzero(txcpl_info->tx_history,
-		sizeof(tx_cpl_history_t) * MAX_TXCPL_HISTORY);
-
-	bcm_bprintf(strbuf, "\n");
-}
-
-static void
-dhd_bus_dump_mdring_info(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
-{
-	int i;
-	int count;
-
-	bcm_bprintf(strbuf, "\nMetadata Ring Dump\n");
-	for (i = 0, count = 0;
-		i < MAX_MDRING_ITEM_DUMP * D2HRING_MDCMPLT_ITEMSIZE; i += 4) {
-		if ((i % D2HRING_MDCMPLT_ITEMSIZE) == 0) {
-			bcm_bprintf(strbuf, "\nEntry:%d:", ++count);
-		}
-		bcm_bprintf(strbuf, "0x%x%x%x%x:",
-			dhdp->mdring_info[i], dhdp->mdring_info[i+1],
-			dhdp->mdring_info[i+2], dhdp->mdring_info[i+3]);
-	}
-	bcm_bprintf(strbuf, "\n");
-}
-
-static bool
-dhd_bus_support_dar_sec_status(dhd_bus_t *bus)
-{
-	DHD_ERROR(("%s: buscorerev=%d chipid=0x%x\n",
-		__FUNCTION__, bus->sih->buscorerev, si_chipid(bus->sih)));
-
-	/* Support for DAR security status register provided for pcie core
-	 * generation2 at revisions > 73 and for generation3 at revisions > 128
-	 */
-	if ((bus->sih->buscorerev < 74) || (bus->sih->buscorerev == 128)) {
-		return FALSE;
-	}
-
-	return TRUE;
-}
-
-static int
-dhd_bus_get_security_status(dhd_bus_t *bus, uint32 *status)
-{
-	uint32 dar_sec_reg;
-
-	if (!dhd_bus_support_dar_sec_status(bus)) {
-		return BCME_UNSUPPORTED;
-	}
-	/* DAR Security Status Register address */
-	dar_sec_reg = (uint32)DAR_SEC_STATUS(bus->sih->buscorerev);
-
-	/* read DAR Security Status Register */
-	*status = si_corereg(bus->sih, bus->sih->buscoreidx, dar_sec_reg, 0, 0);
-
-	return BCME_OK;
-}
-
-static int
-dhd_bus_security_info(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
-{
-	int ret = BCME_OK;
-	dhd_bus_t *bus = dhdp->bus;
-	uint32 dar_sec_val;
-
-	ret = dhd_bus_get_security_status(bus, &dar_sec_val);
-	if (ret != BCME_OK) {
-		return ret;
-	}
-
-	bcm_bprintf(strbuf, "\nDAR Security Status Reg\n");
-	bcm_bprintf(strbuf, "  Jtag Disable:     %d\n", (dar_sec_val & DAR_SEC_JTAG_MASK));
-	bcm_bprintf(strbuf, "  Secure Boot:      %d\n", (dar_sec_val & DAR_SEC_SBOOT_MASK) >>
-		DAR_SEC_SBOOT_SHIFT);
-	bcm_bprintf(strbuf, "  Arm Dbg Disable:  %d\n", (dar_sec_val & DAR_SEC_ARM_DBG_MASK) >>
-		DAR_SEC_ARM_DBG_SHIFT);
-	bcm_bprintf(strbuf, "  Transient Unlock: %d\n", (dar_sec_val & DAR_SEC_UNLOCK_MASK) >>
-		DAR_SEC_UNLOCK_SHIFT);
-
-	return BCME_OK;
-}
-
-static int
-dhd_bus_sboot_disable(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
-{
-	int ret = BCME_OK;
-	dhd_bus_t *bus = dhdp->bus;
-	uint32 save_idx, val;
-	sysmemregs_t *regs;
-	uint32 dar_sec_val;
-
-	save_idx = si_coreidx(bus->sih);
-	ret = dhd_bus_get_security_status(bus, &dar_sec_val);
-	if (ret != BCME_OK) {
-		goto exit;
-	}
-
-	/* check if chip is Transient Unlocked */
-	if (!(dar_sec_val & DAR_SEC_UNLOCK_MASK)) {
-		bcm_bprintf(strbuf, "\nFail: Secure Boot still enabled!\n");
-		goto exit;
-	}
-
-	if ((regs = si_setcore(bus->sih, SYSMEM_CORE_ID, 0)) != NULL) {
-		/* check if mpu control is unlocked */
-		val = R_REG(dhdp->osh, MPU_REG(regs, mpucontrol));
-		if (val & BUS_MPU_LOCK_MASK) {
-			bcm_bprintf(strbuf, "\nFail: Mpu Control is locked!\n");
-			goto exit;
-		}
-
-		/* clear RomProtect and VectorProtect */
-		W_REG(dhdp->osh, MPU_REG(regs, mpucontrol),
-			val & ~(BUS_MPU_ROM_PR_MASK | BUS_MPU_VEC_PR_MASK));
-
-		/* validate RomProtect and VectorProtect are cleared */
-		val = R_REG(dhdp->osh, MPU_REG(regs, mpucontrol));
-		if (val & (BUS_MPU_ROM_PR_MASK | BUS_MPU_VEC_PR_MASK)) {
-			bcm_bprintf(strbuf, "\nFail: Secure Boot still enabled!\n");
-		} else {
-			bcm_bprintf(strbuf, "\nSecure Boot disabled!\n");
-		}
-
-	}
-exit:
-	si_setcoreidx(bus->sih, save_idx);
-	return ret;
-}
-
-static void
-dhd_bus_dump_rxlat_info(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
-{
-	if (dhdp->rx_cpl_lat_capable) {
-		rx_cpl_lat_info_t *rxcpl_info = &dhdp->rxcpl_lat_info;
-		int i;
-
-		bcm_bprintf(strbuf, "\nRx Completion History\n");
-		bcm_bprintf(strbuf, "Host(us)\t\tPTM_high(ns)\t\tPTM_low(ns)\t\tRx_t0\t\tBand"
-			"\t\tPrio\t\tRSSI\t\tLatency(us)\n");
-		for (i = 0; i < MAX_RXCPL_HISTORY; i ++) {
-			if (rxcpl_info->rx_history[i].rx_t0 || rxcpl_info->rx_history[i].ptm_low) {
-				bcm_bprintf(strbuf, "0x%x\t\t0x%x\t\t0x%x\t\t0x%x\t\t%s\t\t%d\t\t%d"
-					"\t\t%d\n",
-					rxcpl_info->rx_history[i].host_time,
-					rxcpl_info->rx_history[i].ptm_high,
-					rxcpl_info->rx_history[i].ptm_low,
-					rxcpl_info->rx_history[i].rx_t0,
-					rxcpl_info->rx_history[i].slice? "5G":"2G",
-					rxcpl_info->rx_history[i].priority,
-					rxcpl_info->rx_history[i].rssi,
-					rxcpl_info->rx_history[i].latency);
-			}
-		}
-		bzero(rxcpl_info->rx_history,
-			sizeof(rx_cpl_history_t) * MAX_RXCPL_HISTORY);
-	}
-	bcm_bprintf(strbuf, "\n");
-}
-
-static void
-dhd_bus_dump_rxlat_histo(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
-{
-	int bin, prio;
-
-	if (dhdp->rx_cpl_lat_capable) {
-		rx_cpl_lat_info_t *rxcpl_info = &dhdp->rxcpl_lat_info;
-
-		bcm_bprintf(strbuf,
-			"\nRx:5G Latency histogram, each bin:%d us\n", RX_LAT_BIN_SCALE);
-		bcm_bprintf(strbuf,
-			"Bin\tPrio-0\tPrio-1\tPrio-2\tPrio-3\tPrio-4\tPrio-5\tPrio-6\tPrio-7\n");
-		for (bin = 0; bin < MAX_RX_LAT_HIST_BIN; bin++) {
-			bcm_bprintf(strbuf, "\n%d", bin);
-			for (prio = 0; prio < MAX_RX_LAT_PRIO; prio++) {
-				bcm_bprintf(strbuf, "\t");
-				if (rxcpl_info->rx_dur_5g[prio][bin]) {
-					bcm_bprintf(strbuf, "%d",
-						rxcpl_info->rx_dur_5g[prio][bin]);
-				}
-			}
-		}
-		bcm_bprintf(strbuf,
-			"\nRx:2G Latency histogram, each bin:%d us\n", RX_LAT_BIN_SCALE);
-		bcm_bprintf(strbuf,
-			"Bin\tPrio-0\tPrio-1\tPrio-2\tPrio-3\tPrio-4\tPrio-5\tPrio-6\tPrio-7\n");
-		for (bin = 0; bin < MAX_RX_LAT_HIST_BIN; bin++) {
-			bcm_bprintf(strbuf, "\n%d", bin);
-			for (prio = 0; prio < MAX_RX_LAT_PRIO; prio++) {
-				bcm_bprintf(strbuf, "\t");
-				if (rxcpl_info->rx_dur_2g[prio][bin]) {
-					bcm_bprintf(strbuf, "%d",
-						rxcpl_info->rx_dur_2g[prio][bin]);
-				}
-			}
-		}
-		bzero(rxcpl_info->rx_dur_5g, MAX_RX_LAT_PRIO * MAX_RX_LAT_HIST_BIN);
-		bzero(rxcpl_info->rx_dur_2g, MAX_RX_LAT_PRIO * MAX_RX_LAT_HIST_BIN);
-	}
-	bcm_bprintf(strbuf, "\n");
 }
 
 #ifdef DNGL_AXI_ERROR_LOGGING
@@ -10507,11 +9230,9 @@ dhd_bus_gen_devmb_intr(struct dhd_bus *bus)
 static void
 dhdpcie_fw_trap(dhd_bus_t *bus)
 {
+	DHD_ERROR(("%s: send trap!!!\n", __FUNCTION__));
 	if (bus->dhd->db7_trap.fw_db7w_trap) {
 		uint32 addr = dhd_bus_db1_addr_3_get(bus);
-
-		DHD_ERROR(("%s: send DB7 trap!!!\n", __FUNCTION__));
-		bus->dhd->db7_trap.fw_db7w_trap_recieved = FALSE;
 		bus->dhd->db7_trap.debug_db7_send_time = OSL_LOCALTIME_NS();
 		bus->dhd->db7_trap.debug_db7_send_cnt++;
 		si_corereg(bus->sih, bus->sih->buscoreidx, addr, ~0,
@@ -10519,38 +9240,10 @@ dhdpcie_fw_trap(dhd_bus_t *bus)
 		return;
 	}
 
-	DHD_ERROR(("%s: send trap!!!\n", __FUNCTION__));
 	/* Send the mailbox data and generate mailbox intr. */
 	dhdpcie_send_mb_data(bus, H2D_FW_TRAP);
 	/* For FWs that cannot interprete H2D_FW_TRAP */
 	(void)dhd_wl_ioctl_set_intiovar(bus->dhd, "bus:disconnect", 99, WLC_SET_VAR, TRUE, 0);
-}
-
-void
-dhdpcie_db7_trap(struct dhd_bus *bus)
-{
-	if (bus->dhd->busstate != DHD_BUS_DATA) {
-		DHD_ERROR(("%s: Bus is NOT up. busstate: %d\n", __FUNCTION__, bus->dhd->busstate));
-		return;
-	}
-	if (bus->dhd->db7_trap.fw_db7w_trap) {
-		unsigned long flags = 0;
-
-		DHD_GENERAL_LOCK(bus->dhd, flags);
-		bus->dhd->db7_trap.fw_db7w_trap_inprogress = TRUE;
-		DHD_GENERAL_UNLOCK(bus->dhd, flags);
-		dhdpcie_fw_trap(bus);
-		OSL_DELAY(100 * 1000); // wait 100 msec
-		if (!bus->dhd->db7_trap.fw_db7w_trap_recieved) {
-			DHD_ERROR(("%s : Did not receive DB7 Ack\n", __FUNCTION__));
-		}
-		DHD_GENERAL_LOCK(bus->dhd, flags);
-		bus->dhd->db7_trap.fw_db7w_trap_inprogress = FALSE;
-		DHD_GENERAL_UNLOCK(bus->dhd, flags);
-	} else {
-		DHD_TRACE(("%s: DB7 Not supported!!!\n", __FUNCTION__));
-	}
-
 }
 
 #ifdef PCIE_INB_DW
@@ -10563,7 +9256,7 @@ dhd_bus_inb_ack_pending_ds_req(dhd_bus_t *bus)
 	*/
 	if ((dhdpcie_bus_get_pcie_inband_dw_state(bus) ==
 		DW_DEVICE_DS_DEV_SLEEP_PEND) &&
-		(bus->host_active_cnt == 0) && (!bus->skip_ds_ack)) {
+		(bus->host_active_cnt == 0)) {
 		dhdpcie_bus_set_pcie_inband_dw_state(bus, DW_DEVICE_DS_DEV_SLEEP);
 		dhdpcie_send_mb_data(bus, H2D_HOST_DS_ACK);
 	}
@@ -10686,7 +9379,7 @@ dhd_bus_inb_set_device_wake(struct dhd_bus *bus, bool val)
 			bus->inband_dw_deassert_cnt++;
 		} else if ((dhdpcie_bus_get_pcie_inband_dw_state(bus) ==
 			DW_DEVICE_DS_DEV_SLEEP_PEND) &&
-			(bus->host_active_cnt == 0) && (!bus->skip_ds_ack)) {
+			(bus->host_active_cnt == 0)) {
 			dhdpcie_bus_set_pcie_inband_dw_state(bus, DW_DEVICE_DS_DEV_SLEEP);
 			dhdpcie_send_mb_data(bus, H2D_HOST_DS_ACK);
 		}
@@ -10747,8 +9440,7 @@ dhd_bus_dw_deassert(dhd_pub_t *dhd)
 
 	/* If haven't communicated with device for a while, deassert the Device_Wake GPIO */
 	if (dhd_doorbell_timeout != 0 && bus->dhd->busstate == DHD_BUS_DATA &&
-		dhd_timeout_expired(&bus->doorbell_timer) &&
-		!dhd_query_bus_erros(bus->dhd)) {
+		dhd_timeout_expired(&bus->doorbell_timer)) {
 		DHD_GENERAL_LOCK(dhd, flags);
 		if (DHD_BUS_BUSY_CHECK_IDLE(dhd) &&
 			!DHD_CHECK_CFG_IN_PROGRESS(dhd)) {
@@ -10860,7 +9552,7 @@ dhdpcie_bus_ringbell_fast(struct dhd_bus *bus, uint32 value)
 {
 	/* Skip once bus enters low power state (D3_INFORM/D3_ACK) */
 	if (__DHD_CHK_BUS_IN_LPS(bus)) {
-		DHD_RPM(("%s: trying to ring the doorbell after D3 inform %d\n",
+		DHD_ERROR(("%s: trying to ring the doorbell after D3 inform %d\n",
 			__FUNCTION__, bus->bus_low_power_state));
 		return;
 	}
@@ -10999,24 +9691,7 @@ BCMFASTPATH(dhd_bus_dpc)(struct dhd_bus *bus)
 	bus->dpc_entry_time = OSL_LOCALTIME_NS();
 
 	if (dhd_query_bus_erros(bus->dhd)) {
-		if (bus->dhd->db7_trap.fw_db7w_trap_inprogress == FALSE) {
-			DHD_ERROR_RLMT(("%s: db7 not in progress, exit\n", __FUNCTION__));
-			return 0;
-		}
-	}
-
-	/* Due to irq mismatch WARNING in linux, currently keeping it disabled and
-	 * using dongle intmask to control INTR enable/disable
-	 */
-	if (bus->d2h_intr_control == PCIE_HOST_IRQ_CTRL) {
-		/*
-		 * Disable IRQ at start of DPC if it is not disabled and
-		 * Enable back at the end of dpc if irq is disabled.
-		 */
-		if (!dhdpcie_irq_disabled(bus)) {
-			bus->host_irq_disable_count++;
-			dhdpcie_disable_irq_nosync(bus); /* Disable host IRQ!! */
-		}
+		return 0;
 	}
 
 	DHD_GENERAL_LOCK(bus->dhd, flags);
@@ -11038,23 +9713,23 @@ BCMFASTPATH(dhd_bus_dpc)(struct dhd_bus *bus)
 	DHD_BUS_BUSY_SET_IN_DPC(bus->dhd);
 	DHD_GENERAL_UNLOCK(bus->dhd, flags);
 
+	/* Do not process dpc after receiving D3_ACK */
+	if (DHD_CHK_BUS_LPS_D3_ACKED(bus)) {
+		DHD_ERROR(("%s: D3 Ack Recieved, skip dpc\n", __FUNCTION__));
+		goto exit;
+	}
+
 	resched = dhdpcie_bus_process_mailbox_intr(bus, bus->intstatus);
 	if (!resched) {
 		bus->intstatus = 0;
-		bus->dpc_exit_time = OSL_LOCALTIME_NS();
-		if (!dhd_query_bus_erros(bus->dhd)) {
-			/* Due to irq mismatch WARNING in linux, currently keeping it disabled and
-			 * using dongle intmask to control INTR enable/disable
-			 */
-			if (bus->d2h_intr_control == PCIE_HOST_IRQ_CTRL) {
-				bus->host_irq_enable_count += dhdpcie_irq_disabled(bus);
-				dhdpcie_enable_irq_loop(bus);
-			} else {
-				/* Enable back interrupt using Intmask! */
-				dhdpcie_bus_intr_enable(bus);
-				bus->dngl_intmask_enable_count++;
-			}
+		/* For Linux, Macos etc (otherthan NDIS) enable back the host interrupts
+		 * which has been disabled in the dhdpcie_bus_isr()
+		 */
+		if ((dhdpcie_irq_disabled(bus)) && (!dhd_query_bus_erros(bus->dhd))) {
+			dhdpcie_enable_irq(bus); /* Enable back interrupt!! */
+			bus->dpc_intr_enable_count++;
 		}
+		bus->dpc_exit_time = OSL_LOCALTIME_NS();
 	} else {
 		bus->resched_dpc_time = OSL_LOCALTIME_NS();
 	}
@@ -11067,6 +9742,7 @@ BCMFASTPATH(dhd_bus_dpc)(struct dhd_bus *bus)
 	}
 #endif /* DHD_FLOW_RING_STATUS_TRACE */
 
+exit:
 	DHD_GENERAL_LOCK(bus->dhd, flags);
 	DHD_BUS_BUSY_CLEAR_IN_DPC(bus->dhd);
 	dhd_os_busbusy_wake(bus->dhd);
@@ -11152,16 +9828,20 @@ fail:
 static void
 dhd_bus_handle_d3_ack(dhd_bus_t *bus)
 {
-	bus->dngl_intmask_disable_count++;
+	bus->suspend_intr_disable_count++;
+	/* Disable dongle Interrupts Immediately after D3 */
 
-	/* Disable dongle interrupts by intmask and clear the intstatus
+	/* For Linux, Macos etc (otherthan NDIS) along with disabling
+	 * dongle interrupt by clearing the IntMask, disable directly
+	 * interrupt from the host side as well. Also clear the intstatus
 	 * if it is set to avoid unnecessary intrrupts after D3 ACK.
 	 */
 	dhdpcie_bus_intr_disable(bus); /* Disable interrupt using IntMask!! */
 	dhdpcie_bus_clear_intstatus(bus);
+	dhdpcie_disable_irq_nosync(bus); /* Disable host interrupt!! */
 
 	DHD_SET_BUS_LPS_D3_ACKED(bus);
-	DHD_RPM(("%s: D3_ACK Recieved\n", __FUNCTION__));
+	DHD_ERROR(("%s: D3_ACK Recieved\n", __FUNCTION__));
 
 	if (bus->dhd->dhd_induce_error == DHD_INDUCE_D3_ACK_TIMEOUT) {
 		/* Set bus_low_power_state to DHD_BUS_D3_ACK_RECIEVED */
@@ -11187,6 +9867,9 @@ dhd_bus_handle_mb_data(dhd_bus_t *bus, uint32 d2h_mb_data)
 #ifdef PCIE_INB_DW
 	unsigned long flags = 0;
 #endif /* PCIE_INB_DW */
+	if (MULTIBP_ENAB(bus->sih)) {
+		dhd_bus_pcie_pwr_req(bus);
+	}
 
 	DHD_INFO(("D2H_MB_DATA: 0x%04x\n", d2h_mb_data));
 #ifdef PCIE_INB_DW
@@ -11232,6 +9915,7 @@ dhd_bus_handle_mb_data(dhd_bus_t *bus, uint32 d2h_mb_data)
 		}
 		if (bus->dhd->db7_trap.fw_db7w_trap_inprogress) {
 			bus->dhd->db7_trap.fw_db7w_trap_inprogress = FALSE;
+			bus->dhd->dongle_trap_occured = TRUE;
 		}
 		goto exit;
 	}
@@ -11251,8 +9935,8 @@ dhd_bus_handle_mb_data(dhd_bus_t *bus, uint32 d2h_mb_data)
 			/* As per inband state machine, host should not send DS-ACK
 			 * during suspend or suspend in progress, instead D3 inform will be sent.
 			 */
-			DHD_BUS_INB_DW_LOCK(bus->inb_lock, flags);
 			if (!bus->skip_ds_ack) {
+				DHD_BUS_INB_DW_LOCK(bus->inb_lock, flags);
 				if (dhdpcie_bus_get_pcie_inband_dw_state(bus)
 					== DW_DEVICE_DS_ACTIVE) {
 					dhdpcie_bus_set_pcie_inband_dw_state(bus,
@@ -11286,7 +9970,6 @@ dhd_bus_handle_mb_data(dhd_bus_t *bus, uint32 d2h_mb_data)
 				DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 				dhd_os_ds_enter_wake(bus->dhd);
 			} else {
-				DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 				DHD_INFO(("%s: Skip DS-ACK due to "
 					"suspend in progress\n", __FUNCTION__));
 			}
@@ -11397,7 +10080,9 @@ dhd_bus_handle_mb_data(dhd_bus_t *bus, uint32 d2h_mb_data)
 	}
 
 exit:
-	return;
+	if (MULTIBP_ENAB(bus->sih)) {
+		dhd_bus_pcie_pwr_req_clear(bus);
+	}
 }
 
 static void
@@ -11509,10 +10194,10 @@ dhd_bus_handle_intx_ahead_dma_indices(dhd_bus_t *bus)
 
 	/*
 	 * skip delayed dpc if tasklet is scheduled by non-ISR
-	 * From ISR context, if dpc is scheduled, the isr_sched_dpc_time
-	 * will be lesser than dpc_exit_time.
+	 * From ISR context, we disable IRQ and enable IRQ back at the end of dpc,
+	 * hence if IRQ is not disabled we can consider it as scheduled from non-ISR context.
 	 */
-	if (bus->isr_sched_dpc_time < bus->dpc_exit_time) {
+	if (dhdpcie_irq_disabled(bus) == FALSE) {
 		DHD_INFO(("%s: skip delayed dpc as tasklet is scheduled from non isr\n",
 			__FUNCTION__));
 		return;
@@ -11523,7 +10208,6 @@ dhd_bus_handle_intx_ahead_dma_indices(dhd_bus_t *bus)
 		return;
 	}
 
-	DHD_INFO(("%s: schedule delayed DPC\n", __FUNCTION__));
 	dhd_schedule_delayed_dpc_on_dpc_cpu(bus->dhd, DHD_SCHED_RETRY_DPC_DELAY_MS);
 	return;
 }
@@ -11533,12 +10217,9 @@ dhdpcie_bus_process_mailbox_intr(dhd_bus_t *bus, uint32 intstatus)
 {
 	bool resched = FALSE;
 
-	/* Do not process dpc after receiving D3_ACK */
-	if (DHD_CHK_BUS_LPS_D3_ACKED(bus)) {
-		DHD_RPM(("%s: D3 Ack Received, skip dpc\n", __FUNCTION__));
-		return resched;
+	if (MULTIBP_ENAB(bus->sih)) {
+		dhd_bus_pcie_pwr_req(bus);
 	}
-
 	if ((bus->sih->buscorerev == 2) || (bus->sih->buscorerev == 6) ||
 		(bus->sih->buscorerev == 4)) {
 		/* Msg stream interrupt */
@@ -11569,6 +10250,9 @@ dhdpcie_bus_process_mailbox_intr(dhd_bus_t *bus, uint32 intstatus)
 
 	dhd_bus_handle_intx_ahead_dma_indices(bus);
 
+	if (MULTIBP_ENAB(bus->sih)) {
+		dhd_bus_pcie_pwr_req_clear(bus);
+	}
 	return resched;
 }
 
@@ -11607,10 +10291,9 @@ static bool
 dhdpci_bus_read_frames(dhd_bus_t *bus)
 {
 	bool more = FALSE;
-	uint32 ctrlcpl_items = 0;
-	uint32 txcpl_items = 0;
-	uint32 rxcpl_items = 0;
-	uint32 evtlog_items = 0;
+#if defined(EWP_EDL)
+	uint32 edl_itmes = 0;
+#endif /* EWP_EDL */
 
 	/* First check if there a FW trap */
 	if ((bus->api.fw_rev >= PCIE_SHARED_VERSION_6) &&
@@ -11634,12 +10317,12 @@ dhdpci_bus_read_frames(dhd_bus_t *bus)
 	dhd_prot_save_dmaidx(bus->dhd);
 #endif /* DHD_DMA_INDICES_SEQNUM */
 	/* There may be frames in both ctrl buf and data buf; check ctrl buf first */
-	dhd_prot_process_ctrlbuf(bus->dhd, &ctrlcpl_items);
+	dhd_prot_process_ctrlbuf(bus->dhd);
 	bus->last_process_ctrlbuf_time = OSL_LOCALTIME_NS();
 
 	/* Do not process rest of ring buf once bus enters low power state (D3_INFORM/D3_ACK) */
 	if (DHD_CHK_BUS_IN_LPS(bus)) {
-		DHD_RPM(("%s: Bus is in power save state (%d). "
+		DHD_ERROR(("%s: Bus is in power save state (%d). "
 			"Skip processing rest of ring buffers.\n",
 			__FUNCTION__, bus->bus_low_power_state));
 		return FALSE;
@@ -11652,15 +10335,13 @@ dhdpci_bus_read_frames(dhd_bus_t *bus)
 	/* With heavy TX traffic, we could get a lot of TxStatus
 	 * so add bound
 	 */
-	more |= dhd_prot_process_msgbuf_txcpl(bus->dhd, dhd_txbound, DHD_REGULAR_RING,
-			&txcpl_items);
+	more |= dhd_prot_process_msgbuf_txcpl(bus->dhd, dhd_txbound, DHD_REGULAR_RING);
 	bus->last_process_txcpl_time = OSL_LOCALTIME_NS();
 
 	/* With heavy RX traffic, this routine potentially could spend some time
 	 * processing RX frames without RX bound
 	 */
-	more |= dhd_prot_process_msgbuf_rxcpl(bus->dhd, dhd_rxbound, DHD_REGULAR_RING,
-			&rxcpl_items);
+	more |= dhd_prot_process_msgbuf_rxcpl(bus->dhd, dhd_rxbound, DHD_REGULAR_RING);
 	bus->last_process_rxcpl_time = OSL_LOCALTIME_NS();
 
 	/* Process info ring completion messages */
@@ -11668,13 +10349,12 @@ dhdpci_bus_read_frames(dhd_bus_t *bus)
 	if (!bus->dhd->dongle_edl_support)
 #endif
 	{
-		more |= dhd_prot_process_msgbuf_infocpl(bus->dhd, DHD_INFORING_BOUND,
-			&evtlog_items);
+		more |= dhd_prot_process_msgbuf_infocpl(bus->dhd, DHD_INFORING_BOUND);
 		bus->last_process_infocpl_time = OSL_LOCALTIME_NS();
 	}
 #ifdef EWP_EDL
 	else {
-		more |= dhd_prot_process_msgbuf_edl(bus->dhd, &evtlog_items);
+		more |= dhd_prot_process_msgbuf_edl(bus->dhd, &edl_itmes);
 		bus->last_process_edl_time = OSL_LOCALTIME_NS();
 	}
 #endif /* EWP_EDL */
@@ -11735,24 +10415,12 @@ dhdpci_bus_read_frames(dhd_bus_t *bus)
 	dhdpci_bus_rte_log_time_sync_poll(bus);
 #endif /* DHD_H2D_LOG_TIME_SYNC */
 
-#if defined(DHD_WAKE_STATUS)
-	/* Check if host was woken up by any packets */
-	if (dhd_bus_get_bus_wake(bus->dhd) > 0) {
-		/*
-		 * If wake is due to Rx packets,
-		 * pktwake info will be printed and cleared from dhd_rx_frame()
-		 */
-		DHD_ERROR(("#### dhdpcie_host_wake: rxcpl:%d ctrlcpl:%d txcpl:%d evtlog:%d ####\n",
-			rxcpl_items, ctrlcpl_items, txcpl_items, evtlog_items));
-
-		dhd_bus_set_get_bus_wake(bus->dhd, 0);
-
-		if (rxcpl_items > 0) {
-			/* Request packet dump for first Rx packet */
-			dhd_bus_set_get_bus_wake_pkt_dump(bus->dhd, 1);
-		}
+#if defined(EWP_EDL) && defined(DHD_WAKE_STATUS)
+	if ((edl_itmes > 0) && (bcmpcie_get_edl_wake(bus) > 0)) {
+		DHD_ERROR(("##### dhdpcie_host_wake caused by Event Logs, edl_itmes %d\n",
+			edl_itmes));
 	}
-#endif /* DHD_WAKE_STATUS */
+#endif /* EWP_EDL && DHD_WAKE_STATUS */
 	return more;
 }
 
@@ -11825,7 +10493,7 @@ static int
 dhdpcie_readshared(dhd_bus_t *bus)
 {
 	uint32 addr = 0;
-	int dma_indx_wr_buf, dma_indx_rd_buf;
+	int rv, dma_indx_wr_buf, dma_indx_rd_buf;
 	uint32 shaddr = 0;
 	pciedev_shared_t *sh = bus->pcie_sh;
 	dhd_timeout_t tmo;
@@ -11835,8 +10503,9 @@ dhdpcie_readshared(dhd_bus_t *bus)
 #endif /* defined(PCIE_INB_DW) */
 	uint32 timeout = MAX_READ_TIMEOUT;
 	uint32 elapsed;
+#ifndef CUSTOMER_HW4_DEBUG
 	uint32 intstatus;
-	int ret = BCME_OK;
+#endif /* OEM_ANDROID */
 
 	if (MULTIBP_ENAB(bus->sih)) {
 		dhd_bus_pcie_pwr_req(bus);
@@ -11844,53 +10513,27 @@ dhdpcie_readshared(dhd_bus_t *bus)
 
 	shaddr = bus->dongle_ram_base + bus->ramsize - 4;
 
-#ifdef GDB_PROXY
-	if (bus->dhd->gdb_proxy_active) {
-		/* +3s ASLR delay timeout for case of preattachment debugging */
-		timeout += 3 * 1000 * 1000;
-	}
-#endif /* GDB_PROXY */
+	/* start a timer for 5 seconds */
+	dhd_timeout_start(&tmo, timeout);
 
-#ifdef GDB_PROXY
-	/* Loop while timeout is caused by firmware stop in GDB */
-	GDB_PROXY_TIMEOUT_DO(bus->dhd)
-	{
-#endif /* GDB_PROXY */
-		/* start a timer for 5 seconds */
-		dhd_timeout_start(&tmo, timeout);
-
-		while (((addr == 0) || (addr == bus->nvram_csm)) && !dhd_timeout_expired(&tmo)) {
-			/* Read last word in memory to determine address of pciedev_shared structure
-			 */
-			addr = LTOH32(dhdpcie_bus_rtcm32(bus, shaddr));
-			if (addr != bus->nvram_csm) {
-				DHD_ERROR(("%s: addr=0x%x nvram_csm=0x%x\n",
-					__FUNCTION__, addr, bus->nvram_csm));
-			}
-		}
-#ifdef GDB_PROXY
+	while (((addr == 0) || (addr == bus->nvram_csm)) && !dhd_timeout_expired(&tmo)) {
+		/* Read last word in memory to determine address of pciedev_shared structure */
+		addr = LTOH32(dhdpcie_bus_rtcm32(bus, shaddr));
 	}
-	GDB_PROXY_TIMEOUT_WHILE(dhd_timeout_expired(&tmo))
-#endif /* GDB_PROXY */
+
 	if (addr == (uint32)-1) {
-		DHD_ERROR(("%s: ##### pciedev shared address is 0xffffffff ####\n", __FUNCTION__));
+		DHD_ERROR(("%s: invalid pciedev shared struct\n", __FUNCTION__));
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 #ifdef CONFIG_ARCH_MSM
 		bus->no_cfg_restore = 1;
 #endif /* CONFIG_ARCH_MSM */
 #endif /* SUPPORT_LINKDOWN_RECOVERY */
 
-/* In phones sometimes NOC is seen for any further access after readshared fails */
-#ifdef DHD_NO_DUMP_FOR_READSHARED_FAIL
-		DHD_ERROR(("%s:### NO dumps will be colelcted and will be marked as linkdown ###\n",
-			__FUNCTION__));
+#ifdef CUSTOMER_HW4_DEBUG
 		bus->is_linkdown = 1;
-		ret = BCME_ERROR;
-		goto done;
-#endif /* DHD_NO_DUMP_FOR_READSHARED_FAIL */
-
+		DHD_ERROR(("%s : PCIe link might be down\n", __FUNCTION__));
+#else
 		dhd_bus_dump_imp_cfg_registers(bus);
-		dhd_bus_dump_dar_registers(bus);
 		/* Check the PCIe link status by reading intstatus register */
 		intstatus = si_corereg(bus->sih,
 				bus->sih->buscoreidx, bus->pcie_mailbox_int, 0, 0);
@@ -11899,43 +10542,41 @@ dhdpcie_readshared(dhd_bus_t *bus)
 			bus->is_linkdown = TRUE;
 		} else {
 #if defined(DHD_FW_COREDUMP)
-#ifdef DHD_SSSR_DUMP
-			DHD_ERROR(("%s : Set collect_sssr and fis_enab as TRUE\n", __FUNCTION__));
-			bus->dhd->collect_sssr = TRUE;
-			fis_enab = TRUE;
-#endif /* DHD_SSSR_DUMP */
 			/* save core dump or write to a file */
 			if (bus->dhd->memdump_enabled) {
-				bus->dhd->memdump_type = DUMP_TYPE_READ_SHM_FAIL;
+#ifdef DHD_SSSR_DUMP
+				DHD_ERROR(("%s : Set collect_sssr as TRUE\n", __FUNCTION__));
+				bus->dhd->collect_sssr = TRUE;
+#endif /* DHD_SSSR_DUMP */
+				/* since dhdpcie_readshared() is invoked only during init or trap */
+				bus->dhd->memdump_type = bus->dhd->dongle_trap_data ?
+					DUMP_TYPE_DONGLE_TRAP : DUMP_TYPE_DONGLE_INIT_FAILURE;
 				dhdpcie_mem_dump(bus);
 			}
 #endif /* DHD_FW_COREDUMP */
 		}
-		ret = BCME_ERROR;
-		goto done;
+#endif /* CUSTOMER_HW4_DEBUG */
+		return BCME_ERROR;
 	}
 
 	if ((addr == 0) || (addr == bus->nvram_csm) || (addr < bus->dongle_ram_base) ||
 		(addr > shaddr)) {
-		uint origidx = si_coreidx(bus->sih);
-		if (si_setcore(bus->sih, ARMCA7_CORE_ID, 0)) {
-			uint32 ioctrl = si_wrapperreg(bus->sih, AI_IOCTRL, 0, 0);
-			uint32 resetctrl = si_wrapperreg(bus->sih, AI_RESETCTRL, 0, 0);
-			DHD_ERROR(("%s: ca7 ioctrl:0x%x resetctrl:0x%x\n",
-				__FUNCTION__, ioctrl, resetctrl));
-		} else {
-			DHD_ERROR(("%s: Failed to find CA7 core!\n", __FUNCTION__));
-		}
-
-		/* Restore back to original core */
-		si_setcoreidx(bus->sih, origidx);
-
 		elapsed = tmo.elapsed;
 		DHD_ERROR(("%s: address (0x%08x) of pciedev_shared invalid\n",
 			__FUNCTION__, addr));
 		DHD_ERROR(("Waited %u usec, dongle is not ready\n", elapsed));
-		ret = BCME_ERROR;
-		goto done;
+#ifdef DEBUG_DNGL_INIT_FAIL
+		if (addr != (uint32)-1) {	/* skip further PCIE reads if read this addr */
+#ifdef CUSTOMER_HW4_DEBUG
+			bus->dhd->memdump_enabled = DUMP_MEMONLY;
+#endif /* CUSTOMER_HW4_DEBUG */
+			if (bus->dhd->memdump_enabled) {
+				bus->dhd->memdump_type = DUMP_TYPE_DONGLE_INIT_FAILURE;
+				dhdpcie_mem_dump(bus);
+			}
+		}
+#endif /* DEBUG_DNGL_INIT_FAIL */
+		return BCME_ERROR;
 	} else {
 		bus->rd_shared_pass_time = OSL_LOCALTIME_NS();
 		elapsed = tmo.elapsed;
@@ -11948,10 +10589,10 @@ dhdpcie_readshared(dhd_bus_t *bus)
 	}
 
 	/* Read hndrte_shared structure */
-	if ((ret = dhdpcie_bus_membytes(bus, FALSE, addr, (uint8 *)sh,
+	if ((rv = dhdpcie_bus_membytes(bus, FALSE, addr, (uint8 *)sh,
 		sizeof(pciedev_shared_t))) < 0) {
-		DHD_ERROR(("Failed to read PCIe shared struct with %d\n", ret));
-		goto done;
+		DHD_ERROR(("Failed to read PCIe shared struct with %d\n", rv));
+		return rv;
 	}
 
 	/* Endianness */
@@ -11982,8 +10623,7 @@ dhdpcie_readshared(dhd_bus_t *bus)
 		           "is older than pciedev_shared version %d in dongle\n",
 		           __FUNCTION__, PCIE_SHARED_VERSION,
 		           bus->api.fw_rev));
-		ret = BCME_ERROR;
-		goto done;
+		return BCME_ERROR;
 	}
 	dhdpcie_update_bus_api_revisions(bus->api.fw_rev, PCIE_SHARED_VERSION);
 
@@ -12031,7 +10671,6 @@ dhdpcie_readshared(dhd_bus_t *bus)
 	bus->dhd->d2h_sync_mode = sh->flags & PCIE_SHARED_D2H_SYNC_MODE_MASK;
 
 	bus->dhd->dar_enable = (sh->flags & PCIE_SHARED_DAR) ? TRUE : FALSE;
-	DHD_ERROR(("FW supports DAR ? %s\n", bus->dhd->dar_enable ? "Y":"N"));
 
 	/* Does the FW support DMA'ing r/w indices */
 	if (sh->flags & PCIE_SHARED_DMA_INDEX) {
@@ -12044,6 +10683,11 @@ dhdpcie_readshared(dhd_bus_t *bus)
 			}
 		}
 
+		if (bus->dhd->dma_d2h_ring_upd_support && bus->dhd->d2h_sync_mode) {
+			DHD_ERROR(("%s: ERROR COMBO: sync (0x%x) enabled for DMA indices\n",
+				__FUNCTION__, bus->dhd->d2h_sync_mode));
+		}
+
 		DHD_INFO(("%s: Host support DMAing indices: H2D:%d - D2H:%d. FW supports it\n",
 			__FUNCTION__,
 			(bus->dhd->dma_h2d_ring_upd_support ? 1 : 0),
@@ -12051,8 +10695,7 @@ dhdpcie_readshared(dhd_bus_t *bus)
 	} else if (!(sh->flags & PCIE_SHARED_D2H_SYNC_MODE_MASK)) {
 		DHD_ERROR(("%s FW has to support either dma indices or d2h sync\n",
 			__FUNCTION__));
-		ret = BCME_UNSUPPORTED;
-		goto done;
+		return BCME_UNSUPPORTED;
 	} else {
 		bus->dhd->dma_h2d_ring_upd_support = FALSE;
 		bus->dhd->dma_d2h_ring_upd_support = FALSE;
@@ -12077,14 +10720,12 @@ dhdpcie_readshared(dhd_bus_t *bus)
 		if ((sh->rings_info_ptr < bus->dongle_ram_base) || (sh->rings_info_ptr > shaddr)) {
 			DHD_ERROR(("%s: rings_info_ptr is invalid 0x%x, skip reading ring info\n",
 				__FUNCTION__, sh->rings_info_ptr));
-			ret = BCME_ERROR;
-			goto done;
+			return BCME_ERROR;
 		}
 
-		if ((ret = dhdpcie_bus_membytes(bus, FALSE, sh->rings_info_ptr,
-			(uint8 *)&ring_info, sizeof(ring_info_t))) < 0) {
-			goto done;
-		}
+		if ((rv = dhdpcie_bus_membytes(bus, FALSE, sh->rings_info_ptr,
+			(uint8 *)&ring_info, sizeof(ring_info_t))) < 0)
+			return rv;
 
 		bus->h2d_mb_data_ptr_addr = ltoh32(sh->h2d_mb_data_ptr);
 		bus->d2h_mb_data_ptr_addr = ltoh32(sh->d2h_mb_data_ptr);
@@ -12108,19 +10749,16 @@ dhdpcie_readshared(dhd_bus_t *bus)
 		if (bus->max_completion_rings == 0) {
 			DHD_ERROR(("dongle completion rings are invalid %d\n",
 				bus->max_completion_rings));
-			ret = BCME_ERROR;
-			goto done;
+			return BCME_ERROR;
 		}
 		if (bus->max_submission_rings == 0) {
 			DHD_ERROR(("dongle submission rings are invalid %d\n",
 				bus->max_submission_rings));
-			ret = BCME_ERROR;
-			goto done;
+			return BCME_ERROR;
 		}
 		if (bus->max_tx_flowrings == 0) {
 			DHD_ERROR(("dongle txflow rings are invalid %d\n", bus->max_tx_flowrings));
-			ret = BCME_ERROR;
-			goto done;
+			return BCME_ERROR;
 		}
 
 		/* If both FW and Host support DMA'ing indices, allocate memory and notify FW
@@ -12159,14 +10797,12 @@ dhdpcie_readshared(dhd_bus_t *bus)
 			uint32 bufsz = bus->rw_index_sz * bus->max_completion_rings;
 			if (dhd_prot_dma_indx_copybuf_init(bus->dhd, bufsz, D2H_DMA_INDX_WR_BUF)
 				!= BCME_OK) {
-				ret = BCME_NOMEM;
-				goto done;
+				return BCME_NOMEM;
 			}
 			bufsz = bus->rw_index_sz * bus->max_submission_rings;
 			if (dhd_prot_dma_indx_copybuf_init(bus->dhd, bufsz, H2D_DMA_INDX_RD_BUF)
 				!= BCME_OK) {
-				ret = BCME_NOMEM;
-				goto done;
+				return BCME_NOMEM;
 			}
 		}
 #endif /* DHD_DMA_INDICES_SEQNUM */
@@ -12216,10 +10852,6 @@ dhdpcie_readshared(dhd_bus_t *bus)
 		/* add an option to let the user select ?? */
 		bus->dhd->db7_trap.db7_magic_number = PCIE_DB7_MAGIC_NUMBER_DPC_TRAP;
 	}
-	if (sh->flags2 & PCIE_SHARED2_LPM_SUPPORT) {
-		bus->dhd->fw_lpm_support = TRUE;
-		DHD_ERROR(("FW supports LPM mode\n"));
-	}
 
 	bus->dhd->hscb_enable =
 		(sh->flags2 & PCIE_SHARED2_HSCB) == PCIE_SHARED2_HSCB;
@@ -12233,22 +10865,13 @@ dhdpcie_readshared(dhd_bus_t *bus)
 
 	bus->dhd->debug_buf_dest_support =
 		(sh->flags2 & PCIE_SHARED2_DEBUG_BUF_DEST) ? TRUE : FALSE;
-	DHD_ERROR_MEM(("FW supports debug buf dest ? %s \n",
+	DHD_ERROR(("FW supports debug buf dest ? %s \n",
 		bus->dhd->debug_buf_dest_support ? "Y" : "N"));
 
 #ifdef DHD_DB0TS
 	bus->dhd->db0ts_capable =
 		(sh->flags & PCIE_SHARED_TIMESTAMP_DB0) == PCIE_SHARED_TIMESTAMP_DB0;
 #endif /* DHD_DB0TS */
-
-	bus->dhd->rx_cpl_lat_capable =
-		(sh->flags2 & PCIE_SHARED2_RX_CMPL_PRIO_VALID) ? TRUE : FALSE;
-
-	bus->dhd->mdring_capable =
-		(sh->flags2 & PCIE_SHARED2_METADATA_RING) ? TRUE : FALSE;
-
-	DHD_ERROR(("FW supports MD ring ? %s\n",
-			bus->dhd->mdring_capable ? "Y" : "N"));
 
 	if (MULTIBP_ENAB(bus->sih)) {
 		dhd_bus_pcie_pwr_req_clear(bus);
@@ -12262,37 +10885,7 @@ dhdpcie_readshared(dhd_bus_t *bus)
 				DAR_PCIE_PWR_CTRL((bus->sih)->buscorerev), FALSE);
 		}
 	}
-done:
-#if defined(FW_SIGNATURE)
-	if ((ret == BCME_ERROR) && (bus->fwsig_filename[0] != 0)) {
-		bl_verif_status_t status;
-
-		(void)dhdpcie_read_fwstatus(bus, &status);
-		DHD_ERROR(("Verification status: (%08x)\n"
-			"\tstatus: %d\n"
-			"\tstate: %u\n"
-			"\talloc_bytes: %u\n"
-			"\tmax_alloc_bytes: %u\n"
-			"\ttotal_alloc_bytes: %u\n"
-			"\ttotal_freed_bytes: %u\n"
-			"\tnum_allocs: %u\n"
-			"\tmax_allocs: %u\n"
-			"\tmax_alloc_size: %u\n"
-			"\talloc_failures: %u\n",
-			bus->fwstat_download_addr,
-			status.status,
-			status.state,
-			status.alloc_bytes,
-			status.max_alloc_bytes,
-			status.total_alloc_bytes,
-			status.total_freed_bytes,
-			status.num_allocs,
-			status.max_allocs,
-			status.max_alloc_size,
-			status.alloc_failures));
-	}
-#endif /* FW_SIGNATURE */
-	return ret;
+	return BCME_OK;
 } /* dhdpcie_readshared */
 
 /** Read ring mem and ring state ptr info from shared memory area in device memory */
@@ -12407,8 +11000,6 @@ int dhd_bus_init(dhd_pub_t *dhdp, bool enforce_mutex)
 	if (!bus->dhd)
 		return 0;
 
-	bus->link_state = DHD_PCIE_ALL_GOOD;
-
 	dhd_bus_pcie_pwr_req_clear_reload_war(bus);
 
 	if (MULTIBP_ENAB(bus->sih)) {
@@ -12477,18 +11068,9 @@ int dhd_bus_init(dhd_pub_t *dhdp, bool enforce_mutex)
 	} else {
 		bus->use_d0_inform = FALSE;
 	}
-	bus->lpm_mode = FALSE;
-	bus->lpm_mem_kill = FALSE;
 
 	bus->hostready_count = 0;
 
-	bus->host_irq_enable_count = 0;
-	bus->host_irq_disable_count = 0;
-	bus->dngl_intmask_disable_count = 0;
-	bus->dngl_intmask_enable_count = 0;
-	if (dhdp->rx_cpl_lat_capable) {
-		bzero(&dhdp->rxcpl_lat_info, sizeof(rx_cpl_lat_info_t));
-	}
 exit:
 	if (MULTIBP_ENAB(bus->sih)) {
 		dhd_bus_pcie_pwr_req_clear(bus);
@@ -12629,8 +11211,6 @@ dhdpcie_chipmatch(uint16 vendor, uint16 device)
 		case BCM43752_D11AX2G_ID:
 		case BCM43752_D11AX5G_ID:
 		case BCM43752_CHIP_ID:
-		case BCM4381_CHIP_ID:
-		case BCM4381_D11AX_ID:
 		case BCM4388_CHIP_ID:
 		case BCM4388_D11AX_ID:
 		case BCM4389_CHIP_ID:
@@ -13443,8 +12023,7 @@ dhdpcie_cto_init(struct dhd_bus *bus, bool enable)
 		if (bus->cto_threshold == 0) {
 			if ((chipid == BCM4387_CHIP_ID) ||
 			    (chipid == BCM4388_CHIP_ID) ||
-			    (chipid == BCM4389_CHIP_ID) ||
-			    (chipid == BCM4397_CHIP_ID)) {
+			    (chipid == BCM4389_CHIP_ID)) {
 				bus->cto_threshold = PCIE_CTO_TO_THRESH_DEFAULT_REV69;
 			} else {
 				bus->cto_threshold = PCIE_CTO_TO_THRESH_DEFAULT;
@@ -13972,7 +12551,7 @@ dhd_get_rpm_state(dhd_pub_t *dhd)
 void
 dhd_set_rpm_state(dhd_pub_t *dhd, bool state)
 {
-	DHD_RPM(("%s: %d\n", __FUNCTION__, state));
+	DHD_ERROR(("%s: %d\n", __FUNCTION__, state));
 	dhd->bus->rpm_enabled = state;
 }
 
@@ -14202,7 +12781,7 @@ dhdpcie_get_etd_preserve_logs(dhd_pub_t *dhd,
 
 		/* boundary check */
 		baseaddr = etd_evtlog->log_arr_addr;
-		if ((baseaddr < dhd->bus->dongle_ram_base) || (baseaddr > endaddr) ||
+		if ((baseaddr < dhd->bus->dongle_ram_base) ||
 			((baseaddr + arr_size) > endaddr)) {
 			DHD_ERROR(("%s: Error reading invalid address\n",
 				__FUNCTION__));
@@ -14227,7 +12806,7 @@ dhdpcie_get_etd_preserve_logs(dhd_pub_t *dhd,
 		for (i = 0; i < (etd_evtlog->num_elements); ++i) {
 			/* boundary check */
 			baseaddr = evtlog_buf_arr[i].buf_addr;
-			if ((baseaddr < dhd->bus->dongle_ram_base) || (baseaddr > endaddr) ||
+			if ((baseaddr < dhd->bus->dongle_ram_base) ||
 				((baseaddr + evtlog_buf_arr[i].len) > endaddr)) {
 				DHD_ERROR(("%s: Error reading invalid address\n",
 					__FUNCTION__));
@@ -14888,55 +13467,6 @@ dhdpcie_sssr_dump_get_after_sr(dhd_pub_t *dhd)
 	return BCME_OK;
 }
 
-#define GCI_CHIPSTATUS_AUX	GCI_CHIPSTATUS_10
-#define GCI_CHIPSTATUS_MAIN	GCI_CHIPSTATUS_11
-#define GCI_CHIPSTATUS_DIG	GCI_CHIPSTATUS_12
-#define GCI_CHIPSTATUS_SCAN	GCI_CHIPSTATUS_13
-
-#define GCI_CHIPSTATUS_ILLEGAL_INSTR_BITMASK	(1u << 3)
-int
-dhdpcie_validate_gci_chip_intstatus(dhd_pub_t *dhd)
-{
-	int gci_intstatus;
-	si_t *sih = dhd->bus->sih;
-
-	/* For now validate only for 4389 chip */
-	if (si_chipid(sih) != BCM4389_CHIP_ID) {
-		DHD_ERROR(("%s: skipping for chipid:0x%x\n", __FUNCTION__, si_chipid(sih)));
-		return BCME_OK;
-	}
-
-	gci_intstatus = si_gci_chipstatus(sih, GCI_CHIPSTATUS_MAIN);
-	if (gci_intstatus & GCI_CHIPSTATUS_ILLEGAL_INSTR_BITMASK) {
-		DHD_ERROR(("%s: Illegal instruction set for MAIN core 0x%x\n",
-			__FUNCTION__, gci_intstatus));
-		return BCME_ERROR;
-	}
-
-	gci_intstatus = si_gci_chipstatus(sih, GCI_CHIPSTATUS_AUX);
-	if (gci_intstatus & GCI_CHIPSTATUS_ILLEGAL_INSTR_BITMASK) {
-		DHD_ERROR(("%s: Illegal instruction set for AUX core 0x%x\n",
-			__FUNCTION__, gci_intstatus));
-		return BCME_ERROR;
-	}
-
-	gci_intstatus = si_gci_chipstatus(sih, GCI_CHIPSTATUS_SCAN);
-	if (gci_intstatus & GCI_CHIPSTATUS_ILLEGAL_INSTR_BITMASK) {
-		DHD_ERROR(("%s: Illegal instruction set for SCAN core 0x%x\n",
-			__FUNCTION__, gci_intstatus));
-		return BCME_ERROR;
-	}
-
-	gci_intstatus = si_gci_chipstatus(sih, GCI_CHIPSTATUS_DIG);
-	if (gci_intstatus & GCI_CHIPSTATUS_ILLEGAL_INSTR_BITMASK) {
-		DHD_ERROR(("%s: Illegal instruction set for DIG core 0x%x\n",
-			__FUNCTION__, gci_intstatus));
-		return BCME_ERROR;
-	}
-
-	return BCME_OK;
-}
-
 int
 dhdpcie_sssr_dump(dhd_pub_t *dhd)
 {
@@ -14952,16 +13482,6 @@ dhdpcie_sssr_dump(dhd_pub_t *dhd)
 		return BCME_ERROR;
 	}
 
-	if (dhd->bus->cto_triggered) {
-		DHD_ERROR(("%s: CTO Triggered\n", __FUNCTION__));
-		return BCME_ERROR;
-	}
-
-	if (dhdpcie_validate_gci_chip_intstatus(dhd) != BCME_OK) {
-		DHD_ERROR(("%s: ## Invalid GCI Chip intstatus, Abort SSSR ##\n",
-			__FUNCTION__));
-		return BCME_ERROR;
-	}
 	DHD_ERROR(("%s: Before WL down (powerctl: pcie:0x%x chipc:0x%x) "
 		"PMU rctl:0x%x res_state:0x%x\n", __FUNCTION__,
 		si_corereg(dhd->bus->sih, dhd->bus->sih->buscoreidx,
@@ -15034,7 +13554,7 @@ dhdpcie_sssr_dump(dhd_pub_t *dhd)
 static int
 dhdpcie_fis_trigger(dhd_pub_t *dhd)
 {
-	uint32 fis_ctrl_status, fis_min_res_mask;
+	uint32 fis_ctrl_status;
 	uint32 cfg_status_cmd;
 	uint32 cfg_pmcsr;
 
@@ -15058,16 +13578,12 @@ dhdpcie_fis_trigger(dhd_pub_t *dhd)
 	/* Set fis_triggered flag to ignore link down callback from RC */
 	dhd->fis_triggered = TRUE;
 
-	/* set fis_min_res_mask to 0x1 */
-	PMU_REG(dhd->bus->sih, fis_min_res_mask, ~0, 0x1);
-
 	/* Set FIS PwrswForceOnAll */
 	PMU_REG(dhd->bus->sih, fis_ctrl_status, PMU_FIS_FORCEON_ALL_MASK, PMU_FIS_FORCEON_ALL_MASK);
 
 	fis_ctrl_status = PMU_REG(dhd->bus->sih, fis_ctrl_status, 0, 0);
-	fis_min_res_mask = PMU_REG(dhd->bus->sih, fis_min_res_mask, 0, 0);
-	DHD_ERROR(("%s: fis_ctrl_status=0x%x fis_min_res_mask=0x%x\n",
-		__FUNCTION__, fis_ctrl_status, fis_min_res_mask));
+
+	DHD_ERROR(("%s: fis_ctrl_status=0x%x\n", __FUNCTION__, fis_ctrl_status));
 
 	cfg_status_cmd = dhd_pcie_config_read(dhd->bus, PCIECFGREG_STATUS_CMD, sizeof(uint32));
 	cfg_pmcsr = dhd_pcie_config_read(dhd->bus, PCIE_CFG_PMCSR, sizeof(uint32));
@@ -15200,8 +13716,6 @@ dhdpcie_fis_dump(dhd_pub_t *dhd)
 {
 	int i;
 	uint8 num_d11cores;
-	struct dhd_bus *bus = dhd->bus;
-	uint32 save_idx = 0;
 
 	DHD_ERROR(("%s\n", __FUNCTION__));
 
@@ -15239,16 +13753,6 @@ dhdpcie_fis_dump(dhd_pub_t *dhd)
 
 	dhdpcie_d11_check_outofreset(dhd);
 
-	/* take sysmem out of reset - otherwise
-	 * socram collected again will read only
-	 * 0xffff
-	 */
-	save_idx = si_coreidx(bus->sih);
-	if (si_setcore(bus->sih, SYSMEM_CORE_ID, 0)) {
-		si_core_reset(bus->sih, 0, 0);
-		si_setcoreidx(bus->sih, save_idx);
-	}
-
 	DHD_ERROR(("%s: Collecting Dump after SR\n", __FUNCTION__));
 	if (dhdpcie_sssr_dump_get_after_sr(dhd) != BCME_OK) {
 		DHD_ERROR(("%s: dhdpcie_sssr_dump_get_after_sr failed\n", __FUNCTION__));
@@ -15256,14 +13760,6 @@ dhdpcie_fis_dump(dhd_pub_t *dhd)
 	}
 	dhd->sssr_dump_collected = TRUE;
 	dhd_write_sssr_dump(dhd, SSSR_DUMP_MODE_FIS);
-
-	if (dhd->bus->link_state != DHD_PCIE_ALL_GOOD) {
-		/* reset link state and collect socram */
-		dhd->bus->link_state = DHD_PCIE_ALL_GOOD;
-		DHD_ERROR(("%s: recollect socram\n", __FUNCTION__));
-		/* re-read socram into buffer */
-		dhdpcie_get_mem_dump(bus);
-	}
 
 	return BCME_OK;
 }
@@ -15314,18 +13810,7 @@ dhd_bus_get_wakecount(dhd_pub_t *dhd)
 int
 dhd_bus_get_bus_wake(dhd_pub_t *dhd)
 {
-	return bcmpcie_get_wake(dhd->bus);
-}
-int
-dhd_bus_set_get_bus_wake(dhd_pub_t *dhd, int set)
-{
-	return bcmpcie_set_get_wake(dhd->bus, set);
-}
-
-int
-dhd_bus_set_get_bus_wake_pkt_dump(dhd_pub_t *dhd, int wake_pkt_dump)
-{
-	return bcmpcie_set_get_wake_pkt_dump(dhd->bus, wake_pkt_dump);
+	return bcmpcie_set_get_wake(dhd->bus, 0);
 }
 #endif /* DHD_WAKE_STATUS */
 
@@ -15335,16 +13820,31 @@ dhd_bus_set_get_bus_wake_pkt_dump(dhd_pub_t *dhd, int wake_pkt_dump)
 static int
 dhdpcie_wrt_rnd(struct dhd_bus *bus)
 {
+	bcm_rand_metadata_t rnd_data;
 	uint8 rand_buf[BCM_ENTROPY_HOST_NBYTES];
-	int ret = BCME_OK;
-	memset(rand_buf, 0, sizeof(rand_buf));
+	uint32 count = BCM_ENTROPY_HOST_NBYTES;
+	int ret = 0;
+	uint32 addr = bus->dongle_ram_base + (bus->ramsize - BCM_NVRAM_OFFSET_TCM) -
+		((bus->nvram_csm & 0xffff)* BCM_NVRAM_IMG_COMPRS_FACTOR + sizeof(rnd_data));
+
+	memset(rand_buf, 0, BCM_ENTROPY_HOST_NBYTES);
+	rnd_data.signature = htol32(BCM_NVRAM_RNG_SIGNATURE);
+	rnd_data.count = htol32(count);
+	/* write the metadata about random number */
+	dhdpcie_bus_membytes(bus, TRUE, addr, (uint8 *)&rnd_data, sizeof(rnd_data));
+	/* scale back by number of random number counts */
+	addr -= count;
+
+	bus->ramtop_addr = addr;
 
 	/* Now write the random number(s) */
-	ret = dhd_get_random_bytes(rand_buf, sizeof(rand_buf));
+	ret = dhd_get_random_bytes(rand_buf, count);
 	if (ret != BCME_OK) {
 		return ret;
 	}
-	dhdpcie_download_rtlv(bus, DNGL_RTLV_TYPE_RNG_SIGNATURE, sizeof(rand_buf), rand_buf);
+	dhdpcie_bus_membytes(bus, TRUE, addr, rand_buf, count);
+
+	bus->next_tlv = addr;
 
 	return BCME_OK;
 }
@@ -15356,10 +13856,10 @@ dhd_pcie_intr_count_dump(dhd_pub_t *dhd)
 	uint64 current_time;
 
 	DHD_ERROR(("\n ------- DUMPING INTR enable/disable counters  ------- \r\n"));
-	DHD_ERROR(("dngl_intmask_enable_count=%lu host_irq_enable_count=%lu\n",
-		bus->dngl_intmask_enable_count, bus->host_irq_enable_count));
-	DHD_ERROR(("host_irq_disable_count=%lu dngl_intmask_disable_count=%lu\n",
-		bus->host_irq_disable_count, bus->dngl_intmask_disable_count));
+	DHD_ERROR(("resume_intr_enable_count=%lu dpc_intr_enable_count=%lu\n",
+		bus->resume_intr_enable_count, bus->dpc_intr_enable_count));
+	DHD_ERROR(("isr_intr_disable_count=%lu suspend_intr_disable_count=%lu\n",
+		bus->isr_intr_disable_count, bus->suspend_intr_disable_count));
 #ifdef BCMPCIE_OOB_HOST_WAKE
 	DHD_ERROR(("oob_intr_count=%lu oob_intr_enable_count=%lu oob_intr_disable_count=%lu\n",
 		bus->oob_intr_count, bus->oob_intr_enable_count,
@@ -15375,10 +13875,9 @@ dhd_pcie_intr_count_dump(dhd_pub_t *dhd)
 	DHD_ERROR(("oob_irq_enabled=%d oob_gpio_level=%d\n",
 		dhdpcie_get_oob_irq_status(bus),
 		dhdpcie_get_oob_irq_level()));
-
-#if defined(__linux__)
-	dhd_plat_pin_dbg_show(bus->dhd->plat_info);
-#endif /* __linux__ */
+#ifdef PRINT_WAKEUP_GPIO_STATUS
+	exynos_pin_dbg_show(dhdpcie_get_oob_gpio_number(), "gpa0");
+#endif /* PRINT_WAKEUP_GPIO_STATUS */
 #endif /* BCMPCIE_OOB_HOST_WAKE */
 	DHD_ERROR(("dpc_return_busdown_count=%lu non_ours_irq_count=%lu\n",
 		bus->dpc_return_busdown_count, bus->non_ours_irq_count));
@@ -15474,8 +13973,6 @@ dhd_pcie_dump_wrapper_regs(dhd_pub_t *dhd)
 			DHD_ERROR(("sbreg: addr:0x%x val:0x%x\n", wrapper_dump_list[i], val));
 		}
 	}
-
-	dhd_dump_pcie_slave_wrapper_regs(dhd->bus);
 
 	if ((cr4regs = si_setcore(sih, ARMCR4_CORE_ID, 0)) != NULL) {
 		DHD_ERROR(("%s: ARM CR4 wrapper Reg\n", __FUNCTION__));
@@ -15832,6 +14329,10 @@ dhd_pcie_debug_info_dump(dhd_pub_t *dhd)
 			dhd_pcie_config_read(dhd->bus, PCIECFGREG_PML1_SUB_CTRL2,
 			sizeof(uint32))));
 		dhd_bus_dump_dar_registers(dhd->bus);
+		if (dhd->bus->dar_err_set) {
+			DHD_ERROR(("Skip dumping the PCIe Core registers. DAR error log set\n"));
+			return 0;
+		}
 	}
 #endif /* EXTENDED_PCIE_DEBUG_DUMP */
 
@@ -15842,13 +14343,6 @@ dhd_pcie_debug_info_dump(dhd_pub_t *dhd)
 
 	if (MULTIBP_ENAB(dhd->bus->sih)) {
 		dhd_bus_pcie_pwr_req(dhd->bus);
-	}
-
-	dhd_pcie_dump_wrapper_regs(dhd);
-
-	if (dhd->bus->dar_err_set) {
-		DHD_ERROR(("Skip dumping the PCIe Core registers. DAR error log set\n"));
-		goto exit;
 	}
 
 	DHD_ERROR(("\n ------- DUMPING PCIE core Registers ------- \r\n"));
@@ -15929,12 +14423,13 @@ dhd_pcie_debug_info_dump(dhd_pub_t *dhd)
 			si_corereg(dhd->bus->sih, dhd->bus->sih->buscoreidx,
 				dhd_bus_db0_addr_get(dhd->bus), 0, 0)));
 
+		dhd_pcie_dump_wrapper_regs(dhd);
 		dhdpcie_hw_war_regdump(dhd->bus);
 	}
 #endif /* EXTENDED_PCIE_DEBUG_DUMP */
 
 	dhd_pcie_dma_info_dump(dhd);
-exit:
+
 	if (MULTIBP_ENAB(dhd->bus->sih)) {
 		dhd_bus_pcie_pwr_req_clear(dhd->bus);
 	}
@@ -15967,7 +14462,7 @@ dhd_bus_tcm_test(struct dhd_bus *bus)
 	uint8 init_val[NUM_PATTERNS] = {
 		0xFFu, /* 11111111 */
 		0x00u, /* 00000000 */
-#if !defined(DHD_FW_MEM_CORRUPTION) && defined(BCM4375_CHIP)
+#if !defined(DHD_FW_MEM_CORRUPTION)
 		0x77u, /* 01110111 */
 		0x22u, /* 00100010 */
 		0x27u, /* 00100111 */
@@ -16079,127 +14574,4 @@ dhdpcie_induce_cbp_hang(dhd_pub_t *dhd)
 	addr = apb2_wrapper_reg + apb2_reset_ctrl_offset;
 	val = 1;
 	dhd_sbreg_op(dhd, addr, &val, FALSE);
-}
-
-bool
-dhd_bus_init_done(struct dhd_bus *bus)
-{
-	return bus->intr_enabled;
-}
-
-#ifdef DHD_SSSR_DUMP
-void
-dhd_fill_sssr_reg_info_4389(dhd_pub_t *dhd)
-{
-	sssr_reg_info_cmn_t *sssr_reg_info_cmn = dhd->sssr_reg_info;
-	sssr_reg_info_v3_t *sssr_reg_info;
-
-	sssr_reg_info = (sssr_reg_info_v3_t *)&sssr_reg_info_cmn->rev3;
-
-	DHD_ERROR(("%s:\n", __FUNCTION__));
-	sssr_reg_info->version = SSSR_REG_INFO_VER_3;
-	sssr_reg_info->length = sizeof(sssr_reg_info_v3_t);
-
-	sssr_reg_info->pmu_regs.base_regs.pmuintmask0 = 0x18012700;
-	sssr_reg_info->pmu_regs.base_regs.pmuintmask1 = 0x18012704;
-	sssr_reg_info->pmu_regs.base_regs.resreqtimer = 0x18012644;
-	sssr_reg_info->pmu_regs.base_regs.macresreqtimer = 0x18012688;
-	sssr_reg_info->pmu_regs.base_regs.macresreqtimer1 = 0x180126f0;
-	sssr_reg_info->pmu_regs.base_regs.macresreqtimer2 = 0x18012738;
-
-	sssr_reg_info->chipcommon_regs.base_regs.intmask = 0x18000024;
-	sssr_reg_info->chipcommon_regs.base_regs.powerctrl = 0x180001e8;
-	sssr_reg_info->chipcommon_regs.base_regs.clockcontrolstatus = 0x180001e0;
-	sssr_reg_info->chipcommon_regs.base_regs.powerctrl_mask = 0x1f00;
-
-	sssr_reg_info->arm_regs.base_regs.clockcontrolstatus = 0x180201e0;
-	sssr_reg_info->arm_regs.base_regs.clockcontrolstatus_val = 0x20;
-	sssr_reg_info->arm_regs.wrapper_regs.resetctrl = 0x18120800;
-	sssr_reg_info->arm_regs.wrapper_regs.extrsrcreq = 0x18006234;
-
-	sssr_reg_info->pcie_regs.base_regs.ltrstate = 0x18001c38;
-	sssr_reg_info->pcie_regs.base_regs.clockcontrolstatus = 0x180011e0;
-	sssr_reg_info->pcie_regs.base_regs.clockcontrolstatus_val = 0x0;
-	sssr_reg_info->pcie_regs.wrapper_regs.extrsrcreq = 0x180061b4;
-
-	sssr_reg_info->mac_regs[0].base_regs.xmtaddress = 0x18021130;
-	sssr_reg_info->mac_regs[0].base_regs.xmtdata = 0x18021134;
-	sssr_reg_info->mac_regs[0].base_regs.clockcontrolstatus = 0x180211e0;
-	sssr_reg_info->mac_regs[0].base_regs.clockcontrolstatus_val = 0x20;
-	sssr_reg_info->mac_regs[0].wrapper_regs.resetctrl = 0x18121800;
-	sssr_reg_info->mac_regs[0].wrapper_regs.extrsrcreq = 0x180062b4;
-	sssr_reg_info->mac_regs[0].wrapper_regs.ioctrl = 0x18121408;
-	sssr_reg_info->mac_regs[0].wrapper_regs.ioctrl_resetseq_val[0] = 0xc7;
-	sssr_reg_info->mac_regs[0].wrapper_regs.ioctrl_resetseq_val[1] = 0x15f;
-	sssr_reg_info->mac_regs[0].wrapper_regs.ioctrl_resetseq_val[2] = 0x151;
-	sssr_reg_info->mac_regs[0].wrapper_regs.ioctrl_resetseq_val[3] = 0x155;
-	sssr_reg_info->mac_regs[0].wrapper_regs.ioctrl_resetseq_val[4] = 0xc5;
-	sssr_reg_info->mac_regs[0].sr_size = 0x40000;
-
-	sssr_reg_info->mac_regs[1].base_regs.xmtaddress = 0x18022130;
-	sssr_reg_info->mac_regs[1].base_regs.xmtdata = 0x18022134;
-	sssr_reg_info->mac_regs[1].base_regs.clockcontrolstatus = 0x180221e0;
-	sssr_reg_info->mac_regs[1].base_regs.clockcontrolstatus_val = 0x20;
-	sssr_reg_info->mac_regs[1].wrapper_regs.resetctrl = 0x18122800;
-	sssr_reg_info->mac_regs[1].wrapper_regs.extrsrcreq = 0x18006334;
-	sssr_reg_info->mac_regs[1].wrapper_regs.ioctrl = 0x18122408;
-	sssr_reg_info->mac_regs[1].wrapper_regs.ioctrl_resetseq_val[0] = 0xc7;
-	sssr_reg_info->mac_regs[1].wrapper_regs.ioctrl_resetseq_val[1] = 0x15f;
-	sssr_reg_info->mac_regs[1].wrapper_regs.ioctrl_resetseq_val[2] = 0x151;
-	sssr_reg_info->mac_regs[1].wrapper_regs.ioctrl_resetseq_val[3] = 0x155;
-	sssr_reg_info->mac_regs[1].wrapper_regs.ioctrl_resetseq_val[4] = 0xc5;
-	sssr_reg_info->mac_regs[1].sr_size = 0x30000;
-
-	sssr_reg_info->mac_regs[2].base_regs.xmtaddress = 0x18023130;
-	sssr_reg_info->mac_regs[2].base_regs.xmtdata = 0x18023134;
-	sssr_reg_info->mac_regs[2].base_regs.clockcontrolstatus = 0x180231e0;
-	sssr_reg_info->mac_regs[2].base_regs.clockcontrolstatus_val = 0x20;
-	sssr_reg_info->mac_regs[2].wrapper_regs.resetctrl = 0x18123800;
-	sssr_reg_info->mac_regs[2].wrapper_regs.extrsrcreq = 0x180063b4;
-	sssr_reg_info->mac_regs[2].wrapper_regs.ioctrl = 0x18123408;
-	sssr_reg_info->mac_regs[2].wrapper_regs.ioctrl_resetseq_val[0] = 0xc7;
-	sssr_reg_info->mac_regs[2].wrapper_regs.ioctrl_resetseq_val[1] = 0x15f;
-	sssr_reg_info->mac_regs[2].wrapper_regs.ioctrl_resetseq_val[2] = 0x151;
-	sssr_reg_info->mac_regs[2].wrapper_regs.ioctrl_resetseq_val[3] = 0x155;
-	sssr_reg_info->mac_regs[2].wrapper_regs.ioctrl_resetseq_val[4] = 0xc5;
-	sssr_reg_info->mac_regs[2].sr_size = 0x30000;
-
-	sssr_reg_info->dig_mem_info.dig_sr_addr = 0x18520000;
-	sssr_reg_info->dig_mem_info.dig_sr_size = 0x10000;
-
-	sssr_reg_info->fis_enab = 1;
-
-	sssr_reg_info->hwa_regs.base_regs.clkenable = 0x180242d0;
-	sssr_reg_info->hwa_regs.base_regs.clkgatingenable = 0x180242d4;
-	sssr_reg_info->hwa_regs.base_regs.clkext = 0x180242e0;
-	sssr_reg_info->hwa_regs.base_regs.clkctlstatus = 0x180241e0;
-	sssr_reg_info->hwa_regs.wrapper_regs.ioctrl = 0x18124408;
-	sssr_reg_info->hwa_regs.wrapper_regs.resetctrl = 0x18124800;
-
-	sssr_reg_info->hwa_regs.hwa_resetseq_val[0] = 0x3;
-	sssr_reg_info->hwa_regs.hwa_resetseq_val[1] = 0x1;
-	sssr_reg_info->hwa_regs.hwa_resetseq_val[2] = 0x0;
-	sssr_reg_info->hwa_regs.hwa_resetseq_val[3] = 0x1;
-	sssr_reg_info->hwa_regs.hwa_resetseq_val[4] = 0x1ff;
-	sssr_reg_info->hwa_regs.hwa_resetseq_val[5] = 0x1ff;
-	sssr_reg_info->hwa_regs.hwa_resetseq_val[6] = 0x3;
-	sssr_reg_info->hwa_regs.hwa_resetseq_val[7] = 0x20;
-
-	dhd->sssr_inited = TRUE;
-}
-
-void
-dhdpcie_fill_sssr_reg_info(dhd_pub_t *dhd)
-{
-	if (dhd_get_chipid(dhd->bus) == BCM4389_CHIP_ID) {
-		dhd_fill_sssr_reg_info_4389(dhd);
-	}
-}
-
-#endif /* DHD_SSSR_DUMP */
-
-void
-dhd_bus_set_signature_path(struct dhd_bus *bus, char *sig_path)
-{
-	strlcpy(bus->fwsig_filename, sig_path, sizeof(bus->fwsig_filename));
 }

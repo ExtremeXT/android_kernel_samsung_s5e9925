@@ -130,13 +130,10 @@ extern int dhd_process_pkt_reorder_info(dhd_pub_t *dhd, uchar *reorder_info_buf,
 	uint reorder_info_len, void **pkt, uint32 *free_buf_count);
 
 #ifdef BCMPCIE
-extern bool dhd_prot_process_msgbuf_txcpl(dhd_pub_t *dhd, uint bound, int ringtype,
-	uint32 *txcpl_items);
-extern bool dhd_prot_process_msgbuf_rxcpl(dhd_pub_t *dhd, uint bound, int ringtype,
-	uint32 *rxcpl_items);
-extern bool dhd_prot_process_msgbuf_infocpl(dhd_pub_t *dhd, uint bound,
-	uint32 *evtlog_items);
-extern int dhd_prot_process_ctrlbuf(dhd_pub_t * dhd, uint32 *ctrlcpl_items);
+extern bool dhd_prot_process_msgbuf_txcpl(dhd_pub_t *dhd, uint bound, int ringtype);
+extern bool dhd_prot_process_msgbuf_rxcpl(dhd_pub_t *dhd, uint bound, int ringtype);
+extern bool dhd_prot_process_msgbuf_infocpl(dhd_pub_t *dhd, uint bound);
+extern int dhd_prot_process_ctrlbuf(dhd_pub_t * dhd);
 extern int dhd_prot_process_trapbuf(dhd_pub_t * dhd);
 extern bool dhd_prot_dtohsplit(dhd_pub_t * dhd);
 extern int dhd_post_dummy_msg(dhd_pub_t *dhd);
@@ -176,7 +173,6 @@ extern int dhd_prot_flow_ring_batch_suspend_request(dhd_pub_t *dhd, uint16 *ring
 extern int dhd_prot_flow_ring_resume(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node);
 #endif /* IDLE_TX_FLOW_MGMT */
 extern int dhd_prot_init_info_rings(dhd_pub_t *dhd);
-extern int dhd_prot_init_md_rings(dhd_pub_t *dhd);
 extern int dhd_prot_check_tx_resource(dhd_pub_t *dhd);
 #endif /* BCMPCIE */
 
@@ -205,7 +201,7 @@ extern void dhd_prot_dma_indx_free(dhd_pub_t *dhd);
 
 #ifdef EWP_EDL
 int dhd_prot_init_edl_rings(dhd_pub_t *dhd);
-bool dhd_prot_process_msgbuf_edl(dhd_pub_t *dhd, uint32 *evtlog_items);
+bool dhd_prot_process_msgbuf_edl(dhd_pub_t *dhd, uint32 *edl_itmes);
 int dhd_prot_process_edl_complete(dhd_pub_t *dhd, void *evt_decode_data);
 #endif /* EWP_EDL  */
 
@@ -228,12 +224,16 @@ void dhd_local_buf_reset(char *buf, uint32 len);
 int dhd_get_hscb_info(dhd_pub_t *dhd, void ** va, uint32 *len);
 int dhd_get_hscb_buff(dhd_pub_t *dhd, uint32 offset, uint32 length, void * buff);
 
-extern int dhd_prot_mdring_link_unlink(dhd_pub_t *dhd, int idx, bool link);
-extern int dhd_prot_mdring_linked_ring(dhd_pub_t *dhd);
-
 #ifdef DHD_MAP_LOGGING
 extern void dhd_prot_smmu_fault_dump(dhd_pub_t *dhdp);
 #endif /* DHD_MAP_LOGGING */
 
-void dhd_prot_set_ring_size_ver(dhd_pub_t *dhd, int version);
+extern uint16 dhd_prot_get_h2d_max_txpost(dhd_pub_t *dhd);
+extern void dhd_prot_set_h2d_max_txpost(dhd_pub_t *dhd, uint16 max_txpost);
+
+#if defined(DHD_HTPUT_TUNABLES)
+extern uint16 dhd_prot_get_h2d_htput_max_txpost(dhd_pub_t *dhd);
+extern void dhd_prot_set_h2d_htput_max_txpost(dhd_pub_t *dhd, uint16 max_txpost);
+#endif /* DHD_HTPUT_TUNABLES */
+
 #endif /* _dhd_proto_h_ */

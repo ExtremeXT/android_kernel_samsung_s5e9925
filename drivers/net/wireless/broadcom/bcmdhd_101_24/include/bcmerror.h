@@ -38,6 +38,11 @@
  * The current process is to allocate a range of 1024 negative 32 bit integers to
  * each module that extends the error codes to indicate a module specific status.
  *
+ * The next range to use is below. If that range is used for a new feature, please
+ * update the range to be used by the next feature.
+ *
+ * Next available (inclusive) range: [-8*1024 + 1, -7*1024]
+ *
  * Common error codes use BCME_ prefix. Firmware (wl) components should use the
  * convention to prefix the error code name with WL_<Component>_E_ (e.g. WL_NAN_E_?).
  * Non-wl components, other than common error codes use BCM_<Componennt>_E_
@@ -131,11 +136,8 @@ typedef int bcmerror_t;
 #define BCME_DNGL_DEVRESET		-72	/* dongle re-attach during DEVRESET */
 #define BCME_ROAM			-73	/* Roam related failures */
 #define BCME_NO_SIG_FILE		-74	/* Signature file is missing */
-#define BCME_RESP_PENDING		-75	/* Command response is pending */
-#define BCME_ACTIVE			-76	/* Command/context is already active */
-#define BCME_IN_PROGRESS		-77	/* Command/context is in progress */
 
-#define BCME_LAST			BCME_IN_PROGRESS
+#define BCME_LAST			BCME_NO_SIG_FILE
 
 #define BCME_NOTENABLED BCME_DISABLED
 
@@ -226,76 +228,11 @@ typedef int bcmerror_t;
 	"Dongle Devreset",		\
 	"Critical roam in progress",	\
 	"Signature file is missing",	\
-	"Command response pending",	\
-	"Command/context already active", \
-	"Command/context is in progress", \
 }
 
-/* FTM error codes [-1024, -2047] */
+/** status - TBD BCME_ vs proxd status - range reserved for BCME_ */
 enum {
-	WL_FTM_E_LAST			= -1077,
-	WL_FTM_E_SAC_MISMATCH		= -1077,
-	WL_FTM_E_TOKEN_MISMATCH		= -1076,
-	WL_FTM_E_IE_NOTFOUND		= -1075,
-	WL_FTM_E_IE_BADLEN		= -1074,
-	WL_FTM_E_INVALID_BW		= -1073,
-	WL_FTM_E_INVALID_ST_CH		= -1072,
-	WL_FTM_E_RSTA_AND_ISTA		= -1071,
-	WL_FTM_E_NO_SLTF		= -1070,
-	WL_FTM_E_INVALID_NBURST		= -1069,
-	WL_FTM_E_FATAL			= -1068,
-	WL_FTM_E_PASN			= -1067,
-	WL_FTM_E_PERM			= -1066,
-	WL_FTM_E_BURST			= -1065,
-	WL_FTM_E_RESCHED		= -1064,
-	WL_FTM_E_OFF_CHAN		= -1063,
-	WL_FTM_E_NO_SCB			= -1062,
-	WL_FTM_E_NOT_READY		= -1061,
-	WL_FTM_E_DELETED		= -1060,
-	WL_FTM_E_TX_PENDING		= -1059,
-	WL_FTM_E_BAD_CONFIG		= -1058,
-	WL_FTM_E_ASSOC_INPROG		= -1057,
-	WL_FTM_E_NOAVAIL		= -1056,
-	WL_FTM_E_EXT_SCHED		= -1055,
-	WL_FTM_E_NOT_BCM		= -1054,
-	WL_FTM_E_FRAME_TYPE		= -1053,
-	WL_FTM_E_VERNOSUPPORT		= -1052,
-	WL_FTM_E_SEC_NOKEY		= -1051,
-	WL_FTM_E_SEC_POLICY		= -1050,
-	WL_FTM_E_SCAN_INPROCESS		= -1049,
-	WL_FTM_E_BAD_PARTIAL_TSF	= -1048,
-	WL_FTM_E_SCANFAIL		= -1047,
-	WL_FTM_E_NOTSF			= -1046,
-	WL_FTM_E_POLICY			= -1045,
-	WL_FTM_E_INCOMPLETE		= -1044,
-	WL_FTM_E_OVERRIDDEN		= -1043,
-	WL_FTM_E_ASAP_FAILED		= -1042,
-	WL_FTM_E_NOTSTARTED		= -1041,
-	WL_FTM_E_INVALIDMEAS		= -1040,
-	WL_FTM_E_INCAPABLE		= -1039,
-	WL_FTM_E_MISMATCH		= -1038,
-	WL_FTM_E_DUP_SESSION		= -1037,
-	WL_FTM_E_REMOTE_FAIL		= -1036,
-	WL_FTM_E_REMOTE_INCAPABLE	= -1035,
-	WL_FTM_E_SCHED_FAIL		= -1034,
-	WL_FTM_E_PROTO			= -1033,
-	WL_FTM_E_EXPIRED		= -1032,
-	WL_FTM_E_TIMEOUT		= -1031,
-	WL_FTM_E_NOACK			= -1030,
-	WL_FTM_E_DEFERRED		= -1029,
-	WL_FTM_E_INVALID_SID		= -1028,
-	WL_FTM_E_REMOTE_CANCEL		= -1027,
-	WL_FTM_E_CANCELED		= -1026,	/**< local */
-	WL_FTM_E_INVALID_SESSION	= -1025,
-	WL_FTM_E_BAD_STATE		= -1024,
-	WL_FTM_E_OK			= 0
-};
-typedef int32 wl_ftm_status_t;
-
-/* begin proxd codes compatible w/ ftm above - obsolete  DO NOT extend */
-enum {
-	WL_PROXD_E_LAST			= -1058,
-	WL_PROXD_E_PKTFREED		= -1058,
+	WL_PROXD_E_LAST			= -1057,
 	WL_PROXD_E_ASSOC_INPROG		= -1057,
 	WL_PROXD_E_NOAVAIL		= -1056,
 	WL_PROXD_E_EXT_SCHED		= -1055,
@@ -335,12 +272,10 @@ enum {
 	WL_PROXD_E_OK			= 0
 };
 typedef int32 wl_proxd_status_t;
-/* end proxd codes - obsolete  DO NOT extend */
 
 /** status - TBD BCME_ vs NAN status - range reserved for BCME_ */
 enum {
 	/* add new status here... */
-	WL_NAN_E_GRP_REKEY_FAIL		= -2137,
 	WL_NAN_E_NO_ACTION		= -2136,	/* status for no action */
 	WL_NAN_E_INVALID_TOKEN		= -2135,	/* invalid token or mismatch */
 	WL_NAN_E_INVALID_ATTR		= -2134,	/* generic invalid attr error */
@@ -496,181 +431,160 @@ enum {
 };
 
 /*
- * Bootloader error code range: -4096...-5119
+ * Firmware signing error code range: -4096...-5119
  */
 enum {
 	/* okay */
-	BL_E_OK				= 0,
+	BCM_FWSIGN_E_OK				= 0,
 
 	/* Operation is in progress */
-	BL_E_INPROGRESS			= -4096,
+	BCM_FWSIGN_E_INPROGRESS			= -4096,
 
 	/* version mismatch */
-	BL_E_VERSION			= -4097,
+	BCM_FWSIGN_E_VERSION			= -4097,
 
 	/* key not found */
-	BL_E_KEY_NOT_FOUND		= -4098,
+	BCM_FWSIGN_E_KEY_NOT_FOUND		= -4098,
 
 	/* key found, but is not valid (revoked) */
-	BL_E_KEY_NOT_VALID		= -4099,
+	BCM_FWSIGN_E_KEY_NOT_VALID		= -4099,
 
 	/* Cipher suite id mismatch for the key */
-	BL_E_CS_ID_MISMATCH		= -4100,
+	BCM_FWSIGN_E_CS_ID_MISMATCH		= -4100,
 
 	/* Signature does not match */
-	BL_E_SIGNATURE			= -4101,
+	BCM_FWSIGN_E_SIGNATURE			= -4101,
 
 	/* Continue */
-	BL_E_CONTINUE			= -4102,
+	BCM_FWSIGN_E_CONTINUE			= -4102,
 
-	BL_E_HEAP_TOO_SMALL		= -4103,
+	/* Heap is too small */
+	BCM_FWSIGN_E_HEAP_TOO_SMALL		= -4103,
 
 	/* Allocation of bn ctx failed */
-	BL_E_BN_CTX_ALLOC_FAILED	= -4104,
+	BCM_FWSIGN_E_BN_CTX_ALLOC_FAILED	= -4104,
 
 	/* possible bug */
-	BL_E_BUGCHECK			= -4105,
+	BCM_FWSIGN_E_BUGCHECK			= -4105,
 
 	/* chosen key is invalid */
-	BL_E_INVALID_KEY		= -4106,
+	BCM_FWSIGN_E_INVALID_KEY		= -4106,
 
 	/* signature is invalid */
-	BL_E_INVALID_SIGNATURE		= -4107,
+	BCM_FWSIGN_E_INVALID_SIGNATURE		= -4107,
 
 	/* signature tlv missing */
-	BL_E_NO_CSID_SIG		= -4108,
+	BCM_FWSIGN_E_NO_CSID_SIG		= -4108,
 
 	/* chosen key is invalid */
-	BL_E_REVOKED_KEY		= -4109,
+	BCM_FWSIGN_E_REVOKED_KEY		= -4109,
 
 	/* signature has no matching valid key in ROM */
-	BL_E_NO_OTP_FOR_ROM_KEY		= -4110,
+	BCM_FWSIGN_E_NO_OTP_FOR_ROM_KEY		= -4110,
 
 	/* Compression not supported */
-	BL_E_COMPNOTSUP			= -4111,
+	BCM_FWSIGN_E_COMPNOTSUP			= -4111,
 
 	/* OTP read error */
-	BL_E_OTP_READ			= -4112,
+	BCM_FWSIGN_E_OTP_READ			= -4112,
 
 	/* heap address overlaps with FW address space */
-	BL_E_HEAP_OVR_FW		= -4113,
+	BCM_FWSIGN_E_HEAP_OVR_FW		= -4113,
 
 	/* heap address overlaps with bootloader data/bss region */
-	BL_E_HEAP_OVR_BSS		= -4114,
+	BCM_FWSIGN_E_HEAP_OVR_BSS		= -4114,
 
 	/* heap address overlaps with bootloader stack region */
-	BL_E_HEAP_OVR_STACK		= -4115,
+	BCM_FWSIGN_E_HEAP_OVR_STACK		= -4115,
 
 	/* firmware encryption header tlv is missing */
-	BL_E_NO_FWENC_HDR		= -4116,
+	BCM_FWSIGN_E_NO_FWENC_HDR		= -4116,
 
 	/* firmware encryption algo not supported */
-	BL_E_FWENC_ALGO_NOTSUP		= -4117,
+	BCM_FWSIGN_E_FWENC_ALGO_NOTSUP		= -4117,
 
 	/* firmware encryption tag tlv is missing */
-	BL_E_NO_FW_TAG			= -4118,
+	BCM_FWSIGN_E_NO_FW_TAG			= -4118,
 
 	/* firmware encryption tag tlv is not valid */
-	BL_E_FW_TAG_INVALID_TLV		= -4119,
+	BCM_FWSIGN_E_FW_TAG_INVALID_TLV		= -4119,
 
 	/* firmware encryption tag verification fail */
-	BL_E_FW_TAG_MISMATCH		= -4120,
+	BCM_FWSIGN_E_FW_TAG_MISMATCH		= -4120,
 
 	/* signature package is invalid */
-	BL_E_PACKAGE_INVALID		= -4121,
+	BCM_FWSIGN_E_PACKAGE_INVALID		= -4121,
 
 	/* chip info mismatch */
-	BL_E_CHIP_INFO_MISMATCH		= -4122,
+	BCM_FWSIGN_E_CHIP_INFO_MISMATCH		= -4122,
 
 	/* key use is not valid */
-	BL_E_KEY_USE_NOT_VALID		= -4123,
+	BCM_FWSIGN_E_KEY_USE_NOT_VALID		= -4123,
 
 	/* fw tag type invalid */
-	BL_E_TAG_TYPE_INVALID		= -4124,
+	BCM_FWSIGN_E_TAG_TYPE_INVALID		= -4124,
 
 	/* fwenc header invalid */
-	BL_E_FWENC_HDR_INVALID		= -4125,
+	BCM_FWSIGN_E_FWENC_HDR_INVALID		= -4125,
 
 	/* firmware encryption header version mismatch */
-	BL_E_FWENC_HDR_VERSION		= -4126,
+	BCM_FWSIGN_E_FWENC_HDR_VERSION		= -4126,
 
 	/* firmware encryption cipher type not supported */
-	BL_E_FWENC_CIPHER_TYPE_UNSUPPORTED = -4127,
+	BCM_FWSIGN_E_FWENC_CIPHER_TYPE_UNSUPPORTED = -4127,
 
 	/* firmware encryption tlv type not supported */
-	BL_E_FWENC_TLV_TYPE_UNSUPPORTED	= -4128,
+	BCM_FWSIGN_E_FWENC_TLV_TYPE_UNSUPPORTED	= -4128,
 
 	/* firmware encryption invalid kdf info */
-	BL_E_FWENC_INVALID_KDFINFO	= -4129,
+	BCM_FWSIGN_E_FWENC_INVALID_KDFINFO	= -4129,
 
 	/* firmware encryption invalid ec group type length */
-	BL_E_FWENC_INVALID_ECG_TYPE_LEN	= -4130,
+	BCM_FWSIGN_E_FWENC_INVALID_ECG_TYPE_LEN	= -4130,
 
 	/* firmware encryption invalid epub */
-	BL_E_FWENC_INVALID_EPUB		= -4131,
+	BCM_FWSIGN_E_FWENC_INVALID_EPUB		= -4131,
 
 	/* firmware encryption invalid iv */
-	BL_E_FWENC_INVALID_IV		= -4132,
+	BCM_FWSIGN_E_FWENC_INVALID_IV		= -4132,
 
 	/* firmware encryption invalid aad */
-	BL_E_FWENC_INVALID_AAD		= -4133,
+	BCM_FWSIGN_E_FWENC_INVALID_AAD		= -4133,
 
 	/* firmware encryption invalid ROM key */
-	BL_E_FWENC_INVALID_ROMKEY	= -4134,
+	BCM_FWSIGN_E_FWENC_INVALID_ROMKEY	= -4134,
 
 	/* firmware encryption invalid sysmem key */
-	BL_E_FWENC_INVALID_SYSMEMKEY	= -4135,
+	BCM_FWSIGN_E_FWENC_INVALID_SYSMEMKEY	= -4135,
 
 	/* firmware encryption invalid OTP key */
-	BL_E_FWENC_INVALID_OTPKEY	= -4136,
+	BCM_FWSIGN_E_FWENC_INVALID_OTPKEY	= -4136,
 
 	/* firmware encryption key unwrap fail */
-	BL_E_FWENC_KEY_UNWRAP_FAIL	= -4137,
+	BCM_FWSIGN_E_FWENC_KEY_UNWRAP_FAIL	= -4137,
 
 	/* firmware encryption generate share secret fail */
-	BL_E_FWENC_GEN_SECRET_FAIL	= -4138,
+	BCM_FWSIGN_E_FWENC_GEN_SECRET_FAIL	= -4138,
 
 	/* firmware encryption symmetric key derivation fail */
-	BL_E_FWENC_KEY_DERIVATION_FAIL	= -4139,
+	BCM_FWSIGN_E_FWENC_KEY_DERIVATION_FAIL	= -4139,
 
 	/* firmware encryption RNG read fail */
-	BL_E_FWENC_RNG_FAIL		= -4140,
+	BCM_FWSIGN_E_FWENC_RNG_FAIL		= -4140,
 
 	/* firmware encryption MAC tampered during decryption */
-	BL_E_FWENC_MAC_TAMPERED		= -4141,
+	BCM_FWSIGN_E_FWENC_MAC_TAMPERED		= -4141,
 
 	/* firmware encryption decryption failed */
-	BL_E_FWENC_DECRYPT_FAIL		= -4142,
+	BCM_FWSIGN_E_FWENC_DECRYPT_FAIL		= -4142,
 
 	/* firmware encryption decryption in progress */
-	BL_E_FWENC_DECRYPT_IN_PROGRESS	= -4143,
-
-	/* signature patch tlv is missing */
-	BL_E_PATCH_TLV_MISSING		= -4144,
-
-	/* signature patch tlv invalid */
-	BL_E_PATCH_TLV_INVALID		= -4145,
-
-	/* signature patch is empty */
-	BL_E_PATCH_EMPTY		= -4146,
-
-	/* signature patch bad addr */
-	BL_E_PATCH_BAD_ADDR		= -4147,
-
-	/* signature patch unsupported version */
-	BL_E_PATCH_VERSION		= -4148,
-
-	/* signature patch cmd error */
-	BL_E_PATCH_CMD			= -4149,
-
-	/* signature patch invalid length */
-	BL_E_PATCH_INVALID_LENGTH	= -4150,
+	BCM_FWSIGN_E_FWENC_DECRYPT_IN_PROGRESS	= -4143,
 
 	/* last error */
-	BL_E_LAST			= -5119
+	BCM_FWSIGN_E_LAST			= -5119
 };
-
-typedef int32 bl_status_t;
+typedef int32 bcm_fwsign_status_t;
 
 /* PMK manager block. Event codes from -5120 to -6143 */
 /* PSK hashing event codes */
@@ -701,7 +615,7 @@ enum {
 };
 
 /* BCM crypto ASN.1 status codes. */
-/* Reserved range is from -7168 to -8191 */
+/* Reserved range is from -7168 to -8291 */
 enum {
 	/* tag mismatch */
 	BCM_CRYPTO_E_ASN1_TAG_MISMATCH		= -7168,
@@ -723,155 +637,43 @@ enum {
 };
 
 /* PASN authentication status codes. */
-/* Reserved from -8192 to -9215(1K). */
+/* Reserved from -8292 to -9315(1K). */
 enum {
 	/* Terminate PASN authentication if off channel. */
-	WL_PASN_E_OFF_CHANNEL			= -8192,
-	/* Terminate PASN authentication if infra attempt to join. */
-	WL_PASN_E_JOIN_ATTEMPT			= -8193,
-	/* Host requests to stop current session. */
-	WL_PASN_E_STOP_ON_REQUEST		= -8194,
+	WL_PASN_E_OFF_CHANNEL		= -8292,
+	/* Terminate PASN authentication if infa attempt to join. */
+	WL_PASN_E_JOIN_ATTEMPT		= -8293,
+	/* Unexpected PASN auth frame. */
+	WL_PASN_E_AUTH_DISCARD		= -8294,
 	/* Received PASN auth frame carries failure status code. */
-	WL_PASN_E_AUTH_FAILURE			= -8195,
+	WL_PASN_E_AUTH_FAILURE		= -8295,
 	/* Transmitted PASN auth frame is not acknowledged by peer. */
-	WL_PASN_E_AUTH_NO_ACK			= -8196,
+	WL_PASN_E_AUTH_NO_ACK		= -8296,
 	/* Timeout waiting for PASN auth frame. */
-	WL_PASN_E_AUTH_RX_TIMEOUT		= -8197,
+	WL_PASN_E_AUTH_RX_TIMEOUT	= -8297,
 	/* RSN element in PASN auth frame is invalid. */
-	WL_PASN_E_AUTH_INVALID_RSNIE		= -8198,
+	WL_PASN_E_AUTH_INVALID_RSNIE	= -8298,
 	/* PMKID in PASN auth frame is not found. */
-	WL_PASN_E_AUTH_PMKID_NOT_FOUND		= -8199,
+	WL_PASN_E_AUTH_PMKID_NOT_FOUND	= -8299,
 	/* Base AKM in PASN parameters element is not supported. */
-	WL_PASN_E_AUTH_BASE_AKM_NOT_SUPPORTED	= -8200,
+	WL_PASN_E_AUTH_BASE_AKM_NOT_SUPPORTED	= -8300,
 	/* PASN AKM is not supported. */
-	WL_PASN_E_AUTH_PASN_AKM_NOT_SUPPORTED	= -8201,
+	WL_PASN_E_AUTH_PASN_AKM_NOT_SUPPORTED	= -8301,
 	/* Timeout waiting for wrapped data processing completion. */
-	WL_PASN_E_AUTH_WRAPPED_DATA_TIMEOUT	= -8202,
+	WL_PASN_E_AUTH_WRAPPED_DATA_TIMEOUT	= -8302,
 	/* Wrapped data handler returns error. */
-	WL_PASN_E_AUTH_WRAPPED_DATA_ERROR	= -8203,
-	/* PASN authentication frame is not correctly constructed. */
-	WL_PASN_E_AUTH_FRAME_CORRUPTED		= -8204,
+	WL_PASN_E_AUTH_WRAPPED_DATA_ERROR	= -8303,
+	/* MIC in PASN authentication frame is invalid. */
+	WL_PASN_E_AUTH_MIC_ERROR		= -8304,
 	/* Retry time is exhausted. */
-	WL_PASN_E_AUTH_RETRY_LIMIT_REACHED	= -8205,
-	/* cookie carried by STA is invalid. */
-	WL_PASN_E_AUTH_COOKIE_MISMATCH		= -8206,
-	/* Invalid PASN state transition. */
-	WL_PASN_E_SM_INVALID			= -8207,
-	/* PASN state not found */
-	WL_PASN_E_SM_NOTFOUND			= -8208,
+	WL_PASN_E_AUTH_RETRY_LIMIT_REACHED	= -8305,
 	/* Finite cyclic group indicated in PASN parameters element is not supported. */
-	WL_PASN_E_CRYPTO_UNSUPPORTED_GROUP	= -8209,
+	WL_PASN_E_CRYPTO_UNSUPPORTED_GROUP	= -8306,
 	/* Ephemeral public key in PASN parameters element is not valid. */
-	WL_PASN_E_CRYPTO_INVALID_PUBLIC_KEY	= -8210,
+	WL_PASN_E_CRYPTO_INVALID_PUBLIC_KEY	= -8307,
 	/* Generic cryto failure. */
-	WL_PASN_E_CRYPTO_FAILURE		= -8211,
-	/* PASN failed to generate DHss */
-	WL_PASN_E_CRYPTO_DHSS_FAILURE		= -8212,
-	/* Fail to get hash type. */
-	WL_PASN_E_CRYPTO_HASH_TYPE_FAILURE	= -8213,
-	/* PASN state is unexpected */
-	WL_PASN_E_INVALID_STATE			= -8214,
-	/* Unsolicited authentication frame */
-	WL_PASN_E_AUTH_UNSOLICITED		= -8215,
-	/* Not a valid scenario for transmission */
-	WL_PASN_E_AUTH_TX_INVALID		= -8216,
-	/* PASN session not found */
-	WL_PASN_E_SESSION_NOTFOUND		= -8217,
-	/* PASN session can't allocate SCB to install key */
-	WL_PASN_E_NO_SCB			= -8218,
-	/* Buffer provided to construct public key is too short */
-	WL_PASN_E_AUTH_PK_BUFTOOSHORT		= -8219,
-	/* Abandon the PASN session in progress if received non PASN auth frame from peer. */
-	WL_PASN_E_AUTH_NON_PASN_RCVD		= -8220,
-	/* Unexpected SAE msg from SAE module. */
-	WL_PASN_E_SAE_UNEXPECTED_MSG		= -8221,
-	/* SAE module rejects tunneled commit msg. */
-	WL_PASN_E_SAE_COMMIT_REJECTED		= -8222,
-	/* Receive deauthentication frame from peer. */
-	WL_PASN_E_RX_DEAUTH			= -8223,
-	/* PMKSA is not establisthed. */
-	WL_PASN_E_AUTH_NO_PMKSA			= -8224,
-	/* Terminate PASN authentication if Non-PASN authentication is successful. */
-	WL_PASN_E_NON_PASN_AUTHENTICATED	= -8225,
-	/* PTKSA is derived and installed. */
-	WL_PASN_E_PTK_EXISTS			= -8226,
-	/* The session is in progress */
-	WL_PASN_E_SESSION_IN_PROGRESS		= -8227,
-	/* cached PMK used in the session is expired */
-	WL_PASN_E_AUTH_PMKSA_EXPIRED		= -8228,
-	/* PTKSA installed is deleted by keymgmt */
-	WL_PASN_E_AUTH_PTKSA_DELETED		= -8229,
-	/* SA query timeout notification */
-	WL_PASN_E_SA_QUERY_TIMEOUT		= -8230,
-	/* PTKSA lifetime expired */
-	WL_PASN_E_AUTH_PTKSA_EXPIRED		= -8231,
-	/* Local to deauth peer. */
-	WL_PASN_E_DEAUTH_PEER			= -8232
+	WL_PASN_E_CRYPTO_FAILURE		= -8308
 };
-
-/* bcm fsm status codes. [-9216, -10239] */
-enum {
-	BCM_FSM_E_INVALID_STATE		= -9216,
-	BCM_FSM_E_INVALID_EVENT		= -9217,
-	BCM_FSM_E_BAD_TRANSITION	= -9218,
-	BCM_FSM_E_NO_ALLOC		= -9219,
-	BCM_FSM_E_NO_TIMER		= -9220,
-	BCM_FSM_E_EXISTS		= -9221,
-	BCM_FSM_E_NO_HANDLER		= -9222,
-	BCM_FSM_E_NO_TIMER_INFO		= -9223,
-	BCM_FSM_E_TIME_NON_MONOTONIC	= -9224,
-	BCM_FSM_E_IN_EVH_ALREADY	= -9225,
-	BCM_FSM_E_NOT_IN_EVH		= -9226,
-	BCM_FSM_E_NO_ERR_HANDLER	= -9227,
-	BCM_FSM_E_FATAL_ERROR		= -9228,
-	BCM_FSM_E_NO_TRANSITION		= -9229,
-	BCM_FSM_E_DESTROY_FSM		= -9230,
-	BCM_FSM_E_ASYNC_REQUIRED	= -9231,
-	BCM_FSM_E_INVALID_FSM		= -9232,
-	BCM_FSM_E_CHILD_EXISTS		= -9233,
-	BCM_FSM_E_BAD_POST_OPTIONS	= -9234,
-	BCM_FSM_E_NO_OSH		= -9235,
-
-	/* add additional errors above this line */
-	BCM_FSM_E_MAX			= -10239
-};
-
-/* QoS Mgmt status codes. [-10240 ... -11263] (1K)
- */
-typedef enum wl_mscs_status {
-	/* MSCS is already active */
-	WL_MSCS_E_ACTIVE		= -10240,
-
-	/* MSCS activation is in progress */
-	WL_MSCS_E_IN_PROGRESS		= -10241
-} wl_mscs_status_e;
-
-/* bcmsm error code [-11264 ... -12287] */
-typedef enum {
-	BCMSM_IN_RTC			= -11264,	/**< In Run to completion loop */
-	BCMSM_TRANS_NOT_FOUND		= -11265,	/**< Transition was not found */
-	BCMSM_TRANS_GUARD_FAILED	= -11266,	/**< guard for a transition failed */
-	BCMSM_TRANS_EFFECT_FAILED	= -11267,	/**< transition effect returned err */
-	BCMSM_TRANS_ERROR		= -11268,	/**< Error while taking transition */
-	BCMSM_STATE_ENTRY_FAILED	= -11269,	/**< Entry to state failed */
-	BCMSM_STATE_EXIT_FAILED		= -11270,	/**< Failure while executing a state */
-	BCMSM_STATE_ID_EXISTS		= -11271,	/**< Same ID exists */
-	BCMSM_STATE_CONFIG_ERROR	= -11272,	/**< SM configuration has error */
-	BCMSM_Q_FULL			= -11273,	/**< Event queue is full */
-	BCMSM_Q_EMPTY			= -11274,	/**< Event queue is empty */
-	BCMSM_Q_NO_DEQUEUE		= -11275,	/**< Dequeue attempted was unsuccessful */
-	BCMSM_CHOICE_STATE_NO_TRANS	= -11276,	/**< Choice has no valid out transition */
-	BCMSM_EVENT_ALLOC_FAILED	= -11277,	/**< Event allocation failed */
-	BCMSM_EVENT_EXPIRED		= -11278,	/**< Event expired */
-	BCMSM_EVENT_NOT_POSTED		= -11279,	/**< Event was not posted */
-	BCMSM_HALTED			= -11280,	/**< State machine is in final state */
-	BCMSM_TMR_NOT_STOPPED		= -11281,	/**< Error in stopping a timer */
-	BCMSM_TMR_NOT_STARTED		= -11282,	/**< Error in starting a timer */
-	BCMSM_TMR_NOT_FOUND		= -11283,	/**< No timer available to be scheduled */
-	BCMSM_TMR_ERROR			= -11284,	/**< Error in starting a timer */
-
-	BCMSM_MAX			= -12287
-} bcmsm_status_t;
 
 #endif	/* BCMUTILS_ERR_CODES */
 

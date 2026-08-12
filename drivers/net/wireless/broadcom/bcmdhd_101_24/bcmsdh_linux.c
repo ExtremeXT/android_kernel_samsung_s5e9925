@@ -228,19 +228,6 @@ int bcmsdh_set_get_wake(bcmsdh_info_t *bcmsdh, int flag)
 	spin_unlock_irqrestore(&bcmsdh_osinfo->oob_irq_spinlock, flags);
 	return ret;
 }
-int bcmsdh_get_wake(bcmsdh_info_t *bcmsdh, int flag)
-{
-	bcmsdh_os_info_t *bcmsdh_osinfo = bcmsdh->os_cxt;
-	unsigned long flags;
-	int ret;
-
-	spin_lock_irqsave(&bcmsdh_osinfo->oob_irq_spinlock, flags);
-
-	ret = bcmsdh->pkt_wake;
-
-	spin_unlock_irqrestore(&bcmsdh_osinfo->oob_irq_spinlock, flags);
-	return ret;
-}
 #endif /* DHD_WAKE_STATUS */
 
 int bcmsdh_suspend(bcmsdh_info_t *bcmsdh)

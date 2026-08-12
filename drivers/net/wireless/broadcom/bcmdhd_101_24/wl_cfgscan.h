@@ -53,15 +53,6 @@
 #define wl_escan_set_sync_id(a, b) ((a) = htod16((b)->escan_sync_id_cntr++))
 #define wl_escan_set_type(a, b)
 #endif /* DUAL_ESCAN_RESULT_BUFFER */
-
-#define SCAN_PARAMS_VER_2    2u
-#define SCAN_PARAMS_VER_3    3u
-/* SCAN_PARAMS V3 and V2 have same size. so use V3 with appriate version param */
-#define IS_SCAN_PARAMS_V3_V2(cfg) (((cfg->scan_params_ver == SCAN_PARAMS_VER_3) || \
-			(cfg->scan_params_ver == SCAN_PARAMS_VER_2)) ? TRUE : FALSE)
-#define IS_SCAN_PARAMS_V3(cfg) ((cfg->scan_params_ver == SCAN_PARAMS_VER_3) ? \
-				TRUE : FALSE)
-
 extern s32 wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	const wl_event_msg_t *e, void *data);
 extern s32 wl_do_escan(struct bcm_cfg80211 *cfg, struct wiphy *wiphy,
@@ -93,17 +84,6 @@ extern s32 wl_notify_gscan_event(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cf
 	const wl_event_msg_t *e, void *data);
 #endif /* GSCAN_SUPPORT */
 
-#ifdef WL_SCHED_SCAN
-extern s32 wl_cfgscan_pfn_scanresult_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
-	const wl_event_msg_t *e, void *data);
-extern s32 wl_cfgscan_pfn_handler(struct bcm_cfg80211 *cfg,
-	wl_pfn_scanresult_v3_1_t *pfn_scanresult);
-#endif /* WL_SCHED_SCAN */
-
-#if defined(GSCAN_SUPPORT) || defined(WL_SCHED_SCAN)
-extern s32 wl_cfgscan_notify_pfn_complete(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
-	const wl_event_msg_t *e, void *data);
-#endif /* GSCAN_SUPPORT || WL_SCHED_SCAN */
 #ifdef WES_SUPPORT
 #ifdef CUSTOMER_SCAN_TIMEOUT_SETTING
 #define CUSTOMER_WL_SCAN_TIMER_INTERVAL_MS	25000 /* Scan timeout */
@@ -192,34 +172,11 @@ typedef enum {
 } wifi_band;
 
 extern bool wl_cfgscan_is_dfs_set(wifi_band band);
-extern s32 wl_cfgscan_get_band_freq_list(struct bcm_cfg80211 *cfg,
-		struct wireless_dev *wdev, int band, uint32 *list, uint32 *num_channels);
+extern s32 wl_cfgscan_get_band_freq_list(struct bcm_cfg80211 *cfg, int band,
+        uint16 *list, uint32 *num_channels);
 #endif /* DHD_GET_VALID_CHANNELS */
-#define MAX_AP_IFACES 2
-typedef struct ap_iface_data {
-	chanspec_t chspec;
-	struct net_device *ndev;
-} wl_ap_iface_data_t;
-
-typedef struct ap_oper_data {
-	u8 count;
-	wl_ap_iface_data_t iface[MAX_AP_IFACES];
-} wl_ap_oper_data_t;
-
-extern void wl_get_ap_chanspecs(struct bcm_cfg80211 *cfg, wl_ap_oper_data_t *ap_data);
-
 extern int wl_android_get_sta_channel(struct bcm_cfg80211 *cfg);
-extern int wl_handle_acs_concurrency_cases(struct bcm_cfg80211 *cfg,
-		drv_acs_params_t *parameter, int qty, uint32 *pList);
 #ifdef WL_SCHED_SCAN
 extern void wl_cfgscan_sched_scan_stop_work(struct work_struct *work);
 #endif /* WL_SCHED_SCAN */
-
-#ifdef ESCAN_CHANNEL_CACHE
-void reset_roam_cache(struct bcm_cfg80211 *cfg);
-void add_roam_cache(struct bcm_cfg80211 *cfg, wl_bss_info_t *bi);
-int get_roam_channel_list(struct bcm_cfg80211 *cfg, chanspec_t target_chan, chanspec_t *channels,
-	int n_channels, const wlc_ssid_t *ssid, int ioctl_ver);
-void set_roam_band(int band);
-#endif /* ESCAN_CHANNEL_CACHE */
 #endif /* _wl_cfgscan_h_ */

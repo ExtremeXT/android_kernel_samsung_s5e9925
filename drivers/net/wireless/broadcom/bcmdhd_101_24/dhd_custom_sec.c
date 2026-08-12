@@ -33,14 +33,11 @@
 #include <dhd.h>
 #include <dhd_dbg.h>
 #include <dhd_linux.h>
-#include <dhd_cfg80211.h>
 #include <bcmdevs.h>
 #include <bcmdevs_legacy.h>    /* need to still support chips no longer in trunk firmware */
 
 #include <linux/fcntl.h>
 #include <linux/fs.h>
-
-#include <wl_android.h>
 
 const struct cntry_locales_custom translate_custom_table[] = {
 	/* default ccode/regrev */
@@ -342,20 +339,7 @@ void sec_control_pm(dhd_pub_t *dhd, uint *power_mode)
 					__FUNCTION__, ret));
 		}
 #endif /* WLADPS */
-#ifdef WL_6G_BAND
-		if ((ret = dhd_set_wsec_info(dhd, WL_HE_6G_SEC_OPEN,
-			WL_WSEC_INFO_6G_LEGACY_SEC)) < 0) {
-			DHD_ERROR(("[WIFI_SEC] %s: dhd_set_wsec_info failed %d\n",
-				__FUNCTION__, ret));
-		}
-#endif /* WL_6G_BAND */
-#if defined(CUSTOM_CONTROL_HE_6G_FEATURES)
-		if ((ret = wl_android_set_he_6g_band(dhd_linux_get_primary_netdev(dhd),
-				TRUE)) < 0) {
-			DHD_ERROR(("[WIFI_SEC] %s: wl_android_set_he_6g_band failed %d\n",
-				__FUNCTION__, ret));
-		}
-#endif /* OEM_ANDROID && CUSTOM_CONTROL_HE_6G_FEATURES */
+
 		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_DOWN, (char *)&wl_updown,
 				sizeof(wl_updown), TRUE, 0)) < 0) {
 			DHD_ERROR(("[WIFI_SEC] %s: WLC_DOWN faield %d\n",
@@ -751,6 +735,9 @@ uint32 sec_save_wlinfo(char *firm_ver, char *dhd_ver, char *nvram_p, char *clm_v
 
 	DHD_INFO(("[WIFI_SEC] firmware version   : %s\n", firm_ver));
 	DHD_INFO(("[WIFI_SEC] dhd driver version : %s\n", dhd_ver));
+#ifdef DHD_SUPPORT_VFS_CALL
+	DHD_INFO(("[WIFI_SEC] nvram path : %s\n", nvram_p));
+#endif /* DHD_SUPPORT_VFS_CALL */
 	DHD_INFO(("[WIFI_SEC] clm version : %s\n", clm_ver));
 
 	memset(version_info, 0, sizeof(version_info));
@@ -782,9 +769,24 @@ uint32 sec_save_wlinfo(char *firm_ver, char *dhd_ver, char *nvram_p, char *clm_v
 	}
 
 	if (nvram_p) {
+#ifdef DHD_SUPPORT_VFS_CALL
+		struct file *nvfp = NULL;
+
 		bzero(temp_buf, sizeof(temp_buf));
-		(void)memcpy_s(temp_buf, sizeof(temp_buf), nvram_p, sizeof(temp_buf));
+		nvfp = dhd_filp_open(nvram_p, O_RDONLY, 0);
+		if (IS_ERR(nvfp) || (nvfp == NULL)) {
+			DHD_ERROR(("[WIFI_SEC] %s: Nvarm File open failed.\n", __FUNCTION__));
+			return -1;
+		} else {
+			ret = dhd_kernel_read_compat(nvfp, nvfp->f_pos, temp_buf,
+				sizeof(temp_buf)-1);
+			dhd_filp_close(nvfp, NULL);
+		}
+#else
+		bzero(temp_buf, sizeof(temp_buf));
+		(void)memcpy_s(temp_buf, sizeof(temp_buf), nvram_p, sizeof(temp_buf) - 1);
 		DHD_INFO(("[WIFI_SEC] NVRAM version_info exits\n"));
+#endif /* DHD_SUPPORT_VFS_CALL */
 
 		if (strlen(temp_buf)) {
 			nvram_buf = temp_buf;
@@ -865,10 +867,6 @@ early_param("androidboot.hw_rev", get_hw_rev);
 
 #ifdef GEN_SOFTAP_INFO_FILE
 #define SOFTAP_INFO_FILE_FIRST_LINE		"#.softap.info"
-
-#ifndef DHD_MAX_SOFTAP_CLIENT_INFO
-#define DHD_MAX_SOFTAP_CLIENT_INFO		"10"
-#endif /* DHD_MAX_SOFTAP_CLIENT_INFO */
 /*
  * # Does RSDB Wifi sharing support?
  * DualBandConcurrency

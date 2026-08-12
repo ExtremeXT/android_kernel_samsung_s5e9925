@@ -50,7 +50,7 @@
  * hi_prec is always >= the number of the highest non-empty precedence
  */
 void *
-BCMPOSTTRAPFASTPATH(pktq_penq)(struct pktq *pq, int prec, void *p)
+BCMFASTPATH(pktq_penq)(struct pktq *pq, int prec, void *p)
 {
 	struct pktq_prec *q;
 
@@ -301,49 +301,6 @@ done:
 
 	PKTSETQCALLER(p, spq, CALL_SITE);
 	return p;
-}
-
-void *
-BCMFASTPATH(spktq_delete_node)(struct spktq *spq, void *prev, void *cur)
-{
-	struct pktq_prec *q;
-	void *next = NULL;
-
-	/* protect shared resource */
-	if (HND_PKTQ_MUTEX_ACQUIRE(&spq->mutex, OSL_EXT_TIME_FOREVER) != OSL_EXT_SUCCESS) {
-		return NULL;
-	}
-
-	q = &spq->q;
-
-	if (cur == q->head) {
-		spktq_deq(spq);
-		next = q->head;
-		goto done;
-	}
-
-	if ((cur == NULL) || (prev == NULL)) {
-		ASSERT(0);
-		next = NULL;
-		goto done;
-	}
-
-	ASSERT_FP(PKTLINK(prev) == cur);
-	next = PKTLINK(cur);
-	PKTSETLINK(prev, next);
-	PKTSETLINK(cur, NULL);
-	ASSERT_FP(q->n_pkts);
-	q->n_pkts--;
-
-#ifdef WL_TXQ_STALL
-	q->dequeue_count++;
-#endif
-done:
-	/* protect shared resource */
-	if (HND_PKTQ_MUTEX_RELEASE(&spq->mutex) != OSL_EXT_SUCCESS) {
-		return NULL;
-	}
-	return next;
 }
 
 void*
@@ -1047,11 +1004,11 @@ spktq_filter(struct spktq *spq, pktq_filter_t fltr, void* fltr_ctx,
 }
 
 bool
-pktq_init(struct pktq *pq, uint num_prec, uint max_pkts)
+pktq_init(struct pktq *pq, int num_prec, uint max_pkts)
 {
-	uint prec;
+	int prec;
 
-	ASSERT_FP(num_prec > 0 && num_prec <= PKTQ_MAX_PREC);
+	ASSERT(num_prec > 0 && num_prec <= PKTQ_MAX_PREC);
 
 	/* pq is variable size; only zero out what's requested */
 	bzero(pq, OFFSETOF(struct pktq, q) + (sizeof(struct pktq_prec) * num_prec));
@@ -1083,13 +1040,12 @@ spktq_init(struct spktq *spq, uint max_pkts)
 }
 
 bool
-BCMFASTPATH(spktq_init_list)(struct spktq *spq, uint max_pkts, void *head,
-	void *tail, uint16 n_pkts)
+spktq_init_list(struct spktq *spq, uint max_pkts, void *head, void *tail, uint16 n_pkts)
 {
 	if (HND_PKTQ_MUTEX_CREATE("spktq", &spq->mutex) != OSL_EXT_SUCCESS)
 		return FALSE;
 
-	ASSERT_FP(PKTLINK(tail) == NULL);
+	ASSERT(PKTLINK(tail) == NULL);
 	PKTSETLINK(tail, NULL);
 	spq->q.head = head;
 	spq->q.tail = tail;
@@ -1327,28 +1283,14 @@ typedef struct {
 	spktq_cb_t cb;
 	void *arg;
 } spktq_cbinfo_t;
-
-typedef struct {
-	spktq_suppress_cb_t cb;
-	void *arg;
-} spktq_suppress_cbinfo_t;
 static spktq_cbinfo_t spktq_cbinfo = {NULL, NULL};
 static spktq_cbinfo_t *spktq_cbinfo_get(void);
-
-static spktq_suppress_cbinfo_t spktq_suppress_cbinfo = {NULL, NULL};
-static spktq_suppress_cbinfo_t *spktq_suppress_cbinfo_get(void);
 
 /* Accessor function forced into RAM to keep spktq_cbinfo out of shdat */
 static spktq_cbinfo_t*
 BCMRAMFN(spktq_cbinfo_get)(void)
 {
 	return (&spktq_cbinfo);
-}
-
-static spktq_suppress_cbinfo_t*
-BCMRAMFN(spktq_suppress_cbinfo_get)(void)
-{
-	return (&spktq_suppress_cbinfo);
 }
 
 void
@@ -1366,24 +1308,6 @@ spktq_cb(void *spq)
 	if (cbinfop->cb) {
 		cbinfop->cb(cbinfop->arg, spq);
 	}
-}
-
-void
-spktq_suppress_register(spktq_suppress_cb_t cb, void *arg)
-{
-	spktq_suppress_cbinfo_t *cbinfop = spktq_suppress_cbinfo_get();
-	cbinfop->cb = cb;
-	cbinfop->arg = arg;
-}
-
-uint32
-spktq_suppress_cb(void *spq)
-{
-	spktq_suppress_cbinfo_t *cbinfop = spktq_suppress_cbinfo_get();
-	if (cbinfop->cb) {
-		return cbinfop->cb(cbinfop->arg, spq);
-	}
-	return BCME_UNSUPPORTED;
 }
 
 void
@@ -1428,7 +1352,7 @@ pktq_mlen(struct pktq *pq, uint prec_bmp)
 	len = 0;
 
 	for (prec = 0; prec <= pq->hi_prec; prec++)
-		if (prec_bmp & (1u << prec))
+		if (prec_bmp & (1 << prec))
 			len += pq->q[prec].n_pkts;
 
 	/* protect shared resource */
@@ -1440,7 +1364,7 @@ pktq_mlen(struct pktq *pq, uint prec_bmp)
 
 /* Priority peek from a specific set of precedences */
 void *
-BCMPOSTTRAPFASTPATH(pktq_mpeek)(struct pktq *pq, uint prec_bmp, int *prec_out)
+BCMFASTPATH(pktq_mpeek)(struct pktq *pq, uint prec_bmp, int *prec_out)
 {
 	struct pktq_prec *q;
 	void *p = NULL;
@@ -1456,7 +1380,7 @@ BCMPOSTTRAPFASTPATH(pktq_mpeek)(struct pktq *pq, uint prec_bmp, int *prec_out)
 	while ((prec = pq->hi_prec) > 0 && pq->q[prec].head == NULL)
 		pq->hi_prec--;
 
-	while ((prec_bmp & (1u << prec)) == 0 || pq->q[prec].head == NULL)
+	while ((prec_bmp & (1 << prec)) == 0 || pq->q[prec].head == NULL)
 		if (prec-- == 0)
 			goto done;
 
@@ -1475,7 +1399,6 @@ done:
 
 	return p;
 }
-
 /* Priority dequeue from a specific set of precedences */
 void *
 BCMPOSTTRAPFASTPATH(pktq_mdeq)(struct pktq *pq, uint prec_bmp, int *prec_out)
@@ -1494,7 +1417,7 @@ BCMPOSTTRAPFASTPATH(pktq_mdeq)(struct pktq *pq, uint prec_bmp, int *prec_out)
 	while ((prec = pq->hi_prec) > 0 && pq->q[prec].head == NULL)
 		pq->hi_prec--;
 
-	while ((pq->q[prec].head == NULL) || ((prec_bmp & (1u << prec)) == 0))
+	while ((pq->q[prec].head == NULL) || ((prec_bmp & (1 << prec)) == 0))
 		if (prec-- == 0)
 			goto done;
 

@@ -54,8 +54,6 @@ typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, 
 #elif defined(__linux__)
 #include <linux_osl.h>
 #include <linux_pkt.h>
-#elif defined(COEX_OSL)
-#include <coex_osl.h>
 #elif defined(MACOSX)
 #include <macosx_osl.h>
 #else
@@ -121,14 +119,6 @@ typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, 
 #define OSL_CPU_COUNTS_PER_US_NOT_DEFINED 1
 #endif /* !defined(OSL_CPU_COUNTS_PER_US) */
 
-#if !defined(OSL_GET_PMU_ACCU_TICK_US)
-#define OSL_GET_PMU_ACCU_TICK_US(val) (0)
-#endif /* !OSL_GET_PMU_ACCU_TICK_US */
-
-#if !defined(OSL_GET_PMU_ACCU_TICK64_US)
-#define OSL_GET_PMU_ACCU_TICK64_US(val) (0)
-#endif /* !OSL_GET_PMU_ACCU_TICK64_US */
-
 #ifndef OSL_SYS_HALT
 #ifdef __COVERITY__
 /*
@@ -154,6 +144,14 @@ typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, 
 #ifndef OSL_OBFUSCATE_BUF
 #define OSL_OBFUSCATE_BUF(x) (x)
 #endif	/* OSL_OBFUSCATE_BUF */
+
+#ifndef OSL_GET_HCAPISTIMESYNC
+#define OSL_GET_HCAPISTIMESYNC()
+#endif	/*  OSL_GET_HCAPISTIMESYNC */
+
+#ifndef OSL_GET_HCAPISPKTTXS
+#define OSL_GET_HCAPISPKTTXS()
+#endif	/*  OSL_GET_HCAPISPKTTXS */
 
 #if !defined(PKTC_DONGLE)
 #define	PKTCGETATTR(skb)	(0)
@@ -462,23 +460,4 @@ do { \
 #define PKTSETQCALLER(lb, queue, caller_addr)
 #define PKTSETQCALLER_LIST(head, npkts, queue, caller_addr)
 #endif /* DBG_PKTLEAK */
-
-/* Memory breakup capturing macros */
-#ifdef BCMDBG_MEM_BREAKUP
-#define MB_START(var) \
-		uint mb_memuse_before_##var = MALLOCED(NULL)
-
-#define MB_END(var, fmt, ...) \
-		do { \
-			uint mb_memuse_##var = MALLOCED(NULL) - mb_memuse_before_##var; \
-			if (mb_memuse_##var) { \
-				printf("[MB] " fmt, ##__VA_ARGS__); \
-				printf(" %d\n", mb_memuse_##var); \
-			} \
-		} while (0)
-#else
-#define MB_START(var)
-#define MB_END(var, fmt, ...)
-#endif /* BCMDBG_MEM_BREAKUP */
-
 #endif	/* _osl_h_ */
