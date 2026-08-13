@@ -13,7 +13,7 @@ nanohub-$(CONFIG_SENSOR_DRV) += main.o comms.o
 
 # Each configuration option enables a list of files.
 
-nanohub-$(CONFIG_SHUB) += chub_shub.o
+nanohub-$(CONFIG_SHUB_LSI) += chub_shub.o
 
 nanohub-$(CONFIG_SENSORS_SSP) += ssp_dev.o ssp_i2c.o ssp_data.o ssp_sysfs.o\
 						ssp_firmware.o ssp_debug.o ssp_dump.o\
