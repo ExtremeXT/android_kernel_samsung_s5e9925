@@ -427,6 +427,22 @@
 #endif
 
 /*
+ * .kcfi_traps contains a list KCFI trap locations.
+ */
+#ifndef KCFI_TRAPS
+#ifdef CONFIG_ARCH_USES_CFI_TRAPS
+#define KCFI_TRAPS							\
+	__kcfi_traps : AT(ADDR(__kcfi_traps) - LOAD_OFFSET) {		\
+		__start___kcfi_traps = .;				\
+		KEEP(*(.kcfi_traps))					\
+		__stop___kcfi_traps = .;				\
+	}
+#else
+#define KCFI_TRAPS
+#endif
+#endif
+
+/*
  * Read only Data
  */
 #define RO_DATA(align)							\
@@ -581,6 +597,8 @@
 		__stop___modver = .;					\
 	}								\
 									\
+	KCFI_TRAPS							\
+									\
 	RO_EXCEPTION_TABLE						\
 	NOTES								\
 	BTF								\
@@ -588,21 +606,6 @@
 	. = ALIGN((align));						\
 	__end_rodata = .;
 
-
-/*
- * .text..L.cfi.jumptable.* contain Control-Flow Integrity (CFI)
- * jump table entries.
- */
-#ifdef CONFIG_CFI_CLANG
-#define TEXT_CFI_JT							\
-		. = ALIGN(PMD_SIZE);					\
-		__cfi_jt_start = .;					\
-		*(.text..L.cfi.jumptable .text..L.cfi.jumptable.*)	\
-		. = ALIGN(PMD_SIZE);					\
-		__cfi_jt_end = .;
-#else
-#define TEXT_CFI_JT
-#endif
 
 /*
  * Non-instrumentable text section
@@ -631,7 +634,6 @@
 		*(.text..refcount)					\
 		*(.ref.text)						\
 		*(.text.asan.* .text.tsan.*)				\
-		TEXT_CFI_JT						\
 	MEM_KEEP(init.text*)						\
 	MEM_KEEP(exit.text*)						\
 
