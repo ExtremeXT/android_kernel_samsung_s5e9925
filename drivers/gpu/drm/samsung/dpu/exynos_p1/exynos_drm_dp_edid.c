@@ -261,7 +261,7 @@ enum mon_aspect_ratio_t secdp_get_aspect_ratio(struct drm_display_mode *mode)
  * Negative if @lh_a is better than @lh_b, zero if they're equivalent, or
  * positive if @lh_b is better than @lh_a.
  */
-int dp_mode_compare_for_dex(void *priv, struct list_head *lh_a, struct list_head *lh_b)
+int dp_mode_compare_for_dex(void *priv, const struct list_head *lh_a, const struct list_head *lh_b)
 {
 	struct dp_device *dp = (struct dp_device *)priv;
 	struct drm_display_mode *a = list_entry(lh_a, struct drm_display_mode, head);
@@ -362,7 +362,7 @@ static bool dp_mode_resolution_match(struct drm_display_mode *ma, struct drm_dis
  * Negative if @lh_a is better than @lh_b, zero if they're equivalent, or
  * positive if @lh_b is better than @lh_a.
  */
-int dp_mode_compare_for_mirror(void *priv, struct list_head *lh_a, struct list_head *lh_b)
+int dp_mode_compare_for_mirror(void *priv, const struct list_head *lh_a, const struct list_head *lh_b)
 {
 	struct dp_device *dp = (struct dp_device *)priv;
 	struct drm_display_mode *a = list_entry(lh_a, struct drm_display_mode, head);
@@ -425,7 +425,7 @@ void dp_mode_sort_for_mirror(struct dp_device *dp)
  * Negative if @lh_a is better than @lh_b, zero if they're equivalent, or
  * positive if @lh_b is better than @lh_a.
  */
-int dp_mode_compare_for_higher(void *priv, struct list_head *lh_a, struct list_head *lh_b)
+int dp_mode_compare_for_higher(void *priv, const struct list_head *lh_a, const struct list_head *lh_b)
 {
 	struct drm_display_mode *a = list_entry(lh_a, struct drm_display_mode, head);
 	struct drm_display_mode *b = list_entry(lh_b, struct drm_display_mode, head);
